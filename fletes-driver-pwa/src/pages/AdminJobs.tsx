@@ -5,7 +5,7 @@ import { db } from '../lib/db';
 import toast from 'react-hot-toast';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import type { LocationData } from '../lib/types';
-import { formatDuration } from '../lib/utils';
+import { formatDuration, getScheduledAtMs } from '../lib/utils';
 
 export default function AdminJobs() {
   const jobs = useLiveQuery(() => db.jobs.toArray());
@@ -20,9 +20,15 @@ export default function AdminJobs() {
       return;
     }
     const fd = new FormData(e.currentTarget);
+    const scheduledDate = String(fd.get('scheduledDate') || '');
+    const scheduledTime = String(fd.get('scheduledTime') || '');
+    const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
     await db.jobs.add({
       id: uuidv4(),
       clientName: String(fd.get('cn') || ''),
+      scheduledDate,
+      scheduledTime,
+      scheduledAt: scheduledAt ?? undefined,
       pickup,
       dropoff,
       status: 'PENDING',
@@ -43,6 +49,8 @@ export default function AdminJobs() {
       {open && (
         <form onSubmit={add} className="p-4 bg-white shadow rounded space-y-2">
           <input name="cn" placeholder="Cliente" className="w-full border p-2" required />
+          <input name="scheduledDate" type="date" className="w-full border p-2" required />
+          <input name="scheduledTime" type="time" className="w-full border p-2" required />
           <AddressAutocomplete label="Origen" placeholder="Buscar origen" onSelect={setPickup} />
           <AddressAutocomplete label="Destino" placeholder="Buscar destino" onSelect={setDropoff} />
           <button className="w-full bg-green-600 text-white p-2">Guardar</button>
@@ -59,6 +67,7 @@ export default function AdminJobs() {
           <div key={j.id} className="p-3 bg-white border-l-4 border-blue-500 shadow-sm flex justify-between">
             <div>
               <p className="font-bold">{j.clientName}</p>
+              <p className="text-xs text-gray-700">Fecha: {j.scheduledDate || 'Sin fecha'} | Hora: {j.scheduledTime || 'Sin hora'}</p>
               <p className="text-xs">{j.status}</p>
               <p className="text-xs text-gray-600">Carga: {loading} | Viaje: {trip} | Descarga: {unloading} | Total: {total}</p>
             </div>

@@ -36,7 +36,7 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
 
-  const fallbackLocation: LocationData = { address: '', lat: 0, lng: 0 };
+  const fallbackLocation: LocationData = { address: 'La Plata', lat: -34.9214, lng: -57.9544 };
   const pickup = job?.pickup ?? fallbackLocation;
   const dropoff = job?.dropoff ?? fallbackLocation;
   const status = job?.status ?? 'PENDING';
@@ -45,10 +45,20 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
   const driverLat = coords?.lat;
   const driverLng = coords?.lng;
   const driverHeading = coords?.heading ?? 0;
-  const center: [number, number] = [
-    (pickup.lat + dropoff.lat) / 2,
-    (pickup.lng + dropoff.lng) / 2,
-  ];
+  const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
+  const isValidLocation = (loc: { lat: number; lng: number }) =>
+    Number.isFinite(loc.lat) &&
+    Number.isFinite(loc.lng) &&
+    loc.lat >= BA_BOUNDS.minLat &&
+    loc.lat <= BA_BOUNDS.maxLat &&
+    loc.lng >= BA_BOUNDS.minLon &&
+    loc.lng <= BA_BOUNDS.maxLon;
+  const pickupValid = isValidLocation(pickup);
+  const dropoffValid = isValidLocation(dropoff);
+  const targetValid = isValidLocation(target);
+  const centerLat = pickupValid && dropoffValid ? (pickup.lat + dropoff.lat) / 2 : pickupValid ? pickup.lat : dropoffValid ? dropoff.lat : fallbackLocation.lat;
+  const centerLng = pickupValid && dropoffValid ? (pickup.lng + dropoff.lng) / 2 : pickupValid ? pickup.lng : dropoffValid ? dropoff.lng : fallbackLocation.lng;
+  const center: [number, number] = [centerLat, centerLng];
 
   const routePoints = useMemo<RoutePoint[]>(() => {
     if (isDriving && driverLat != null && driverLng != null) {
@@ -74,8 +84,10 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
     }
     const origin = routePoints[0];
     const targetPoint = routePoints[routePoints.length - 1];
-    if (!Number.isFinite(origin.lat) || !Number.isFinite(origin.lng)) return;
-    if (!Number.isFinite(targetPoint.lat) || !Number.isFinite(targetPoint.lng)) return;
+    if (!isValidLocation(origin) || !isValidLocation(targetPoint)) {
+      setRouteGeoJson(null);
+      return;
+    }
     const targetKey = `${targetPoint.lat},${targetPoint.lng},${isDriving ? 'drive' : 'preview'}`;
     const now = Date.now();
     const last = lastRouteRef.current;
@@ -116,12 +128,16 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
     const map = mapRef.current.getMap();
     if (isDriving || !job) return;
     map.easeTo({ pitch: 0, bearing: 0, duration: 400 });
+    if (!pickupValid || !dropoffValid) {
+      map.easeTo({ center: [fallbackLocation.lng, fallbackLocation.lat], zoom: 12, duration: 600 });
+      return;
+    }
     const bounds = new maplibregl.LngLatBounds(
       [pickup.lng, pickup.lat],
       [dropoff.lng, dropoff.lat]
     );
     map.fitBounds(bounds, { padding: 40, duration: 800 });
-  }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng]);
+  }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pickupValid, dropoffValid]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -176,15 +192,19 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
         )}
         {!isDriving && (
           <>
-            <Marker latitude={pickup.lat} longitude={pickup.lng}>
-              <div className="h-3 w-3 rounded-full bg-green-600 shadow" />
-            </Marker>
-            <Marker latitude={dropoff.lat} longitude={dropoff.lng}>
-              <div className="h-3 w-3 rounded-full bg-red-600 shadow" />
-            </Marker>
+            {pickupValid && (
+              <Marker latitude={pickup.lat} longitude={pickup.lng}>
+                <div className="h-3 w-3 rounded-full bg-green-600 shadow" />
+              </Marker>
+            )}
+            {dropoffValid && (
+              <Marker latitude={dropoff.lat} longitude={dropoff.lng}>
+                <div className="h-3 w-3 rounded-full bg-red-600 shadow" />
+              </Marker>
+            )}
           </>
         )}
-        {isDriving && (
+        {isDriving && targetValid && (
           <Marker latitude={target.lat} longitude={target.lng}>
             <div className="h-3 w-3 rounded-full bg-red-600 shadow" />
           </Marker>

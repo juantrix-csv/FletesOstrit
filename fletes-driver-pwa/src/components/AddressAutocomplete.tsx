@@ -14,6 +14,13 @@ interface AddressAutocompleteProps {
   onSelect: (location: LocationData | null) => void;
 }
 
+const BA_PROVINCE_BOUNDS = {
+  minLon: -63.9,
+  minLat: -40.8,
+  maxLon: -56.0,
+  maxLat: -33.0,
+};
+
 const buildSearchUrl = (query: string) => {
   const url = new URL('/api/geocode', window.location.origin);
   url.searchParams.set('q', query);
@@ -21,6 +28,12 @@ const buildSearchUrl = (query: string) => {
   url.searchParams.set('limit', '5');
   url.searchParams.set('addressdetails', '1');
   url.searchParams.set('accept-language', 'es');
+  url.searchParams.set('countrycodes', 'ar');
+  url.searchParams.set('bounded', '1');
+  url.searchParams.set(
+    'viewbox',
+    `${BA_PROVINCE_BOUNDS.minLon},${BA_PROVINCE_BOUNDS.maxLat},${BA_PROVINCE_BOUNDS.maxLon},${BA_PROVINCE_BOUNDS.minLat}`
+  );
   return url.toString();
 };
 
