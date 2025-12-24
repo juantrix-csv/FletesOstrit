@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.leaflet-container img {
+  max-width: none;
+  max-height: none;
+}
+
+.driver-marker {
+  background: transparent;
+  border: none;
+}
+
+.driver-arrow {
+  width: 18px;
+  height: 18px;
+  background: #1d4ed8;
+  border: 2px solid #dbeafe;
+  border-radius: 50% 50% 50% 0;
+  transform-origin: 50% 50%;
+  box-shadow: 0 0 6px rgba(29, 78, 216, 0.4);
+}
