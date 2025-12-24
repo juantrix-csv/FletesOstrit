@@ -1,24 +1,47 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../lib/db';
+import { listJobs } from '../lib/api';
+import type { Job } from '../lib/types';
 import { getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { Play } from 'lucide-react';
 export default function DriverHome() {
   const navigate = useNavigate();
-  const active = useLiveQuery(() => db.jobs.filter(j => j.status !== 'DONE' && j.status !== 'PENDING').first());
-  const pending = useLiveQuery(() => db.jobs.where('status').equals('PENDING').toArray());
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const data = await listJobs();
+        if (active) setJobs(data);
+      } catch {
+        if (active) setJobs([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    load();
+    const id = window.setInterval(load, 15000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, []);
+  const active = jobs.find((job) => job.status !== 'DONE' && job.status !== 'PENDING');
+  const pending = jobs.filter((job) => job.status === 'PENDING');
   const nowMs = Date.now();
-  const pendingWithSchedule = pending?.map((job) => ({
-    job,
-    scheduledAtMs: getScheduledAtMs(job.scheduledDate, job.scheduledTime, job.scheduledAt),
-  })) ?? [];
-  const upcoming = pendingWithSchedule.filter((item) => item.scheduledAtMs != null && item.scheduledAtMs >= nowMs);
-  const candidates = upcoming.length > 0 ? upcoming : pendingWithSchedule;
+  const pendingWithSchedule = pending?.map((job) => {
+    const scheduledAtMs = getScheduledAtMs(job.scheduledDate, job.scheduledTime, job.scheduledAt);
+    const windowOpen = scheduledAtMs == null ? true : nowMs >= scheduledAtMs - 60 * 60 * 1000;
+    return { job, scheduledAtMs, windowOpen };
+  }) ?? [];
+  const windowOpenJobs = pendingWithSchedule.filter((item) => item.windowOpen);
+  const candidates = windowOpenJobs.length > 0 ? windowOpenJobs : pendingWithSchedule;
   const next = candidates
     .slice()
     .sort((a, b) => {
-      const aKey = a.scheduledAtMs ?? Number.POSITIVE_INFINITY;
-      const bKey = b.scheduledAtMs ?? Number.POSITIVE_INFINITY;
+      const aKey = a.scheduledAtMs ?? Number.NEGATIVE_INFINITY;
+      const bKey = b.scheduledAtMs ?? Number.NEGATIVE_INFINITY;
       if (aKey !== bKey) return aKey - bKey;
       return new Date(a.job.createdAt).getTime() - new Date(b.job.createdAt).getTime();
     })[0]?.job;
@@ -30,7 +53,8 @@ export default function DriverHome() {
   return (
     <div className="h-full flex flex-col items-center justify-center space-y-6">
       <h1 className="text-2xl font-bold">Mis Viajes</h1>
-      {job ? (
+      {loading && <p className="text-sm text-gray-500">Cargando fletes...</p>}
+      {!loading && job ? (
         <div className="w-full max-w-xs space-y-4">
           <div className="p-4 bg-white shadow rounded">
             <p className="text-blue-600 font-bold">{active ? 'EN CURSO' : 'PENDIENTE'}</p>
@@ -48,7 +72,8 @@ export default function DriverHome() {
             <p className="text-xs text-gray-500 text-center">Disponible desde {availableAt.toLocaleString()}</p>
           )}
         </div>
-      ) : <p>No hay fletes asignados</p>}
+      ) : null}
+      {!loading && !job && <p>No hay fletes asignados</p>}
     </div>
   );
 }

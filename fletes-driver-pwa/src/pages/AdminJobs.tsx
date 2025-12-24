@@ -1,17 +1,33 @@
-import { useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
+import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { db } from '../lib/db';
 import toast from 'react-hot-toast';
 import AddressAutocomplete from '../components/AddressAutocomplete';
-import type { LocationData } from '../lib/types';
+import type { Job, LocationData } from '../lib/types';
+import { createJob, deleteJob, listJobs } from '../lib/api';
 import { formatDuration, getScheduledAtMs } from '../lib/utils';
 
 export default function AdminJobs() {
-  const jobs = useLiveQuery(() => db.jobs.toArray());
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
+
+  const loadJobs = async () => {
+    try {
+      setLoading(true);
+      const data = await listJobs();
+      setJobs(data);
+    } catch {
+      toast.error('No se pudieron cargar los fletes');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadJobs();
+  }, []);
 
   const add = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -23,24 +39,38 @@ export default function AdminJobs() {
     const scheduledDate = String(fd.get('scheduledDate') || '');
     const scheduledTime = String(fd.get('scheduledTime') || '');
     const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
-    await db.jobs.add({
-      id: uuidv4(),
-      clientName: String(fd.get('cn') || ''),
-      scheduledDate,
-      scheduledTime,
-      scheduledAt: scheduledAt ?? undefined,
-      pickup,
-      dropoff,
-      status: 'PENDING',
-      flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
-      timestamps: {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    toast.success('Creado');
-    setOpen(false);
-    setPickup(null);
-    setDropoff(null);
+    try {
+      await createJob({
+        id: uuidv4(),
+        clientName: String(fd.get('cn') || ''),
+        scheduledDate,
+        scheduledTime,
+        scheduledAt: scheduledAt ?? undefined,
+        pickup,
+        dropoff,
+        status: 'PENDING',
+        flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
+        timestamps: {},
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      toast.success('Creado');
+      setOpen(false);
+      setPickup(null);
+      setDropoff(null);
+      await loadJobs();
+    } catch {
+      toast.error('No se pudo crear el flete');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteJob(id);
+      setJobs((prev) => prev.filter((job) => job.id !== id));
+    } catch {
+      toast.error('No se pudo eliminar el flete');
+    }
   };
 
   return (
@@ -56,7 +86,8 @@ export default function AdminJobs() {
           <button className="w-full bg-green-600 text-white p-2">Guardar</button>
         </form>
       )}
-      {jobs?.map((j) => {
+      {loading && <p className="text-sm text-gray-500">Cargando fletes...</p>}
+      {!loading && jobs?.map((j) => {
         const tripStart = j.timestamps.startTripAt ?? j.timestamps.endLoadingAt;
         const tripEnd = j.timestamps.endTripAt ?? j.timestamps.startUnloadingAt;
         const loading = formatDuration(j.timestamps.startLoadingAt, j.timestamps.endLoadingAt);
@@ -71,7 +102,7 @@ export default function AdminJobs() {
               <p className="text-xs">{j.status}</p>
               <p className="text-xs text-gray-600">Carga: {loading} | Viaje: {trip} | Descarga: {unloading} | Total: {total}</p>
             </div>
-            <button onClick={() => db.jobs.delete(j.id)} className="text-red-500" aria-label="Eliminar">X</button>
+            <button onClick={() => handleDelete(j.id)} className="text-red-500" aria-label="Eliminar">X</button>
           </div>
         );
       })}

@@ -1,6 +1,6 @@
 # Fletes Driver PWA
 
-PWA para gestion de fletes, pensada para uso en Buenos Aires (principalmente La Plata y alrededores). Funciona sin backend: todo se guarda en el navegador con Dexie (IndexedDB).
+PWA para gestion de fletes, pensada para uso en Buenos Aires (principalmente La Plata y alrededores). Usa un backend REST con SQLite como fuente de verdad.
 
 ## Funcionalidad actual
 - Admin: alta de fletes con cliente, fecha, horario, origen y destino (autocompletado acotado a Provincia de Buenos Aires).
@@ -14,7 +14,7 @@ PWA para gestion de fletes, pensada para uso en Buenos Aires (principalmente La 
 - El boton para iniciar solo se habilita 1 hora antes del horario programado (o cuando no hay horario).
 
 ## Datos principales
-La entidad `Job` vive en IndexedDB y contiene:
+La entidad `Job` se almacena en SQLite en el backend y se expone por API:
 - Cliente, origen, destino y estado.
 - Flags de notificaciones y timestamps por etapa.
 - Fecha/hora programadas y `scheduledAt` para ordenar sin errores de zona horaria.
@@ -43,3 +43,56 @@ La entidad `Job` vive en IndexedDB y contiene:
 ## Dependencias externas
 - Nominatim (geocoding) y OSRM (ruteo). Para produccion se recomienda usar servicios propios o con API key respetando politicas de uso.
 
+## Backend (API)
+- API REST en `fletes-backend` con Node + Express y SQLite (usa `node:sqlite`, sin dependencias nativas).
+- Endpoints base en `/api/v1`:
+  - `GET /api/v1/jobs`
+  - `GET /api/v1/jobs/:id`
+  - `POST /api/v1/jobs`
+  - `PATCH /api/v1/jobs/:id`
+  - `DELETE /api/v1/jobs/:id`
+
+## Estructura del repo
+- `fletes-driver-pwa/`: frontend PWA (React + Vite).
+- `fletes-backend/`: backend API (Express + SQLite).
+
+## Configuracion local
+Backend:
+- `cd fletes-backend`
+- `npm install`
+- `npm run dev`
+- Variables opcionales:
+  - `PORT` (default 4000)
+  - `DB_PATH` (default `fletes-backend/data/fletes.db`)
+  - Requiere Node 22+ (por `node:sqlite`)
+
+Frontend:
+- `cd fletes-driver-pwa`
+- `npm install`
+- `npm run dev`
+- Variables opcionales:
+  - `VITE_API_BASE` (default `/api/v1`)
+
+## Docker
+Levantar todo con un solo comando:
+- `docker compose up --build`
+
+Puertos:
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:4000`
+
+Seed demo:
+- El backend crea viajes demo si `SEED_DEMO=1` (en `docker-compose.yml`).
+- Si ya hay datos, no vuelve a sembrar. Para resembrar, borrar `fletes-backend/data`.
+
+## Deploy en Vercel
+Este repo incluye funciones serverless en `api/` para Vercel (usa Postgres).
+
+Pasos:
+1) Crear un proyecto en Vercel apuntando a la raiz del repo.
+2) Agregar un Vercel Postgres (o un Postgres externo) y asegurarte de tener `POSTGRES_URL` en el proyecto.
+3) Deploy.
+
+Notas:
+- En Vercel se usa Postgres (no SQLite) por limitaciones de persistencia.
+- El frontend consume `/api/v1` en el mismo dominio (no hace falta cambiar `VITE_API_BASE`).

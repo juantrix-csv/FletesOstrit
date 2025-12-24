@@ -1,81 +1,199 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../lib/db';
+import type { Job, JobStatus } from '../lib/types';
+import { getJob, updateJob } from '../lib/api';
+import { LocateFixed, Route } from 'lucide-react';
 import { calculateDistance, getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { useGeoLocation } from '../hooks/useGeoLocation';
-import MapRoute from '../components/MapRoute';
+import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
+import SlideToConfirm from '../components/SlideToConfirm';
 import toast from 'react-hot-toast';
 
 export default function JobWorkflow() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const job = useLiveQuery(() => db.jobs.get(id!));
+  const [job, setJob] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
+  const mapRef = useRef<MapRouteHandle | null>(null);
   const { coords } = useGeoLocation();
   const [dist, setDist] = useState<number|null>(null);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    let active = true;
+    if (!id) return;
+    (async () => {
+      try {
+        const data = await getJob(id);
+        if (active) setJob(data);
+      } catch {
+        if (active) setJob(null);
+        toast.error('No se pudo cargar el flete');
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [id]);
 
   useEffect(() => {
     if (!job || !coords || job.status === 'DONE') return;
     const target = job.status.includes('PICKUP') ? job.pickup : job.dropoff;
     const d = calculateDistance(coords.lat, coords.lng, target.lat, target.lng);
     setDist(d);
-    if (d < 100) toast.success("Estás en el punto", { id: 'at-point' });
+    if (d < 100) toast.success("Estas en el punto", { id: 'at-point' });
   }, [coords, job]);
 
-  if (!job) return <div>Cargando...</div>;
+  useEffect(() => {
+    if (!job) return;
+    if (!job.timestamps.startJobAt || job.status === 'DONE') return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [job?.id, job?.status, job?.timestamps.startJobAt]);
+
+  if (loading) return <div>Cargando...</div>;
+  if (!job) return <div>No se encontro el flete</div>;
+  const target = job.status.includes('PICKUP') ? job.pickup : job.dropoff;
+  const distanceKm = dist != null ? (dist / 1000) : null;
+  const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
+  const speedMps = coords?.speed ?? null;
+  const fallbackSpeedMps = 30 / 3.6;
+  const etaMins = dist != null
+    ? Math.max(1, Math.round(dist / (speedMps && speedMps > 1 ? speedMps : fallbackSpeedMps) / 60))
+    : null;
+  const etaLabel = speedMps && speedMps > 1 ? 'ETA' : 'ETA aprox.';
+  const etaText = etaMins != null ? `${etaMins} min` : 'N/D';
   const startAvailable = isStartWindowOpen(job.scheduledDate, job.scheduledTime, new Date(), job.scheduledAt);
   const scheduledAtMs = getScheduledAtMs(job.scheduledDate, job.scheduledTime, job.scheduledAt);
   const availableAt = scheduledAtMs != null ? new Date(scheduledAtMs - 60 * 60 * 1000) : null;
+  const startTime = job.timestamps.startJobAt ? new Date(job.timestamps.startJobAt).getTime() : null;
+  const endTime = job.status === 'DONE' && job.timestamps.endUnloadingAt ? new Date(job.timestamps.endUnloadingAt).getTime() : null;
+  const elapsedMs = startTime ? Math.max(0, (endTime ?? nowTick) - startTime) : null;
+  const formatElapsed = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
+    const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+  };
+  const elapsedLabel = elapsedMs != null ? formatElapsed(elapsedMs) : null;
 
-  const next = async (st: any, extra: Record<string, string> = {}) => {
+  const next = async (st: JobStatus) => {
     const now = new Date().toISOString();
-    const patch: Record<string, string> = { status: st, updatedAt: now, ...extra };
-    if (st === 'LOADING') {
-      patch['timestamps.startLoadingAt'] ??= now;
+    const timestampsPatch: Job['timestamps'] = {};
+    if (st === 'TO_PICKUP' && !job.timestamps.startJobAt) {
+      timestampsPatch.startJobAt = now;
+    }
+    if (st === 'LOADING' && !job.timestamps.startLoadingAt) {
+      timestampsPatch.startLoadingAt = now;
     }
     if (st === 'TO_DROPOFF') {
-      patch['timestamps.endLoadingAt'] ??= now;
-      patch['timestamps.startTripAt'] ??= now;
+      timestampsPatch.endLoadingAt = job.timestamps.endLoadingAt ?? now;
+      timestampsPatch.startTripAt = job.timestamps.startTripAt ?? now;
     }
     if (st === 'UNLOADING') {
-      patch['timestamps.endTripAt'] ??= now;
-      patch['timestamps.startUnloadingAt'] ??= now;
+      timestampsPatch.endTripAt = job.timestamps.endTripAt ?? now;
+      timestampsPatch.startUnloadingAt = job.timestamps.startUnloadingAt ?? now;
     }
     if (st === 'DONE') {
-      patch['timestamps.endUnloadingAt'] ??= now;
+      timestampsPatch.endUnloadingAt = job.timestamps.endUnloadingAt ?? now;
     }
-    await db.jobs.update(job.id, patch);
-    if (st === 'DONE') navigate('/');
+    const patch: Partial<Job> = { status: st, updatedAt: now };
+    if (Object.keys(timestampsPatch).length > 0) {
+      patch.timestamps = timestampsPatch;
+    }
+    try {
+      const updated = await updateJob(job.id, patch);
+      setJob(updated);
+      if (st === 'DONE') navigate('/');
+    } catch {
+      toast.error('No se pudo actualizar el flete');
+    }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="p-4 bg-blue-50 border rounded-xl">
-        <h2 className="font-bold text-blue-800">{job.status}</h2>
-        <p className="text-xl">{job.status.includes('PICKUP') ? job.pickup.address : job.dropoff.address}</p>
-        <p className="text-sm">Distancia: {dist}m</p>
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="p-4 bg-blue-50 border rounded-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">Estado</span>
+          <span className="text-sm font-semibold text-blue-800">{job.status}</span>
+        </div>
+        {elapsedLabel && (
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">Tiempo</span>
+            <span className="text-lg font-bold text-blue-900">{elapsedLabel}</span>
+          </div>
+        )}
+        <div>
+          <p className="text-xs uppercase tracking-wide text-gray-500">Cliente</p>
+          <p className="text-2xl font-semibold">{job.clientName}</p>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-gray-500">Direccion actual</p>
+          <p className="text-lg font-semibold">{target.address}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-lg bg-white p-3 shadow-sm">
+            <p className="text-xs text-gray-500">Distancia</p>
+            <p className="text-xl font-semibold">{distanceText}</p>
+          </div>
+          <div className="rounded-lg bg-white p-3 shadow-sm">
+            <p className="text-xs text-gray-500">{etaLabel}</p>
+            <p className="text-xl font-semibold">{etaText}</p>
+          </div>
+        </div>
       </div>
 
-      <MapRoute jobId={job.id} />
+      <div className="relative flex-1 min-h-0">
+        <MapRoute ref={mapRef} job={job} className="h-full min-h-[240px]" />
+        <button
+          type="button"
+          onClick={() => {
+            const ok = mapRef.current?.centerOnUser();
+            if (!ok) toast.error('GPS no disponible');
+          }}
+          className="absolute left-3 top-3 h-16 w-16 rounded-full border bg-white/95 text-gray-700 shadow flex items-center justify-center"
+          aria-label="Centrar en mi"
+          title="Centrar en mi"
+        >
+          <LocateFixed size={28} />
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const ok = mapRef.current?.fitRoute();
+            if (!ok) toast.error('Mapa no listo');
+          }}
+          className="absolute right-3 top-3 h-16 w-16 rounded-full border bg-white/95 text-gray-700 shadow flex items-center justify-center"
+          aria-label="Ver recorrido"
+          title="Ver recorrido"
+        >
+          <Route size={28} />
+        </button>
+      </div>
       
       {job.status === 'PENDING' && (
         <div className="space-y-2">
-          <button
-            onClick={() => next('TO_PICKUP')}
+          <SlideToConfirm
+            label="Desliza para iniciar"
             disabled={!startAvailable}
-            className="w-full bg-blue-600 text-white p-4 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {startAvailable ? 'Iniciar Viaje' : 'Programado'}
-          </button>
+            disabledLabel="Programado"
+            onConfirm={() => next('TO_PICKUP')}
+          />
           {!startAvailable && availableAt && (
             <p className="text-xs text-gray-600 text-center">Disponible desde {availableAt.toLocaleString()}</p>
           )}
         </div>
       )}
-      {job.status === 'TO_PICKUP' && <button onClick={() => next('LOADING', { 'timestamps.startLoadingAt': new Date().toISOString() })} className="w-full bg-blue-600 text-white p-4 rounded">Llegué / Cargar</button>}
-      {job.status === 'LOADING' && <button onClick={() => next('TO_DROPOFF', { 'timestamps.endLoadingAt': new Date().toISOString() })} className="w-full bg-green-600 text-white p-4 rounded">Carga Lista</button>}
-      {job.status === 'TO_DROPOFF' && <button onClick={() => next('UNLOADING', { 'timestamps.startUnloadingAt': new Date().toISOString() })} className="w-full bg-orange-600 text-white p-4 rounded">Llegué / Descargar</button>}
-      {job.status === 'UNLOADING' && <button onClick={() => next('DONE', { 'timestamps.endUnloadingAt': new Date().toISOString() })} className="w-full bg-black text-white p-4 rounded">Finalizar</button>}
+      {job.status === 'TO_PICKUP' && <SlideToConfirm label="Desliza para cargar" onConfirm={() => next('LOADING')} />}
+      {job.status === 'LOADING' && <SlideToConfirm label="Desliza para salir" onConfirm={() => next('TO_DROPOFF')} />}
+      {job.status === 'TO_DROPOFF' && <SlideToConfirm label="Desliza para descargar" onConfirm={() => next('UNLOADING')} />}
+      {job.status === 'UNLOADING' && <SlideToConfirm label="Desliza para finalizar" onConfirm={() => next('DONE')} />}
     </div>
   );
 }
+
+
+

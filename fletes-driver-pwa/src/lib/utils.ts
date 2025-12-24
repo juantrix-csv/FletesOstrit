@@ -25,9 +25,10 @@ export const parseScheduledAt = (date?: string, time?: string) => {
   return Number.isNaN(scheduledAt.getTime()) ? null : scheduledAt;
 };
 export const getScheduledAtMs = (date?: string, time?: string, scheduledAtMs?: number) => {
-  if (Number.isFinite(scheduledAtMs)) return scheduledAtMs as number;
   const scheduledAt = parseScheduledAt(date, time);
-  return scheduledAt ? scheduledAt.getTime() : null;
+  if (scheduledAt) return scheduledAt.getTime();
+  if (Number.isFinite(scheduledAtMs)) return scheduledAtMs as number;
+  return null;
 };
 export const isStartWindowOpen = (date?: string, time?: string, now = new Date(), scheduledAtMs?: number) => {
   const scheduledAtMsValue = getScheduledAtMs(date, time, scheduledAtMs);

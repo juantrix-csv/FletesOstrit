@@ -1,0 +1,14 @@
+{
+  "name": "fletes-ostrit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm --prefix fletes-driver-pwa run build"
+  },
+  "dependencies": {
+    "@vercel/postgres": "^0.10.0"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../lib/db';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import { calculateDistance, cn } from '../lib/utils';
-import type { LocationData } from '../lib/types';
+import type { Job, LocationData } from '../lib/types';
 
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 
+export interface MapRouteHandle {
+  centerOnUser: () => boolean;
+  fitRoute: () => boolean;
+}
+
 interface MapRouteProps {
-  jobId: string;
+  job: Job | null;
   className?: string;
   mode?: 'preview' | 'driving';
 }
@@ -28,8 +31,7 @@ const buildRouteUrl = (points: RoutePoint[]) => {
   return url.toString();
 };
 
-export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
-  const job = useLiveQuery(() => (jobId ? db.jobs.get(jobId) : undefined), [jobId]);
+const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mode }, ref) => {
   const { coords } = useGeoLocation();
   const mapRef = useRef<MapRef | null>(null);
   const lastRouteRef = useRef<{ lat: number; lng: number; targetKey: string; at: number } | null>(null);
@@ -157,6 +159,61 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
 
   const driverRotation = Number.isFinite(driverHeading) ? driverHeading : 0;
 
+  const fitRoute = () => {
+    if (!mapReady || !mapRef.current) return false;
+    const map = mapRef.current.getMap();
+    map.easeTo({ pitch: 0, bearing: 0, duration: 0 });
+    const points: Array<{ lat: number; lng: number }> = [];
+    if (isDriving) {
+      if (coords && isValidLocation(coords)) {
+        points.push({ lat: coords.lat, lng: coords.lng });
+      }
+      if (targetValid) {
+        points.push({ lat: target.lat, lng: target.lng });
+      }
+    } else {
+      if (pickupValid) points.push({ lat: pickup.lat, lng: pickup.lng });
+      if (dropoffValid) points.push({ lat: dropoff.lat, lng: dropoff.lng });
+    }
+
+    if (points.length === 0) {
+      map.easeTo({ center: [fallbackLocation.lng, fallbackLocation.lat], zoom: 12, duration: 600 });
+      return true;
+    }
+    if (points.length === 1) {
+      map.easeTo({ center: [points[0].lng, points[0].lat], zoom: 14, duration: 500 });
+      return true;
+    }
+    const bounds = new maplibregl.LngLatBounds(
+      [points[0].lng, points[0].lat],
+      [points[0].lng, points[0].lat]
+    );
+    points.slice(1).forEach((point) => bounds.extend([point.lng, point.lat]));
+    map.fitBounds(bounds, { padding: 40, duration: 800 });
+    return true;
+  };
+
+  const centerOnUser = () => {
+    if (!mapReady || !mapRef.current || !coords) return false;
+    const map = mapRef.current.getMap();
+    const zoom = Math.max(map.getZoom(), 15.5);
+    const bearing = Number.isFinite(driverHeading) ? driverHeading : map.getBearing();
+    map.easeTo({
+      center: [coords.lng, coords.lat],
+      zoom,
+      bearing,
+      pitch: 45,
+      duration: 500,
+      offset: [0, 120],
+    });
+    return true;
+  };
+
+  useImperativeHandle(ref, () => ({
+    centerOnUser,
+    fitRoute,
+  }), [mapReady, coords, pickupValid, dropoffValid, driverHeading]);
+
   if (!job) {
     return (
       <div className={cn("w-full min-h-[400px] h-[400px] rounded-xl bg-gray-100 flex items-center justify-center text-sm text-gray-600", className)}>
@@ -174,6 +231,14 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
         onLoad={() => setMapReady(true)}
         reuseMaps
         attributionControl={false}
+        interactive={false}
+        scrollZoom={false}
+        dragPan={false}
+        dragRotate={false}
+        doubleClickZoom={false}
+        touchZoomRotate={false}
+        touchPitch={false}
+        keyboard={false}
         style={{ width: '100%', height: '100%' }}
       >
         {routeGeoJson && (
@@ -219,4 +284,8 @@ export default function MapRoute({ jobId, className, mode }: MapRouteProps) {
       </Map>
     </div>
   );
-}
+});
+
+MapRoute.displayName = 'MapRoute';
+
+export default MapRoute;
