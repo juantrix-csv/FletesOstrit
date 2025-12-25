@@ -144,32 +144,32 @@ export default function JobWorkflow() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 shadow-sm">
-        <div className="grid grid-cols-3 items-center gap-2">
-          <div className="min-w-0 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+      <div className="rounded-2xl border border-blue-100 bg-blue-50/80 px-4 py-3 shadow-sm">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-blue-700 min-w-0">
             <span>Estado</span>
-            <span className="ml-2 text-[12px] font-semibold text-blue-900">{job.status}</span>
+            <span className="text-[12px] font-semibold text-blue-900">{job.status}</span>
           </div>
           <div className="text-center">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Tiempo</p>
             <p className="text-base font-semibold text-blue-900">{elapsedLabel ?? '--:--:--'}</p>
           </div>
-          <div className="text-right text-[11px] font-semibold text-gray-700">
-            <p>
-              Distancia {distanceText}
-              <span className="text-gray-400"> | </span>
-              {etaLabel} {etaText}
+          <div className="text-right text-[11px] font-semibold text-blue-900">
+            <p className="whitespace-nowrap">
+              <span className="font-medium text-blue-700">distancia</span> {distanceText}
+              <span className="text-blue-300"> | </span>
+              <span className="font-medium text-blue-700">ETA aprox.</span> {etaText}
             </p>
           </div>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-wide text-gray-500">Cliente</p>
-            <p className="text-sm font-semibold truncate">{job.clientName}</p>
+            <p className="text-[10px] uppercase tracking-wide text-blue-500">Cliente</p>
+            <p className="text-sm font-semibold text-blue-950 truncate">{job.clientName}</p>
           </div>
           <div className="min-w-0 text-right">
-            <p className="text-[10px] uppercase tracking-wide text-gray-500">Direccion actual</p>
-            <p className="text-sm font-semibold truncate">{target.address}</p>
+            <p className="text-[10px] uppercase tracking-wide text-blue-500">Direccion actual</p>
+            <p className="text-sm font-semibold text-blue-950 truncate">{target.address}</p>
           </div>
         </div>
       </div>
