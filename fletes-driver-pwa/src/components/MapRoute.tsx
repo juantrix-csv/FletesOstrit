@@ -31,6 +31,13 @@ const buildRouteUrl = (points: RoutePoint[]) => {
   return url.toString();
 };
 
+const getFitPadding = (map: maplibregl.Map) => {
+  const container = map.getContainer();
+  const minSize = Math.min(container.clientWidth, container.clientHeight);
+  const base = Math.round(Math.min(140, Math.max(60, (minSize || 400) * 0.18)));
+  return { top: base, bottom: base, left: base, right: base };
+};
+
 const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mode }, ref) => {
   const { coords } = useGeoLocation();
   const mapRef = useRef<MapRef | null>(null);
@@ -141,7 +148,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       [pickup.lng, pickup.lat],
       [dropoff.lng, dropoff.lat]
     );
-    map.fitBounds(bounds, { padding: 40, duration: 800 });
+    map.fitBounds(bounds, { padding: getFitPadding(map), duration: 800 });
   }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pickupValid, dropoffValid, viewMode]);
 
   useEffect(() => {
@@ -227,7 +234,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       [points[0].lng, points[0].lat]
     );
     points.slice(1).forEach((point) => bounds.extend([point.lng, point.lat]));
-    map.fitBounds(bounds, { padding: 40, duration: 800 });
+    map.fitBounds(bounds, { padding: getFitPadding(map), duration: 800 });
     return true;
   };
 

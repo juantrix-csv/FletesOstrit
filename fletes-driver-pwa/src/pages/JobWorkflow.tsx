@@ -167,9 +167,11 @@ export default function JobWorkflow() {
           </div>
           <div className="min-w-0 text-right">
             <p className="text-[10px] uppercase tracking-wide text-blue-500">Direccion actual</p>
-            <div className="flex items-start justify-end gap-1 min-w-0">
+            <div className="mt-1 grid grid-cols-[auto_1fr] items-start justify-end gap-1 min-w-0">
               <MapPin size={14} className="mt-[2px] text-blue-500" />
-              <p className="text-sm font-semibold text-blue-950 truncate min-w-0">{target.address}</p>
+              <p className="text-sm font-semibold text-blue-950 leading-snug break-words whitespace-normal min-w-0">
+                {target.address}
+              </p>
             </div>
           </div>
         </div>
