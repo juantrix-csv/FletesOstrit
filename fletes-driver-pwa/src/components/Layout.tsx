@@ -10,7 +10,8 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
   const isJobRoute = loc.pathname.startsWith('/job/');
   const mainClass = cn("flex-1 min-h-0 p-4", isAdminRoute ? "overflow-y-auto" : "overflow-hidden");
   const navStyle = { height: 'calc(4rem + env(safe-area-inset-bottom))', paddingBottom: 'env(safe-area-inset-bottom)' } as const;
-  const mainStyle = { paddingBottom: isJobRoute ? 'env(safe-area-inset-bottom)' : 'calc(4rem + env(safe-area-inset-bottom))' } as const;
+  const jobBottomPadding = 'calc(env(safe-area-inset-bottom) + 24px)';
+  const mainStyle = { paddingBottom: isJobRoute ? jobBottomPadding : 'calc(4rem + env(safe-area-inset-bottom))' } as const;
   return (
     <div className="flex flex-col min-h-screen h-[100dvh] bg-gray-50">
       <main className={mainClass} style={mainStyle}>{children}</main>
