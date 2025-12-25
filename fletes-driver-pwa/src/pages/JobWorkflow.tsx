@@ -9,6 +9,12 @@ import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
 import SlideToConfirm from '../components/SlideToConfirm';
 import toast from 'react-hot-toast';
 
+const formatAddress = (address: string, maxParts = 3) => {
+  const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
+  if (parts.length <= maxParts) return address.trim();
+  return parts.slice(0, maxParts).join(', ');
+};
+
 export default function JobWorkflow() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -108,6 +114,7 @@ export default function JobWorkflow() {
     return `${hours}:${minutes}:${seconds}`;
   };
   const elapsedLabel = elapsedMs != null ? formatElapsed(elapsedMs) : null;
+  const displayAddress = formatAddress(target.address);
 
   const next = async (st: JobStatus) => {
     const now = new Date().toISOString();
@@ -169,9 +176,9 @@ export default function JobWorkflow() {
             <p className="text-[10px] uppercase tracking-wide text-blue-500">Direccion actual</p>
             <div className="mt-0.5 grid grid-cols-[auto_1fr] items-start justify-end gap-1 min-w-0">
               <MapPin size={14} className="mt-[2px] text-blue-500" />
-              <p className="text-sm font-semibold text-blue-950 leading-snug break-words whitespace-normal min-w-0">
-                {target.address}
-              </p>
+              <div className="text-right text-sm font-semibold text-blue-950 leading-snug break-words whitespace-normal min-w-0 max-h-[2.5rem] overflow-hidden">
+                {displayAddress}
+              </div>
             </div>
           </div>
         </div>
