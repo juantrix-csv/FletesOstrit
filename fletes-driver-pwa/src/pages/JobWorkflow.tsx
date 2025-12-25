@@ -53,6 +53,35 @@ export default function JobWorkflow() {
     return () => clearInterval(id);
   }, [job?.id, job?.status, job?.timestamps.startJobAt]);
 
+  useEffect(() => {
+    let wakeLock: WakeLockSentinel | null = null;
+
+    const requestWakeLock = async () => {
+      if (!('wakeLock' in navigator)) return;
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+      } catch {
+        wakeLock = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        requestWakeLock();
+      }
+    };
+
+    requestWakeLock();
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (wakeLock && !wakeLock.released) {
+        wakeLock.release().catch(() => {});
+      }
+    };
+  }, []);
+
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
   const target = job.status.includes('PICKUP') ? job.pickup : job.dropoff;
