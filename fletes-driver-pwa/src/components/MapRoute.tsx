@@ -62,6 +62,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const centerLng = pickupValid && dropoffValid ? (pickup.lng + dropoff.lng) / 2 : pickupValid ? pickup.lng : dropoffValid ? dropoff.lng : fallbackLocation.lng;
   const center: [number, number] = [centerLat, centerLng];
   const [viewMode, setViewMode] = useState<'route' | 'follow'>(() => (isDriving ? 'follow' : 'route'));
+  const [manualView, setManualView] = useState(false);
 
   const routePoints = useMemo<RoutePoint[]>(() => {
     if (isDriving && driverLat != null && driverLng != null) {
@@ -164,11 +165,18 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
 
   useEffect(() => {
     if (!job) return;
+    setManualView(false);
     setViewMode(isDriving ? 'follow' : 'route');
-  }, [job?.id, isDriving]);
+  }, [job?.id]);
+
+  useEffect(() => {
+    if (manualView) return;
+    setViewMode(isDriving ? 'follow' : 'route');
+  }, [isDriving, manualView]);
 
   const fitRoute = () => {
     if (!mapReady || !mapRef.current) return false;
+    setManualView(true);
     setViewMode('route');
     const map = mapRef.current.getMap();
     map.easeTo({ pitch: 0, bearing: 0, duration: 0 });
@@ -204,6 +212,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
 
   const centerOnUser = () => {
     if (!mapReady || !mapRef.current || !coords) return false;
+    setManualView(true);
     setViewMode('follow');
     const map = mapRef.current.getMap();
     const zoom = Math.max(map.getZoom(), 15.5);
