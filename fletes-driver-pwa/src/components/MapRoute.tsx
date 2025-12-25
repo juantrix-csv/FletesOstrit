@@ -61,6 +61,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const centerLat = pickupValid && dropoffValid ? (pickup.lat + dropoff.lat) / 2 : pickupValid ? pickup.lat : dropoffValid ? dropoff.lat : fallbackLocation.lat;
   const centerLng = pickupValid && dropoffValid ? (pickup.lng + dropoff.lng) / 2 : pickupValid ? pickup.lng : dropoffValid ? dropoff.lng : fallbackLocation.lng;
   const center: [number, number] = [centerLat, centerLng];
+  const [viewMode, setViewMode] = useState<'route' | 'follow'>(() => (isDriving ? 'follow' : 'route'));
 
   const routePoints = useMemo<RoutePoint[]>(() => {
     if (isDriving && driverLat != null && driverLng != null) {
@@ -129,6 +130,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current.getMap();
     if (isDriving || !job) return;
+    if (viewMode !== 'route') return;
     map.easeTo({ pitch: 0, bearing: 0, duration: 400 });
     if (!pickupValid || !dropoffValid) {
       map.easeTo({ center: [fallbackLocation.lng, fallbackLocation.lat], zoom: 12, duration: 600 });
@@ -139,11 +141,12 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       [dropoff.lng, dropoff.lat]
     );
     map.fitBounds(bounds, { padding: 40, duration: 800 });
-  }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pickupValid, dropoffValid]);
+  }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pickupValid, dropoffValid, viewMode]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     if (!isDriving || !coords) return;
+    if (viewMode !== 'follow') return;
     const map = mapRef.current.getMap();
     const zoom = Math.max(map.getZoom(), 15.5);
     const bearing = Number.isFinite(driverHeading) ? driverHeading : map.getBearing();
@@ -155,12 +158,18 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       duration: 500,
       offset: [0, 120],
     });
-  }, [mapReady, isDriving, coords?.lat, coords?.lng, driverHeading]);
+  }, [mapReady, isDriving, coords?.lat, coords?.lng, driverHeading, viewMode]);
 
   const driverRotation = Number.isFinite(driverHeading) ? driverHeading : 0;
 
+  useEffect(() => {
+    if (!job) return;
+    setViewMode(isDriving ? 'follow' : 'route');
+  }, [job?.id, isDriving]);
+
   const fitRoute = () => {
     if (!mapReady || !mapRef.current) return false;
+    setViewMode('route');
     const map = mapRef.current.getMap();
     map.easeTo({ pitch: 0, bearing: 0, duration: 0 });
     const points: Array<{ lat: number; lng: number }> = [];
@@ -195,6 +204,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
 
   const centerOnUser = () => {
     if (!mapReady || !mapRef.current || !coords) return false;
+    setViewMode('follow');
     const map = mapRef.current.getMap();
     const zoom = Math.max(map.getZoom(), 15.5);
     const bearing = Number.isFinite(driverHeading) ? driverHeading : map.getBearing();
