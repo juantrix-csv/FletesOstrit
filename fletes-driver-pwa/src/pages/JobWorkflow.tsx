@@ -115,33 +115,32 @@ export default function JobWorkflow() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="p-4 bg-blue-50 border rounded-xl space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">Estado</span>
-          <span className="text-sm font-semibold text-blue-800">{job.status}</span>
-        </div>
-        {elapsedLabel && (
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wide text-blue-700">Tiempo</span>
-            <span className="text-lg font-bold text-blue-900">{elapsedLabel}</span>
+      <div className="rounded-xl border bg-blue-50/60 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-800 min-w-0">
+            <span className="text-[10px] uppercase tracking-wide text-blue-700">Estado</span>
+            <span>{job.status}</span>
+            {elapsedLabel && (
+              <>
+                <span className="text-gray-400">|</span>
+                <span>Tiempo {elapsedLabel}</span>
+              </>
+            )}
           </div>
-        )}
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-500">Cliente</p>
-          <p className="text-2xl font-semibold">{job.clientName}</p>
-        </div>
-        <div>
-          <p className="text-xs uppercase tracking-wide text-gray-500">Direccion actual</p>
-          <p className="text-lg font-semibold">{target.address}</p>
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-white p-3 shadow-sm">
-            <p className="text-xs text-gray-500">Distancia</p>
-            <p className="text-xl font-semibold">{distanceText}</p>
+          <div className="text-xs text-gray-700 whitespace-nowrap">
+            <span className="font-semibold">Distancia {distanceText}</span>
+            <span className="text-gray-400"> | </span>
+            <span className="font-semibold">{etaLabel} {etaText}</span>
           </div>
-          <div className="rounded-lg bg-white p-3 shadow-sm">
-            <p className="text-xs text-gray-500">{etaLabel}</p>
-            <p className="text-xl font-semibold">{etaText}</p>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500">Cliente</p>
+            <p className="text-sm font-semibold truncate">{job.clientName}</p>
+          </div>
+          <div className="min-w-0 text-right">
+            <p className="text-[10px] uppercase tracking-wide text-gray-500">Direccion actual</p>
+            <p className="text-sm font-semibold truncate">{target.address}</p>
           </div>
         </div>
       </div>
