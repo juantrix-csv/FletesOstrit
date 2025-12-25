@@ -144,22 +144,22 @@ export default function JobWorkflow() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="rounded-xl border bg-blue-50/60 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs font-semibold text-blue-800 min-w-0">
-            <span className="text-[10px] uppercase tracking-wide text-blue-700">Estado</span>
-            <span>{job.status}</span>
-            {elapsedLabel && (
-              <>
-                <span className="text-gray-400">|</span>
-                <span>Tiempo {elapsedLabel}</span>
-              </>
-            )}
+      <div className="rounded-2xl border border-blue-100 bg-blue-50/70 px-4 py-3 shadow-sm">
+        <div className="grid grid-cols-3 items-center gap-2">
+          <div className="min-w-0 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+            <span>Estado</span>
+            <span className="ml-2 text-[12px] font-semibold text-blue-900">{job.status}</span>
           </div>
-          <div className="text-xs text-gray-700 whitespace-nowrap">
-            <span className="font-semibold">Distancia {distanceText}</span>
-            <span className="text-gray-400"> | </span>
-            <span className="font-semibold">{etaLabel} {etaText}</span>
+          <div className="text-center">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Tiempo</p>
+            <p className="text-base font-semibold text-blue-900">{elapsedLabel ?? '--:--:--'}</p>
+          </div>
+          <div className="text-right text-[11px] font-semibold text-gray-700">
+            <p>
+              Distancia {distanceText}
+              <span className="text-gray-400"> | </span>
+              {etaLabel} {etaText}
+            </p>
           </div>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
