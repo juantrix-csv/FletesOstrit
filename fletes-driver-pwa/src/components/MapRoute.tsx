@@ -164,6 +164,27 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const driverRotation = Number.isFinite(driverHeading) ? driverHeading : 0;
 
   useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current.getMap();
+    const points: Array<[number, number]> = [];
+    if (pickupValid) points.push([pickup.lng, pickup.lat]);
+    if (dropoffValid) points.push([dropoff.lng, dropoff.lat]);
+    if (coords && isValidLocation(coords)) points.push([coords.lng, coords.lat]);
+    if (points.length === 0) return;
+    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+    points.slice(1).forEach((point) => bounds.extend(point));
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+    const latSpan = Math.max(0.02, (ne.lat - sw.lat) * 0.2);
+    const lngSpan = Math.max(0.02, (ne.lng - sw.lng) * 0.2);
+    const maxBounds = new maplibregl.LngLatBounds(
+      [sw.lng - lngSpan, sw.lat - latSpan],
+      [ne.lng + lngSpan, ne.lat + latSpan]
+    );
+    map.setMaxBounds(maxBounds);
+  }, [mapReady, pickupValid, dropoffValid, coords?.lat, coords?.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng]);
+
+  useEffect(() => {
     if (!job) return;
     setManualView(false);
     setViewMode(isDriving ? 'follow' : 'route');
