@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import Map, { Marker, type MapLayerMouseEvent } from 'react-map-gl/maplibre';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import Map, { Marker, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre';
 import type { LocationData } from '../lib/types';
 import { cn } from '../lib/utils';
 
@@ -30,19 +30,13 @@ export default function MapLocationPicker({ pickup, dropoff, active, onSelect, c
     () => activeLocation ?? pickup ?? dropoff ?? fallbackLocation,
     [activeLocation, pickup, dropoff]
   );
-  const [viewState, setViewState] = useState(() => ({
-    latitude: center.lat,
-    longitude: center.lng,
-    zoom: 11.5,
-  }));
+  const mapRef = useRef<MapRef | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
-    setViewState((prev) => ({
-      ...prev,
-      latitude: center.lat,
-      longitude: center.lng,
-    }));
-  }, [center.lat, center.lng]);
+    if (!mapReady || !mapRef.current) return;
+    mapRef.current.easeTo({ center: [center.lng, center.lat], duration: 400 });
+  }, [center.lat, center.lng, mapReady]);
 
   const handleClick = (event: MapLayerMouseEvent) => {
     const { lng, lat } = event.lngLat;
@@ -57,10 +51,11 @@ export default function MapLocationPicker({ pickup, dropoff, active, onSelect, c
   return (
     <div className={cn("h-[240px] w-full overflow-hidden rounded border bg-white", className)}>
       <Map
-        viewState={viewState}
-        onMove={(evt) => setViewState(evt.viewState)}
+        ref={mapRef}
+        initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 11.5 }}
         mapStyle={MAP_STYLE}
         onClick={handleClick}
+        onLoad={() => setMapReady(true)}
         maxBounds={[
           [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
           [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],
