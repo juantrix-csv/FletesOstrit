@@ -12,6 +12,7 @@ interface AddressAutocompleteProps {
   label: string;
   placeholder?: string;
   onSelect: (location: LocationData | null) => void;
+  selected?: LocationData | null;
 }
 
 const BA_PROVINCE_BOUNDS = {
@@ -37,7 +38,7 @@ const buildSearchUrl = (query: string) => {
   return url.toString();
 };
 
-export default function AddressAutocomplete({ label, placeholder, onSelect }: AddressAutocompleteProps) {
+export default function AddressAutocomplete({ label, placeholder, onSelect, selected }: AddressAutocompleteProps) {
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<NominatimResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,6 +46,11 @@ export default function AddressAutocomplete({ label, placeholder, onSelect }: Ad
 
   useEffect(() => {
     const trimmed = query.trim();
+    if (!open) {
+      setOptions([]);
+      setLoading(false);
+      return;
+    }
     if (trimmed.length < 4) {
       setOptions([]);
       setLoading(false);
@@ -72,7 +78,13 @@ export default function AddressAutocomplete({ label, placeholder, onSelect }: Ad
       clearTimeout(id);
       controller.abort();
     };
-  }, [query]);
+  }, [query, open]);
+
+  useEffect(() => {
+    if (!selected) return;
+    setQuery(selected.address);
+    setOpen(false);
+  }, [selected?.address]);
 
   const handleChange = (value: string) => {
     setQuery(value);
