@@ -17,6 +17,8 @@ interface DriversOverviewMapProps {
 export default function DriversOverviewMap({ locations, drivers, className }: DriversOverviewMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const hasFitRef = useRef(false);
+  const lastCountRef = useRef(0);
 
   const driversById = useMemo(() => {
     const map = new Map<string, Driver>();
@@ -27,15 +29,20 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     if (locations.length === 0) {
-      mapRef.current.easeTo({ center: [fallbackCenter.lng, fallbackCenter.lat], zoom: 10, duration: 400 });
+      if (!hasFitRef.current) {
+        mapRef.current.easeTo({ center: [fallbackCenter.lng, fallbackCenter.lat], zoom: 10, duration: 400 });
+      }
       return;
     }
+    if (hasFitRef.current && lastCountRef.current === locations.length) return;
     const bounds = new maplibregl.LngLatBounds(
       [locations[0].lng, locations[0].lat],
       [locations[0].lng, locations[0].lat]
     );
     locations.slice(1).forEach((loc) => bounds.extend([loc.lng, loc.lat]));
     mapRef.current.fitBounds(bounds, { padding: 80, duration: 500 });
+    hasFitRef.current = true;
+    lastCountRef.current = locations.length;
   }, [mapReady, locations]);
 
   return (

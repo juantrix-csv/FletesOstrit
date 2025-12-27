@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import AddressAutocomplete from '../components/AddressAutocomplete';
@@ -37,6 +37,7 @@ export default function AdminJobs() {
   const [driverPhone, setDriverPhone] = useState('');
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const locationsLoadedRef = useRef(false);
 
   const driversById = useMemo(() => {
     const map = new Map<string, Driver>();
@@ -70,13 +71,18 @@ export default function AdminJobs() {
 
   const loadDriverLocations = async () => {
     try {
-      setLoadingLocations(true);
+      if (!locationsLoadedRef.current) {
+        setLoadingLocations(true);
+      }
       const data = await listDriverLocations();
       setDriverLocations(data);
     } catch {
       setDriverLocations([]);
     } finally {
-      setLoadingLocations(false);
+      if (!locationsLoadedRef.current) {
+        locationsLoadedRef.current = true;
+        setLoadingLocations(false);
+      }
     }
   };
 
@@ -451,10 +457,14 @@ export default function AdminJobs() {
                     <p className="text-sm font-semibold text-gray-900">Mapa general</p>
                     <span className="text-xs text-gray-400">Actualiza cada 12s</span>
                   </div>
-                  {loadingLocations && <p className="text-xs text-gray-500">Cargando ubicaciones...</p>}
-                  {!loadingLocations && (
+                  <div className="relative">
                     <DriversOverviewMap locations={driverLocations} drivers={drivers} />
-                  )}
+                    {loadingLocations && (
+                      <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/70 text-xs text-gray-500">
+                        Cargando ubicaciones...
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {loadingDrivers && <p className="text-sm text-gray-500">Cargando conductores...</p>}
                 {!loadingDrivers && drivers.length === 0 && <p className="text-sm text-gray-500">No hay conductores registrados.</p>}
