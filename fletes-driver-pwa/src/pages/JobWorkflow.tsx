@@ -9,6 +9,7 @@ import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
 import SlideToConfirm from '../components/SlideToConfirm';
 import toast from 'react-hot-toast';
 import { getDriverSession } from '../lib/driverSession';
+import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
 
 const formatAddress = (address: string, maxParts = 3) => {
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
@@ -94,6 +95,7 @@ export default function JobWorkflow() {
     };
   }, []);
 
+  useDriverLocationSync({ session: getDriverSession(), jobId: job?.id ?? null, coords });
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
   const target = job.status.includes('PICKUP') ? job.pickup : job.dropoff;

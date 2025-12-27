@@ -52,6 +52,19 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS driver_locations (
+    driverId TEXT PRIMARY KEY,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    accuracy REAL,
+    heading REAL,
+    speed REAL,
+    jobId TEXT,
+    updatedAt TEXT NOT NULL
+  );
+`);
+
 const defaultFlags = {
   nearPickupSent: false,
   arrivedPickupSent: false,
@@ -319,6 +332,60 @@ export const deleteDriver = (id) => {
   db.prepare('UPDATE jobs SET driverId = NULL WHERE driverId = ?').run(id);
   const info = db.prepare('DELETE FROM drivers WHERE id = ?').run(id);
   return info.changes > 0;
+};
+
+const toLocationRow = (location) => ({
+  driverId: location.driverId,
+  lat: location.lat,
+  lng: location.lng,
+  accuracy: Number.isFinite(location.accuracy) ? location.accuracy : null,
+  heading: Number.isFinite(location.heading) ? location.heading : null,
+  speed: Number.isFinite(location.speed) ? location.speed : null,
+  jobId: location.jobId ?? null,
+  updatedAt: location.updatedAt,
+});
+
+const fromLocationRow = (row) => ({
+  driverId: row.driverId,
+  lat: row.lat,
+  lng: row.lng,
+  accuracy: row.accuracy ?? null,
+  heading: row.heading ?? null,
+  speed: row.speed ?? null,
+  jobId: row.jobId ?? null,
+  updatedAt: row.updatedAt,
+});
+
+const upsertLocationStmt = db.prepare(`
+  INSERT INTO driver_locations (
+    driverId, lat, lng, accuracy, heading, speed, jobId, updatedAt
+  ) VALUES (
+    @driverId, @lat, @lng, @accuracy, @heading, @speed, @jobId, @updatedAt
+  )
+  ON CONFLICT(driverId) DO UPDATE SET
+    lat = excluded.lat,
+    lng = excluded.lng,
+    accuracy = excluded.accuracy,
+    heading = excluded.heading,
+    speed = excluded.speed,
+    jobId = excluded.jobId,
+    updatedAt = excluded.updatedAt;
+`);
+
+export const upsertDriverLocation = (location) => {
+  const updatedAt = location.updatedAt ?? new Date().toISOString();
+  upsertLocationStmt.run(toLocationRow({ ...location, updatedAt }));
+  return getDriverLocation(location.driverId);
+};
+
+export const listDriverLocations = () => {
+  const rows = db.prepare('SELECT * FROM driver_locations ORDER BY updatedAt DESC').all();
+  return rows.map(fromLocationRow);
+};
+
+export const getDriverLocation = (driverId) => {
+  const row = db.prepare('SELECT * FROM driver_locations WHERE driverId = ?').get(driverId);
+  return row ? fromLocationRow(row) : null;
 };
 
 const formatDate = (date) => {

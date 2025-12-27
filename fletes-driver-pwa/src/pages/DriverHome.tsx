@@ -5,11 +5,14 @@ import type { Job } from '../lib/types';
 import { getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { Play } from 'lucide-react';
 import { clearDriverSession, getDriverSession, type DriverSession } from '../lib/driverSession';
+import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
+import { useGeoLocation } from '../hooks/useGeoLocation';
 export default function DriverHome() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<DriverSession | null>(null);
+  const { coords } = useGeoLocation();
 
   useEffect(() => {
     const current = getDriverSession();
@@ -42,6 +45,7 @@ export default function DriverHome() {
     };
   }, [session]);
   const active = jobs.find((job) => job.status !== 'DONE' && job.status !== 'PENDING');
+  useDriverLocationSync({ session, jobId: active?.id ?? null, coords });
   const pending = jobs.filter((job) => job.status === 'PENDING');
   const nowMs = Date.now();
   const pendingWithSchedule = pending?.map((job) => {

@@ -9,8 +9,10 @@ import {
   getDriverById,
   getJob,
   listDrivers,
+  listDriverLocations,
   listJobs,
   seedJobsIfEmpty,
+  upsertDriverLocation,
   updateDriver,
   updateJob,
 } from './db.js';
@@ -29,6 +31,7 @@ const ALLOWED_STATUSES = new Set([
 ]);
 
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
+const isFiniteNumber = (value) => Number.isFinite(value);
 const isLocation = (value) => (
   value &&
   typeof value.address === 'string' &&
@@ -247,6 +250,46 @@ app.delete(`${API_PREFIX}/drivers/:id`, (req, res) => {
     return;
   }
   res.status(204).send();
+});
+
+app.get(`${API_PREFIX}/driver-locations`, (_req, res) => {
+  res.json(listDriverLocations());
+});
+
+app.post(`${API_PREFIX}/driver-locations`, (req, res) => {
+  const body = req.body ?? {};
+  const driverId = typeof body.driverId === 'string' ? body.driverId.trim() : '';
+  const driverCode = typeof body.driverCode === 'string' ? body.driverCode.trim().toUpperCase() : '';
+  const lat = body.lat;
+  const lng = body.lng;
+  if (!isFiniteNumber(lat) || !isFiniteNumber(lng)) {
+    res.status(400).json({ error: 'Invalid coordinates' });
+    return;
+  }
+  let driver = null;
+  if (driverCode) {
+    driver = getDriverByCode(driverCode);
+  } else if (driverId) {
+    driver = getDriverById(driverId);
+  }
+  if (!driver) {
+    res.status(400).json({ error: 'Invalid driver' });
+    return;
+  }
+  if (driverId && driver.id !== driverId) {
+    res.status(400).json({ error: 'Driver mismatch' });
+    return;
+  }
+  const updated = upsertDriverLocation({
+    driverId: driver.id,
+    lat,
+    lng,
+    accuracy: body.accuracy,
+    heading: body.heading,
+    speed: body.speed,
+    jobId: body.jobId ?? null,
+  });
+  res.json(updated);
 });
 
 app.use((err, _req, res, _next) => {

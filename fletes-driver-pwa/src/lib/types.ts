@@ -9,6 +9,16 @@ export interface Driver {
   createdAt: string;
   updatedAt: string;
 }
+export interface DriverLocation {
+  driverId: string;
+  lat: number;
+  lng: number;
+  accuracy?: number | null;
+  heading?: number | null;
+  speed?: number | null;
+  jobId?: string | null;
+  updatedAt: string;
+}
 export interface Job {
   id: string; clientName: string; clientPhone?: string; pickup: LocationData; dropoff: LocationData;
   notes?: string; status: JobStatus; driverId?: string | null;

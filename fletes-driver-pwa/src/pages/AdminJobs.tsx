@@ -3,12 +3,15 @@ import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import MapLocationPicker from '../components/MapLocationPicker';
-import type { Driver, Job, LocationData } from '../lib/types';
+import DriversOverviewMap from '../components/DriversOverviewMap';
+import DriverRouteMap from '../components/DriverRouteMap';
+import type { Driver, DriverLocation, Job, LocationData } from '../lib/types';
 import {
   createDriver,
   createJob,
   deleteDriver,
   deleteJob,
+  listDriverLocations,
   listDrivers,
   listJobs,
   updateDriver,
@@ -24,6 +27,7 @@ export default function AdminJobs() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [loadingDrivers, setLoadingDrivers] = useState(true);
+  const [loadingLocations, setLoadingLocations] = useState(true);
   const [open, setOpen] = useState(false);
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
@@ -31,6 +35,8 @@ export default function AdminJobs() {
   const [driverName, setDriverName] = useState('');
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
+  const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
 
   const driversById = useMemo(() => {
     const map = new Map<string, Driver>();
@@ -62,9 +68,24 @@ export default function AdminJobs() {
     }
   };
 
+  const loadDriverLocations = async () => {
+    try {
+      setLoadingLocations(true);
+      const data = await listDriverLocations();
+      setDriverLocations(data);
+    } catch {
+      setDriverLocations([]);
+    } finally {
+      setLoadingLocations(false);
+    }
+  };
+
   useEffect(() => {
     loadJobs();
     loadDrivers();
+    loadDriverLocations();
+    const id = window.setInterval(loadDriverLocations, 12000);
+    return () => clearInterval(id);
   }, []);
 
   const addJob = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -174,6 +195,30 @@ export default function AdminJobs() {
   const assignedJobs = jobs.filter((job) => job.driverId).length;
   const activeJobs = jobs.filter((job) => job.status !== 'DONE').length;
   const unassignedJobs = totalJobs - assignedJobs;
+  const driverLocationsById = useMemo(() => {
+    const map = new Map<string, DriverLocation>();
+    driverLocations.forEach((loc) => map.set(loc.driverId, loc));
+    return map;
+  }, [driverLocations]);
+  const selectedDriver = selectedDriverId ? driversById.get(selectedDriverId) : null;
+  const selectedLocation = selectedDriverId ? driverLocationsById.get(selectedDriverId) ?? null : null;
+  const selectedJob = useMemo(() => {
+    if (!selectedDriverId) return null;
+    if (selectedLocation?.jobId) {
+      return jobs.find((job) => job.id === selectedLocation.jobId) ?? null;
+    }
+    const driverJobs = jobs.filter((job) => job.driverId === selectedDriverId);
+    const active = driverJobs.find((job) => job.status !== 'DONE' && job.status !== 'PENDING');
+    if (active) return active;
+    return driverJobs
+      .slice()
+      .sort((a, b) => {
+        const aKey = a.scheduledAt ?? Number.NEGATIVE_INFINITY;
+        const bKey = b.scheduledAt ?? Number.NEGATIVE_INFINITY;
+        if (aKey !== bKey) return aKey - bKey;
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      })[0] ?? null;
+  }, [jobs, selectedDriverId, selectedLocation?.jobId]);
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -401,6 +446,16 @@ export default function AdminJobs() {
                 <button className="w-full rounded bg-green-600 p-2 text-white">Guardar conductor</button>
               </form>
               <div className="space-y-3">
+                <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-gray-900">Mapa general</p>
+                    <span className="text-xs text-gray-400">Actualiza cada 12s</span>
+                  </div>
+                  {loadingLocations && <p className="text-xs text-gray-500">Cargando ubicaciones...</p>}
+                  {!loadingLocations && (
+                    <DriversOverviewMap locations={driverLocations} drivers={drivers} />
+                  )}
+                </div>
                 {loadingDrivers && <p className="text-sm text-gray-500">Cargando conductores...</p>}
                 {!loadingDrivers && drivers.length === 0 && <p className="text-sm text-gray-500">No hay conductores registrados.</p>}
                 {!loadingDrivers && drivers.map((driver) => (
@@ -409,8 +464,18 @@ export default function AdminJobs() {
                       <p className="font-semibold text-gray-900">{driver.name}</p>
                       <p className="text-xs text-gray-500">Codigo: <span className="font-mono">{driver.code}</span></p>
                       <p className="text-xs text-gray-500">{driver.phone || 'Sin telefono'}</p>
+                      <p className="text-xs text-gray-400">
+                        Ubicacion: {driverLocationsById.has(driver.id) ? 'Disponible' : 'Sin datos'}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDriverId(driver.id)}
+                        className="rounded border px-2 py-1 text-xs text-blue-600"
+                      >
+                        Ver mapa
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleToggleDriver(driver)}
@@ -471,6 +536,35 @@ export default function AdminJobs() {
           )}
         </section>
       </div>
+
+      {selectedDriverId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-4xl space-y-3 rounded-2xl bg-white p-4 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-blue-500">Mapa del conductor</p>
+                <h2 className="text-lg font-semibold text-gray-900">{selectedDriver?.name ?? 'Conductor'}</h2>
+                {selectedLocation && (
+                  <p className="text-xs text-gray-500">Actualizado: {new Date(selectedLocation.updatedAt).toLocaleString()}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDriverId(null)}
+                className="rounded border px-3 py-1 text-xs text-gray-600"
+              >
+                Cerrar
+              </button>
+            </div>
+            {!selectedLocation && (
+              <p className="text-sm text-gray-500">No hay ubicacion reportada por este conductor.</p>
+            )}
+            {selectedLocation && (
+              <DriverRouteMap location={selectedLocation} job={selectedJob} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

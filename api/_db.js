@@ -41,6 +41,18 @@ export const ensureSchema = async () => {
       updated_at TEXT NOT NULL
     );
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS driver_locations (
+      driver_id TEXT PRIMARY KEY,
+      lat DOUBLE PRECISION NOT NULL,
+      lng DOUBLE PRECISION NOT NULL,
+      accuracy DOUBLE PRECISION,
+      heading DOUBLE PRECISION,
+      speed DOUBLE PRECISION,
+      job_id TEXT,
+      updated_at TEXT NOT NULL
+    );
+  `;
 };
 
 export const computeScheduledAt = (date, time) => {
@@ -175,6 +187,53 @@ export const deleteJob = async (id) => {
   await ensureSchema();
   const result = await sql`DELETE FROM jobs WHERE id = ${id}`;
   return result.rowCount > 0;
+};
+
+const normalizeLocationRow = (row) => ({
+  driverId: row.driver_id,
+  lat: Number(row.lat),
+  lng: Number(row.lng),
+  accuracy: row.accuracy != null ? Number(row.accuracy) : null,
+  heading: row.heading != null ? Number(row.heading) : null,
+  speed: row.speed != null ? Number(row.speed) : null,
+  jobId: row.job_id ?? null,
+  updatedAt: row.updated_at,
+});
+
+export const listDriverLocations = async () => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM driver_locations ORDER BY updated_at DESC`;
+  return rows.map(normalizeLocationRow);
+};
+
+export const upsertDriverLocation = async (location) => {
+  await ensureSchema();
+  const updatedAt = location.updatedAt ?? new Date().toISOString();
+  await sql`
+    INSERT INTO driver_locations (
+      driver_id, lat, lng, accuracy, heading, speed, job_id, updated_at
+    ) VALUES (
+      ${location.driverId},
+      ${location.lat},
+      ${location.lng},
+      ${location.accuracy ?? null},
+      ${location.heading ?? null},
+      ${location.speed ?? null},
+      ${location.jobId ?? null},
+      ${updatedAt}
+    )
+    ON CONFLICT (driver_id) DO UPDATE SET
+      lat = EXCLUDED.lat,
+      lng = EXCLUDED.lng,
+      accuracy = EXCLUDED.accuracy,
+      heading = EXCLUDED.heading,
+      speed = EXCLUDED.speed,
+      job_id = EXCLUDED.job_id,
+      updated_at = EXCLUDED.updated_at;
+  `;
+  const { rows } = await sql`SELECT * FROM driver_locations WHERE driver_id = ${location.driverId}`;
+  if (rows.length === 0) return null;
+  return normalizeLocationRow(rows[0]);
 };
 
 const normalizeDriverRow = (row) => ({

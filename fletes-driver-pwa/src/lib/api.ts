@@ -1,4 +1,4 @@
-import type { Driver, Job } from './types';
+import type { Driver, DriverLocation, Job } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
@@ -55,3 +55,7 @@ export const deleteDriver = async (id: string) => {
     throw new Error(text || `HTTP ${res.status}`);
   }
 };
+
+export const listDriverLocations = () => fetchJson<DriverLocation[]>('/driver-locations');
+export const updateDriverLocation = (payload: Omit<DriverLocation, 'updatedAt'> & { driverCode?: string }) =>
+  fetchJson<DriverLocation>('/driver-locations', { method: 'POST', body: JSON.stringify(payload) });
