@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Marker, type MapRef } from 'react-map-gl/maplibre';
+import MapGL, { Marker, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import type { Driver, DriverLocation } from '../lib/types';
 import { cn } from '../lib/utils';
@@ -40,7 +40,7 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
 
   return (
     <div className={cn("h-[280px] w-full overflow-hidden rounded-xl border bg-white", className)}>
-      <Map
+      <MapGL
         ref={mapRef}
         initialViewState={{ latitude: fallbackCenter.lat, longitude: fallbackCenter.lng, zoom: 10 }}
         mapStyle={MAP_STYLE}
@@ -70,7 +70,7 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
             </Marker>
           );
         })}
-      </Map>
+      </MapGL>
     </div>
   );
 }
