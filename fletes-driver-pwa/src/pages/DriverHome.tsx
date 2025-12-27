@@ -4,15 +4,29 @@ import { listJobs } from '../lib/api';
 import type { Job } from '../lib/types';
 import { getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { Play } from 'lucide-react';
+import { clearDriverSession, getDriverSession, type DriverSession } from '../lib/driverSession';
 export default function DriverHome() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState<DriverSession | null>(null);
+
   useEffect(() => {
+    const current = getDriverSession();
+    if (!current) {
+      navigate('/driver/login', { replace: true });
+      return;
+    }
+    setSession(current);
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!session) return;
     let active = true;
+    setLoading(true);
     const load = async () => {
       try {
-        const data = await listJobs();
+        const data = await listJobs({ driverId: session.driverId });
         if (active) setJobs(data);
       } catch {
         if (active) setJobs([]);
@@ -26,7 +40,7 @@ export default function DriverHome() {
       active = false;
       clearInterval(id);
     };
-  }, []);
+  }, [session]);
   const active = jobs.find((job) => job.status !== 'DONE' && job.status !== 'PENDING');
   const pending = jobs.filter((job) => job.status === 'PENDING');
   const nowMs = Date.now();
@@ -52,7 +66,22 @@ export default function DriverHome() {
   const availableAt = scheduledAtMs != null ? new Date(scheduledAtMs - 60 * 60 * 1000) : null;
   return (
     <div className="h-full flex flex-col items-center justify-center space-y-6">
-      <h1 className="text-2xl font-bold">Mis Viajes</h1>
+      <div className="w-full max-w-xs space-y-1 text-center">
+        <h1 className="text-2xl font-bold">Mis Viajes</h1>
+        {session && <p className="text-xs text-gray-500">Conductor: {session.name}</p>}
+        {session && (
+          <button
+            type="button"
+            onClick={() => {
+              clearDriverSession();
+              navigate('/driver/login', { replace: true });
+            }}
+            className="text-xs text-gray-400 hover:text-gray-600"
+          >
+            Cerrar sesion
+          </button>
+        )}
+      </div>
       {loading && <p className="text-sm text-gray-500">Cargando fletes...</p>}
       {!loading && job ? (
         <div className="w-full max-w-xs space-y-4">

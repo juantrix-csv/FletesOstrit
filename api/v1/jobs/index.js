@@ -1,4 +1,4 @@
-import { createJob, listJobs } from '../../_db.js';
+import { createJob, getDriverByCode, getDriverById, listJobs } from '../../_db.js';
 
 const ALLOWED_STATUSES = new Set([
   'PENDING',
@@ -31,6 +31,23 @@ const isLocation = (value) => (
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
+    const driverId = typeof req.query.driverId === 'string' ? req.query.driverId : null;
+    const driverCode = typeof req.query.driverCode === 'string' ? req.query.driverCode : null;
+    if (driverCode) {
+      const driver = await getDriverByCode(driverCode.trim().toUpperCase());
+      if (!driver) {
+        res.status(200).json([]);
+        return;
+      }
+      const jobs = await listJobs({ driverId: driver.id });
+      res.status(200).json(jobs);
+      return;
+    }
+    if (driverId) {
+      const jobs = await listJobs({ driverId });
+      res.status(200).json(jobs);
+      return;
+    }
     const jobs = await listJobs();
     res.status(200).json(jobs);
     return;
@@ -53,6 +70,13 @@ export default async function handler(req, res) {
     if (!ALLOWED_STATUSES.has(body.status)) {
       res.status(400).json({ error: 'Invalid status' });
       return;
+    }
+    if (body.driverId) {
+      const driver = await getDriverById(body.driverId);
+      if (!driver) {
+        res.status(400).json({ error: 'Invalid driverId' });
+        return;
+      }
     }
     const created = await createJob(body);
     res.status(201).json(created);

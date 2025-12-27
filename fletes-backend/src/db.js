@@ -19,12 +19,34 @@ db.exec(`
     pickup TEXT NOT NULL,
     dropoff TEXT NOT NULL,
     notes TEXT,
+    driverId TEXT,
     status TEXT NOT NULL,
     flags TEXT NOT NULL,
     timestamps TEXT NOT NULL,
     scheduledDate TEXT,
     scheduledTime TEXT,
     scheduledAt INTEGER,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+`);
+
+const ensureJobsColumns = () => {
+  const columns = db.prepare('PRAGMA table_info(jobs)').all().map((col) => col.name);
+  if (!columns.includes('driverId')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN driverId TEXT;');
+  }
+};
+
+ensureJobsColumns();
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS drivers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    code TEXT NOT NULL UNIQUE,
+    phone TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   );
@@ -92,6 +114,7 @@ const toRow = (job) => ({
   pickup: JSON.stringify(job.pickup),
   dropoff: JSON.stringify(job.dropoff),
   notes: job.notes ?? null,
+  driverId: job.driverId ?? null,
   status: job.status,
   flags: JSON.stringify(job.flags ?? defaultFlags),
   timestamps: JSON.stringify(job.timestamps ?? {}),
@@ -109,6 +132,7 @@ const fromRow = (row) => ({
   pickup: parseJson(row.pickup, null),
   dropoff: parseJson(row.dropoff, null),
   notes: row.notes ?? undefined,
+  driverId: row.driverId ?? undefined,
   status: row.status,
   flags: parseJson(row.flags, defaultFlags),
   timestamps: parseJson(row.timestamps, {}),
@@ -121,11 +145,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, pickup, dropoff, notes, status,
+    id, clientName, clientPhone, pickup, dropoff, notes, driverId, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @pickup, @dropoff, @notes, @status,
+    @id, @clientName, @clientPhone, @pickup, @dropoff, @notes, @driverId, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -138,6 +162,7 @@ const updateStmt = db.prepare(`
     pickup = @pickup,
     dropoff = @dropoff,
     notes = @notes,
+    driverId = @driverId,
     status = @status,
     flags = @flags,
     timestamps = @timestamps,
@@ -149,7 +174,11 @@ const updateStmt = db.prepare(`
   WHERE id = @id;
 `);
 
-export const listJobs = () => {
+export const listJobs = (opts = {}) => {
+  if (opts.driverId) {
+    const rows = db.prepare('SELECT * FROM jobs WHERE driverId = ? ORDER BY createdAt DESC').all(opts.driverId);
+    return rows.map(fromRow);
+  }
   const rows = db.prepare('SELECT * FROM jobs ORDER BY createdAt DESC').all();
   return rows.map(fromRow);
 };
@@ -169,6 +198,7 @@ export const createJob = (job) => {
     ...job,
     flags: job.flags ?? defaultFlags,
     timestamps: job.timestamps ?? {},
+    driverId: job.driverId ?? null,
     scheduledAt,
     createdAt,
     updatedAt,
@@ -202,6 +232,92 @@ export const updateJob = (id, patch) => {
 
 export const deleteJob = (id) => {
   const info = db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
+  return info.changes > 0;
+};
+
+const toDriverRow = (driver) => ({
+  id: driver.id,
+  name: driver.name,
+  code: driver.code,
+  phone: driver.phone ?? null,
+  active: driver.active ? 1 : 0,
+  createdAt: driver.createdAt,
+  updatedAt: driver.updatedAt,
+});
+
+const fromDriverRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  code: row.code,
+  phone: row.phone ?? undefined,
+  active: row.active === 1,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const insertDriverStmt = db.prepare(`
+  INSERT INTO drivers (
+    id, name, code, phone, active, createdAt, updatedAt
+  ) VALUES (
+    @id, @name, @code, @phone, @active, @createdAt, @updatedAt
+  );
+`);
+
+const updateDriverStmt = db.prepare(`
+  UPDATE drivers SET
+    name = @name,
+    code = @code,
+    phone = @phone,
+    active = @active,
+    createdAt = @createdAt,
+    updatedAt = @updatedAt
+  WHERE id = @id;
+`);
+
+export const listDrivers = () => {
+  const rows = db.prepare('SELECT * FROM drivers ORDER BY createdAt DESC').all();
+  return rows.map(fromDriverRow);
+};
+
+export const getDriverById = (id) => {
+  const row = db.prepare('SELECT * FROM drivers WHERE id = ?').get(id);
+  return row ? fromDriverRow(row) : null;
+};
+
+export const getDriverByCode = (code) => {
+  const row = db.prepare('SELECT * FROM drivers WHERE code = ?').get(code);
+  return row ? fromDriverRow(row) : null;
+};
+
+export const createDriver = (driver) => {
+  const createdAt = driver.createdAt ?? new Date().toISOString();
+  const updatedAt = driver.updatedAt ?? createdAt;
+  const row = toDriverRow({
+    ...driver,
+    active: driver.active ?? true,
+    createdAt,
+    updatedAt,
+  });
+  insertDriverStmt.run(row);
+  return getDriverById(driver.id);
+};
+
+export const updateDriver = (id, patch) => {
+  const current = getDriverById(id);
+  if (!current) return null;
+  const next = {
+    ...current,
+    ...patch,
+    active: typeof patch.active === 'boolean' ? patch.active : current.active,
+    updatedAt: new Date().toISOString(),
+  };
+  updateDriverStmt.run(toDriverRow(next));
+  return getDriverById(id);
+};
+
+export const deleteDriver = (id) => {
+  db.prepare('UPDATE jobs SET driverId = NULL WHERE driverId = ?').run(id);
+  const info = db.prepare('DELETE FROM drivers WHERE id = ?').run(id);
   return info.changes > 0;
 };
 

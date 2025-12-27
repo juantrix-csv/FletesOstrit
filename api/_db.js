@@ -18,12 +18,25 @@ export const ensureSchema = async () => {
       pickup JSONB NOT NULL,
       dropoff JSONB NOT NULL,
       notes TEXT,
+      driver_id TEXT,
       status TEXT NOT NULL,
       flags JSONB NOT NULL,
       timestamps JSONB NOT NULL,
       scheduled_date TEXT,
       scheduled_time TEXT,
       scheduled_at BIGINT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS drivers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      code TEXT NOT NULL UNIQUE,
+      phone TEXT,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -49,6 +62,7 @@ const normalizeRow = (row) => ({
   pickup: row.pickup,
   dropoff: row.dropoff,
   notes: row.notes ?? undefined,
+  driverId: row.driver_id ?? undefined,
   status: row.status,
   flags: row.flags ?? defaultFlags,
   timestamps: row.timestamps ?? {},
@@ -59,8 +73,12 @@ const normalizeRow = (row) => ({
   updatedAt: row.updated_at,
 });
 
-export const listJobs = async () => {
+export const listJobs = async (opts = {}) => {
   await ensureSchema();
+  if (opts.driverId) {
+    const { rows } = await sql`SELECT * FROM jobs WHERE driver_id = ${opts.driverId} ORDER BY created_at DESC`;
+    return rows.map(normalizeRow);
+  }
   const { rows } = await sql`SELECT * FROM jobs ORDER BY created_at DESC`;
   return rows.map(normalizeRow);
 };
@@ -84,7 +102,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, pickup, dropoff, notes, status,
+      id, client_name, client_phone, pickup, dropoff, notes, driver_id, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -94,6 +112,7 @@ export const createJob = async (job) => {
       ${job.pickup},
       ${job.dropoff},
       ${job.notes ?? null},
+      ${job.driverId ?? null},
       ${job.status},
       ${flags},
       ${timestamps},
@@ -137,6 +156,7 @@ export const updateJob = async (id, patch) => {
       pickup = ${next.pickup},
       dropoff = ${next.dropoff},
       notes = ${next.notes ?? null},
+      driver_id = ${next.driverId ?? null},
       status = ${next.status},
       flags = ${next.flags ?? defaultFlags},
       timestamps = ${next.timestamps ?? {}},
@@ -154,5 +174,85 @@ export const updateJob = async (id, patch) => {
 export const deleteJob = async (id) => {
   await ensureSchema();
   const result = await sql`DELETE FROM jobs WHERE id = ${id}`;
+  return result.rowCount > 0;
+};
+
+const normalizeDriverRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  code: row.code,
+  phone: row.phone ?? undefined,
+  active: row.active === true,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export const listDrivers = async () => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM drivers ORDER BY created_at DESC`;
+  return rows.map(normalizeDriverRow);
+};
+
+export const getDriverById = async (id) => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM drivers WHERE id = ${id}`;
+  if (rows.length === 0) return null;
+  return normalizeDriverRow(rows[0]);
+};
+
+export const getDriverByCode = async (code) => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM drivers WHERE code = ${code}`;
+  if (rows.length === 0) return null;
+  return normalizeDriverRow(rows[0]);
+};
+
+export const createDriver = async (driver) => {
+  await ensureSchema();
+  const createdAt = driver.createdAt ?? new Date().toISOString();
+  const updatedAt = driver.updatedAt ?? createdAt;
+  const active = typeof driver.active === 'boolean' ? driver.active : true;
+  await sql`
+    INSERT INTO drivers (
+      id, name, code, phone, active, created_at, updated_at
+    ) VALUES (
+      ${driver.id},
+      ${driver.name},
+      ${driver.code},
+      ${driver.phone ?? null},
+      ${active},
+      ${createdAt},
+      ${updatedAt}
+    )
+  `;
+  return getDriverById(driver.id);
+};
+
+export const updateDriver = async (id, patch) => {
+  const current = await getDriverById(id);
+  if (!current) return null;
+  const next = {
+    ...current,
+    ...patch,
+    active: typeof patch.active === 'boolean' ? patch.active : current.active,
+    updatedAt: new Date().toISOString(),
+  };
+  await sql`
+    UPDATE drivers SET
+      name = ${next.name},
+      code = ${next.code},
+      phone = ${next.phone ?? null},
+      active = ${next.active},
+      created_at = ${next.createdAt},
+      updated_at = ${next.updatedAt}
+    WHERE id = ${id}
+  `;
+  return getDriverById(id);
+};
+
+export const deleteDriver = async (id) => {
+  await ensureSchema();
+  await sql`UPDATE jobs SET driver_id = NULL WHERE driver_id = ${id}`;
+  const result = await sql`DELETE FROM drivers WHERE id = ${id}`;
   return result.rowCount > 0;
 };

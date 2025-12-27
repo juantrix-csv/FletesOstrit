@@ -1,6 +1,19 @@
 import express from 'express';
 import cors from 'cors';
-import { createJob, deleteJob, getJob, listJobs, seedJobsIfEmpty, updateJob } from './db.js';
+import {
+  createDriver,
+  createJob,
+  deleteDriver,
+  deleteJob,
+  getDriverByCode,
+  getDriverById,
+  getJob,
+  listDrivers,
+  listJobs,
+  seedJobsIfEmpty,
+  updateDriver,
+  updateJob,
+} from './db.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 4000;
@@ -33,6 +46,7 @@ app.get('/', (_req, res) => {
     endpoints: {
       health: '/api/v1/health',
       jobs: '/api/v1/jobs',
+      drivers: '/api/v1/drivers',
     },
   });
 });
@@ -46,12 +60,40 @@ app.get(`${API_PREFIX}/health`, (_req, res) => {
 });
 
 app.get(`${API_PREFIX}/jobs`, (_req, res) => {
+  const driverId = typeof _req.query.driverId === 'string' ? _req.query.driverId : null;
+  const driverCode = typeof _req.query.driverCode === 'string' ? _req.query.driverCode : null;
+  if (driverCode) {
+    const driver = getDriverByCode(driverCode.trim().toUpperCase());
+    if (!driver) {
+      res.json([]);
+      return;
+    }
+    res.json(listJobs({ driverId: driver.id }));
+    return;
+  }
+  if (driverId) {
+    res.json(listJobs({ driverId }));
+    return;
+  }
   res.json(listJobs());
 });
 
 app.get(`${API_PREFIX}/jobs/:id`, (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  const driverId = typeof req.query.driverId === 'string' ? req.query.driverId : null;
+  const driverCode = typeof req.query.driverCode === 'string' ? req.query.driverCode : null;
+  if (driverCode) {
+    const driver = getDriverByCode(driverCode.trim().toUpperCase());
+    if (!driver || job.driverId !== driver.id) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+  }
+  if (driverId && job.driverId !== driverId) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
@@ -76,6 +118,13 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
     res.status(400).json({ error: 'Invalid status' });
     return;
   }
+  if (body.driverId) {
+    const driver = getDriverById(body.driverId);
+    if (!driver) {
+      res.status(400).json({ error: 'Invalid driverId' });
+      return;
+    }
+  }
   const created = createJob(body);
   res.status(201).json(created);
 });
@@ -94,6 +143,13 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
     res.status(400).json({ error: 'Invalid dropoff' });
     return;
   }
+  if (body.driverId) {
+    const driver = getDriverById(body.driverId);
+    if (!driver) {
+      res.status(400).json({ error: 'Invalid driverId' });
+      return;
+    }
+  }
   const updated = updateJob(req.params.id, body);
   if (!updated) {
     res.status(404).json({ error: 'Not found' });
@@ -104,6 +160,88 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
 
 app.delete(`${API_PREFIX}/jobs/:id`, (req, res) => {
   const removed = deleteJob(req.params.id);
+  if (!removed) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.status(204).send();
+});
+
+app.get(`${API_PREFIX}/drivers`, (req, res) => {
+  const code = typeof req.query.code === 'string' ? req.query.code.trim() : null;
+  if (code) {
+    const driver = getDriverByCode(code.toUpperCase());
+    if (!driver) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.json(driver);
+    return;
+  }
+  res.json(listDrivers());
+});
+
+app.post(`${API_PREFIX}/drivers`, (req, res) => {
+  const body = req.body ?? {};
+  if (!isNonEmptyString(body.id)) {
+    res.status(400).json({ error: 'Missing id' });
+    return;
+  }
+  if (!isNonEmptyString(body.name)) {
+    res.status(400).json({ error: 'Missing name' });
+    return;
+  }
+  if (!isNonEmptyString(body.code)) {
+    res.status(400).json({ error: 'Missing code' });
+    return;
+  }
+  const normalizedCode = body.code.trim().toUpperCase();
+  const exists = getDriverByCode(normalizedCode);
+  if (exists) {
+    res.status(409).json({ error: 'Code already in use' });
+    return;
+  }
+  const created = createDriver({
+    id: body.id,
+    name: body.name,
+    code: normalizedCode,
+    phone: body.phone,
+    active: body.active ?? true,
+    createdAt: body.createdAt,
+    updatedAt: body.updatedAt,
+  });
+  res.status(201).json(created);
+});
+
+app.patch(`${API_PREFIX}/drivers/:id`, (req, res) => {
+  const body = req.body ?? {};
+  if (body.name && !isNonEmptyString(body.name)) {
+    res.status(400).json({ error: 'Invalid name' });
+    return;
+  }
+  if (body.code && !isNonEmptyString(body.code)) {
+    res.status(400).json({ error: 'Invalid code' });
+    return;
+  }
+  if (body.code) {
+    const normalizedCode = body.code.trim().toUpperCase();
+    const existing = getDriverByCode(normalizedCode);
+    if (existing && existing.id !== req.params.id) {
+      res.status(409).json({ error: 'Code already in use' });
+      return;
+    }
+    body.code = normalizedCode;
+  }
+  const updated = updateDriver(req.params.id, body);
+  if (!updated) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.json(updated);
+});
+
+app.delete(`${API_PREFIX}/drivers/:id`, (req, res) => {
+  const removed = deleteDriver(req.params.id);
   if (!removed) {
     res.status(404).json({ error: 'Not found' });
     return;

@@ -8,6 +8,7 @@ import { useGeoLocation } from '../hooks/useGeoLocation';
 import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
 import SlideToConfirm from '../components/SlideToConfirm';
 import toast from 'react-hot-toast';
+import { getDriverSession } from '../lib/driverSession';
 
 const formatAddress = (address: string, maxParts = 3) => {
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
@@ -28,9 +29,14 @@ export default function JobWorkflow() {
   useEffect(() => {
     let active = true;
     if (!id) return;
+    const current = getDriverSession();
+    if (!current) {
+      navigate('/driver/login', { replace: true });
+      return;
+    }
     (async () => {
       try {
-        const data = await getJob(id);
+        const data = await getJob(id, { driverId: current.driverId });
         if (active) setJob(data);
       } catch {
         if (active) setJob(null);
@@ -42,7 +48,7 @@ export default function JobWorkflow() {
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, navigate]);
 
   useEffect(() => {
     if (!job || !coords || job.status === 'DONE') return;
@@ -143,7 +149,7 @@ export default function JobWorkflow() {
     try {
       const updated = await updateJob(job.id, patch);
       setJob(updated);
-      if (st === 'DONE') navigate('/');
+      if (st === 'DONE') navigate('/driver');
     } catch {
       toast.error('No se pudo actualizar el flete');
     }

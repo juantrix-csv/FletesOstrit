@@ -1,4 +1,4 @@
-import { deleteJob, getJobById, updateJob } from '../../_db.js';
+import { deleteJob, getDriverByCode, getDriverById, getJobById, updateJob } from '../../_db.js';
 
 const ALLOWED_STATUSES = new Set([
   'PENDING',
@@ -37,6 +37,19 @@ export default async function handler(req, res) {
       res.status(404).json({ error: 'Not found' });
       return;
     }
+    const driverId = typeof req.query.driverId === 'string' ? req.query.driverId : null;
+    const driverCode = typeof req.query.driverCode === 'string' ? req.query.driverCode : null;
+    if (driverCode) {
+      const driver = await getDriverByCode(driverCode.trim().toUpperCase());
+      if (!driver || job.driverId !== driver.id) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+      }
+    }
+    if (driverId && job.driverId !== driverId) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
     res.status(200).json(job);
     return;
   }
@@ -54,6 +67,13 @@ export default async function handler(req, res) {
     if (body.dropoff && !isLocation(body.dropoff)) {
       res.status(400).json({ error: 'Invalid dropoff' });
       return;
+    }
+    if (body.driverId) {
+      const driver = await getDriverById(body.driverId);
+      if (!driver) {
+        res.status(400).json({ error: 'Invalid driverId' });
+        return;
+      }
     }
     const updated = await updateJob(id, body);
     if (!updated) {
