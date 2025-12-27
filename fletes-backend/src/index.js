@@ -267,17 +267,14 @@ app.post(`${API_PREFIX}/driver-locations`, (req, res) => {
     return;
   }
   let driver = null;
-  if (driverCode) {
-    driver = getDriverByCode(driverCode);
-  } else if (driverId) {
+  if (driverId) {
     driver = getDriverById(driverId);
+  }
+  if (!driver && driverCode) {
+    driver = getDriverByCode(driverCode);
   }
   if (!driver) {
     res.status(400).json({ error: 'Invalid driver' });
-    return;
-  }
-  if (driverId && driver.id !== driverId) {
-    res.status(400).json({ error: 'Driver mismatch' });
     return;
   }
   const updated = upsertDriverLocation({

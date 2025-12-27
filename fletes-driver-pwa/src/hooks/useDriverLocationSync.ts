@@ -34,9 +34,8 @@ export const useDriverLocationSync = ({ session, jobId, coords }: SyncOptions) =
     lastSentRef.current = now;
     lastCoordsRef.current = { lat: coords.lat, lng: coords.lng };
 
-    const payload: Omit<DriverLocation, 'updatedAt'> & { driverCode?: string } = {
+    const payload: Omit<DriverLocation, 'updatedAt'> = {
       driverId: session.driverId,
-      driverCode: session.code,
       lat: coords.lat,
       lng: coords.lng,
       accuracy: coords.accuracy,

@@ -30,17 +30,14 @@ export default async function handler(req, res) {
       return;
     }
     let driver = null;
-    if (driverCode) {
-      driver = await getDriverByCode(driverCode);
-    } else if (driverId) {
+    if (driverId) {
       driver = await getDriverById(driverId);
+    }
+    if (!driver && driverCode) {
+      driver = await getDriverByCode(driverCode);
     }
     if (!driver) {
       res.status(400).json({ error: 'Invalid driver' });
-      return;
-    }
-    if (driverId && driver.id !== driverId) {
-      res.status(400).json({ error: 'Driver mismatch' });
       return;
     }
     const updated = await upsertDriverLocation({
