@@ -33,6 +33,7 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
   maximumFractionDigits: 2,
 });
 const monthFormatter = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' });
+const monthShortFormatter = new Intl.DateTimeFormat('es-AR', { month: 'short' });
 
 const parseHourlyRate = (value: string) => {
   const normalized = value.trim().replace(',', '.');
@@ -438,6 +439,37 @@ export default function AdminJobs() {
   const monthlyGrossLabel = monthlyGrossTotal != null
     ? currencyFormatter.format(monthlyGrossTotal)
     : 'Configura el precio';
+  const monthlyRevenueSeries = useMemo(() => {
+    const now = new Date();
+    const months = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const label = `${monthShortFormatter.format(date)} ${String(date.getFullYear()).slice(-2)}`;
+      return { key, label, total: 0 };
+    });
+    const byKey = new Map(months.map((item) => [item.key, item]));
+    completedHistory.forEach((entry) => {
+      if (entry.endMs == null || entry.durationMs == null) return;
+      const endDate = new Date(entry.endMs);
+      const key = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}`;
+      const target = byKey.get(key);
+      if (!target) return;
+      const billedHours = getBilledHours(entry.durationMs);
+      if (billedHours == null) return;
+      const helpersCount = entry.job.helpersCount ?? 0;
+      const jobValue = hourlyRateValue != null ? billedHours * hourlyRateValue : 0;
+      const helpersValue = helperHourlyRateValue != null && helpersCount > 0
+        ? billedHours * helperHourlyRateValue * helpersCount
+        : 0;
+      target.total += jobValue + helpersValue;
+    });
+    return months;
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  const monthlyRevenueMax = useMemo(() => {
+    const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => item.total));
+    return maxValue > 0 ? maxValue : 1;
+  }, [monthlyRevenueSeries]);
+  const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null;
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
     driverLocations.forEach((loc) => map.set(loc.driverId, loc));
@@ -910,6 +942,34 @@ export default function AdminJobs() {
                   <p className="text-xs uppercase tracking-wide text-gray-400">Sin asignar</p>
                   <p className="text-2xl font-semibold text-gray-900">{unassignedJobs}</p>
                   <p className="text-xs text-gray-500">Pendientes de conductor.</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos por mes</p>
+                    <p className="text-lg font-semibold text-gray-900">Progreso de los ultimos 6 meses</p>
+                  </div>
+                  {!hasMonthlyPricing && (
+                    <span className="text-xs text-amber-600">Configura precios para ver montos</span>
+                  )}
+                </div>
+                <div className="mt-4 flex h-36 items-end gap-3">
+                  {monthlyRevenueSeries.map((item) => (
+                    <div key={item.key} className="flex flex-1 flex-col items-center gap-2">
+                      <div className="flex h-24 w-full items-end justify-center">
+                        <div
+                          className="w-full rounded-full bg-emerald-500/80"
+                          style={{ height: `${Math.round((item.total / monthlyRevenueMax) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-500">{item.label}</p>
+                        <p className="text-xs font-semibold text-gray-900">{currencyFormatter.format(item.total)}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
