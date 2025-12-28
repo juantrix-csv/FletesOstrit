@@ -12,10 +12,12 @@ import {
   deleteDriver,
   deleteJob,
   downloadJobsHistory,
+  getHelperHourlyRate,
   getHourlyRate,
   listDriverLocations,
   listDrivers,
   listJobs,
+  setHelperHourlyRate,
   setHourlyRate,
   updateDriver,
   updateJob,
@@ -87,7 +89,9 @@ export default function AdminJobs() {
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState('');
+  const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
+  const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
   const locationsLoadedRef = useRef(false);
 
   const driversById = useMemo(() => {
@@ -96,6 +100,7 @@ export default function AdminJobs() {
     return map;
   }, [drivers]);
   const hourlyRateValue = useMemo(() => parseHourlyRate(hourlyRateInput), [hourlyRateInput]);
+  const helperHourlyRateValue = useMemo(() => parseHourlyRate(helperHourlyRateInput), [helperHourlyRateInput]);
 
   const loadJobs = async () => {
     try {
@@ -147,6 +152,15 @@ export default function AdminJobs() {
     }
   };
 
+  const loadHelperHourlyRate = async () => {
+    try {
+      const data = await getHelperHourlyRate();
+      setHelperHourlyRateInput(data.hourlyRate != null ? String(data.hourlyRate) : '');
+    } catch {
+      toast.error('No se pudo cargar el precio hora del ayudante');
+    }
+  };
+
   const addExtraStop = (location: LocationData | null) => {
     if (!location) return;
     setExtraStops((prev) => [...prev, location]);
@@ -169,6 +183,7 @@ export default function AdminJobs() {
     loadDrivers();
     loadDriverLocations();
     loadHourlyRate();
+    loadHelperHourlyRate();
     const id = window.setInterval(loadDriverLocations, 12000);
     return () => clearInterval(id);
   }, []);
@@ -182,18 +197,27 @@ export default function AdminJobs() {
     const fd = new FormData(e.currentTarget);
     const scheduledDate = String(fd.get('scheduledDate') || '');
     const scheduledTime = String(fd.get('scheduledTime') || '');
+    const description = String(fd.get('description') || '').trim();
+    const helpersCountRaw = String(fd.get('helpersCount') || '').trim();
+    const helpersCount = helpersCountRaw ? Number.parseInt(helpersCountRaw, 10) : undefined;
+    if (helpersCountRaw && (!Number.isInteger(helpersCount) || (helpersCount ?? 0) < 0)) {
+      toast.error('Cantidad de ayudantes invalida');
+      return;
+    }
     const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
     const driverIdValue = String(fd.get('driverId') || '').trim();
     try {
       await createJob({
         id: uuidv4(),
         clientName: String(fd.get('cn') || ''),
+        description: description || undefined,
         scheduledDate,
         scheduledTime,
         scheduledAt: scheduledAt ?? undefined,
         pickup,
         dropoff,
         extraStops,
+        helpersCount,
         driverId: driverIdValue || undefined,
         status: 'PENDING',
         flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
@@ -302,6 +326,24 @@ export default function AdminJobs() {
     }
   };
 
+  const handleSaveHelperHourlyRate = async () => {
+    const parsed = parseHourlyRate(helperHourlyRateInput);
+    if (helperHourlyRateInput.trim() && parsed == null) {
+      toast.error('Precio hora ayudante invalido');
+      return;
+    }
+    try {
+      setSavingHelperHourlyRate(true);
+      const saved = await setHelperHourlyRate(parsed);
+      setHelperHourlyRateInput(saved.hourlyRate != null ? String(saved.hourlyRate) : '');
+      toast.success('Precio hora ayudante actualizado');
+    } catch {
+      toast.error('No se pudo guardar el precio hora ayudante');
+    } finally {
+      setSavingHelperHourlyRate(false);
+    }
+  };
+
   const handleDownloadHistory = async () => {
     try {
       const blob = await downloadJobsHistory();
@@ -348,9 +390,20 @@ export default function AdminJobs() {
       return sum + (entry.durationMs / 3600000) * hourlyRateValue;
     }, 0);
   }, [completedHistory, hourlyRateValue]);
+  const totalHelperCost = useMemo(() => {
+    if (helperHourlyRateValue == null) return null;
+    return completedHistory.reduce((sum, entry) => {
+      if (entry.durationMs == null) return sum;
+      const helpersCount = entry.job.helpersCount ?? 0;
+      if (helpersCount <= 0) return sum;
+      return sum + (entry.durationMs / 3600000) * helperHourlyRateValue * helpersCount;
+    }, 0);
+  }, [completedHistory, helperHourlyRateValue]);
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
+  const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
   const averageDurationLabel = averageDurationMs != null ? formatDurationMs(averageDurationMs) : 'N/D';
   const totalRevenueLabel = totalRevenue != null ? currencyFormatter.format(totalRevenue) : 'Configura el precio';
+  const totalHelperCostLabel = totalHelperCost != null ? currencyFormatter.format(totalHelperCost) : 'Configura el precio';
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
     driverLocations.forEach((loc) => map.set(loc.driverId, loc));
@@ -462,6 +515,20 @@ export default function AdminJobs() {
                 {open && (
                   <form onSubmit={addJob} className="space-y-2 rounded bg-white p-4 shadow">
                     <input name="cn" placeholder="Cliente" className="w-full border p-2" required />
+                    <textarea
+                      name="description"
+                      placeholder="Descripcion del flete"
+                      className="w-full border p-2 text-sm"
+                      rows={2}
+                    />
+                    <input
+                      name="helpersCount"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="Ayudantes requeridos"
+                      className="w-full border p-2"
+                    />
                     <div className="grid gap-2 sm:grid-cols-2">
                       <input name="scheduledDate" type="date" className="w-full border p-2" required />
                       <input name="scheduledTime" type="time" className="w-full border p-2" required />
@@ -605,6 +672,10 @@ export default function AdminJobs() {
                           <p className="font-bold">{job.clientName}</p>
                           <p className="text-xs text-gray-700">Fecha: {job.scheduledDate || 'Sin fecha'} | Hora: {job.scheduledTime || 'Sin hora'}</p>
                           <p className="text-xs">{job.status}</p>
+                          {job.description && (
+                            <p className="text-xs text-gray-600">Descripcion: {job.description}</p>
+                          )}
+                          <p className="text-xs text-gray-600">Ayudantes: {job.helpersCount ?? 0}</p>
                           {job.extraStops && job.extraStops.length > 0 && (
                             <p className="text-xs text-gray-600">Paradas extra: {job.extraStops.length}</p>
                           )}
@@ -771,7 +842,30 @@ export default function AdminJobs() {
                   >
                     {savingHourlyRate ? 'Guardando...' : 'Guardar precio hora'}
                   </button>
-                  <p className="mt-2 text-xs text-gray-500">Total estimado: {totalRevenueLabel}</p>
+                  <p className="mt-2 text-xs text-gray-500">Total flete estimado: {totalRevenueLabel}</p>
+                  <div className="mt-4 border-t pt-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Precio hora ayudante</p>
+                    <p className="text-lg font-semibold text-gray-900">{helperHourlyRateLabel}</p>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      placeholder="Ej: 8000"
+                      value={helperHourlyRateInput}
+                      onChange={(event) => setHelperHourlyRateInput(event.target.value)}
+                      className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveHelperHourlyRate}
+                      disabled={savingHelperHourlyRate}
+                      className="mt-2 w-full rounded border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
+                    </button>
+                    <p className="mt-2 text-xs text-gray-500">Total ayudantes estimado: {totalHelperCostLabel}</p>
+                  </div>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-wide text-gray-400">Fletes activos</p>
@@ -809,11 +903,29 @@ export default function AdminJobs() {
                     {completedHistory.map((entry) => {
                       const driver = entry.job.driverId ? driversById.get(entry.job.driverId) : null;
                       const durationLabel = entry.durationMs != null ? formatDurationMs(entry.durationMs) : 'Sin tiempos';
-                      const valueLabel = hourlyRateValue != null && entry.durationMs != null
-                        ? currencyFormatter.format((entry.durationMs / 3600000) * hourlyRateValue)
+                      const helpersCount = entry.job.helpersCount ?? 0;
+                      const jobValue = hourlyRateValue != null && entry.durationMs != null
+                        ? (entry.durationMs / 3600000) * hourlyRateValue
+                        : null;
+                      const helpersValue = helperHourlyRateValue != null && entry.durationMs != null && helpersCount > 0
+                        ? (entry.durationMs / 3600000) * helperHourlyRateValue * helpersCount
+                        : null;
+                      const totalValue = jobValue != null || helpersValue != null
+                        ? (jobValue ?? 0) + (helpersValue ?? 0)
+                        : null;
+                      const jobValueLabel = jobValue != null
+                        ? currencyFormatter.format(jobValue)
                         : hourlyRateValue == null
                           ? 'Defini precio hora'
                           : 'Sin tiempos';
+                      const helpersValueLabel = helpersValue != null
+                        ? currencyFormatter.format(helpersValue)
+                        : helperHourlyRateValue == null
+                          ? 'Defini precio ayudante'
+                          : helpersCount > 0
+                            ? 'Sin tiempos'
+                            : 'Sin ayudantes';
+                      const totalValueLabel = totalValue != null ? currencyFormatter.format(totalValue) : 'N/D';
                       const endLabel = entry.endMs != null ? new Date(entry.endMs).toLocaleString() : 'Sin datos';
                       return (
                         <div key={entry.job.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
@@ -821,10 +933,13 @@ export default function AdminJobs() {
                             <div>
                               <p className="font-semibold text-gray-900">{entry.job.clientName}</p>
                               <p className="text-xs text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
+                              <p className="text-xs text-gray-500">Ayudantes: {helpersCount}</p>
                               <p className="text-xs text-gray-500">Finalizado: {endLabel}</p>
                             </div>
                             <div className="text-right">
-                              <p className="text-sm font-semibold text-gray-900">{valueLabel}</p>
+                              <p className="text-sm font-semibold text-gray-900">{totalValueLabel}</p>
+                              <p className="text-xs text-gray-500">Flete: {jobValueLabel}</p>
+                              <p className="text-xs text-gray-500">Ayudantes: {helpersValueLabel}</p>
                               <p className="text-xs text-gray-500">Duracion: {durationLabel}</p>
                             </div>
                           </div>

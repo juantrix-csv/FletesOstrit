@@ -179,6 +179,10 @@ export default function JobWorkflow() {
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-wide text-blue-500">Cliente</p>
             <p className="text-sm font-semibold text-blue-950 truncate">{job.clientName}</p>
+            {job.description && (
+              <p className="text-xs text-blue-700 truncate">Descripcion: {job.description}</p>
+            )}
+            <p className="text-xs text-blue-700">Ayudantes: {job.helpersCount ?? 0}</p>
           </div>
           <div className="min-w-0 text-right">
             <p className="text-[10px] uppercase tracking-wide text-blue-500">Direccion actual</p>

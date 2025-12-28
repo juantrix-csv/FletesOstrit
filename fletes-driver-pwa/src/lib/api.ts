@@ -67,6 +67,13 @@ export const setHourlyRate = (hourlyRate: number | null) =>
     body: JSON.stringify({ hourlyRate }),
   });
 
+export const getHelperHourlyRate = () => fetchJson<{ hourlyRate: number | null }>('/settings/helper-hourly-rate');
+export const setHelperHourlyRate = (hourlyRate: number | null) =>
+  fetchJson<{ hourlyRate: number | null }>('/settings/helper-hourly-rate', {
+    method: 'PUT',
+    body: JSON.stringify({ hourlyRate }),
+  });
+
 export const downloadJobsHistory = async () => {
   const res = await fetch(`${API_BASE}/jobs/history/export`);
   if (!res.ok) {

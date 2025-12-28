@@ -16,11 +16,13 @@ db.exec(`
     id TEXT PRIMARY KEY,
     clientName TEXT NOT NULL,
     clientPhone TEXT,
+    description TEXT,
     pickup TEXT NOT NULL,
     dropoff TEXT NOT NULL,
     extraStops TEXT,
     notes TEXT,
     driverId TEXT,
+    helpersCount INTEGER,
     status TEXT NOT NULL,
     flags TEXT NOT NULL,
     timestamps TEXT NOT NULL,
@@ -46,6 +48,12 @@ const ensureJobsColumns = () => {
   }
   if (!columns.includes('extraStops')) {
     db.exec('ALTER TABLE jobs ADD COLUMN extraStops TEXT;');
+  }
+  if (!columns.includes('description')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN description TEXT;');
+  }
+  if (!columns.includes('helpersCount')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN helpersCount INTEGER;');
   }
 };
 
@@ -137,11 +145,13 @@ const toRow = (job) => ({
   id: job.id,
   clientName: job.clientName,
   clientPhone: job.clientPhone ?? null,
+  description: job.description ?? null,
   pickup: JSON.stringify(job.pickup),
   dropoff: JSON.stringify(job.dropoff),
   extraStops: JSON.stringify(normalizeExtraStops(job.extraStops)),
   notes: job.notes ?? null,
   driverId: job.driverId ?? null,
+  helpersCount: Number.isFinite(job.helpersCount) ? job.helpersCount : null,
   status: job.status,
   flags: JSON.stringify(job.flags ?? defaultFlags),
   timestamps: JSON.stringify(job.timestamps ?? {}),
@@ -156,11 +166,13 @@ const fromRow = (row) => ({
   id: row.id,
   clientName: row.clientName,
   clientPhone: row.clientPhone ?? undefined,
+  description: row.description ?? undefined,
   pickup: parseJson(row.pickup, null),
   dropoff: parseJson(row.dropoff, null),
   extraStops: parseJson(row.extraStops, []),
   notes: row.notes ?? undefined,
   driverId: row.driverId ?? undefined,
+  helpersCount: Number.isFinite(row.helpersCount) ? row.helpersCount : undefined,
   status: row.status,
   flags: parseJson(row.flags, defaultFlags),
   timestamps: parseJson(row.timestamps, {}),
@@ -173,11 +185,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, pickup, dropoff, extraStops, notes, driverId, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, notes, driverId, helpersCount, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @pickup, @dropoff, @extraStops, @notes, @driverId, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @notes, @driverId, @helpersCount, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -187,11 +199,13 @@ const updateStmt = db.prepare(`
   UPDATE jobs SET
     clientName = @clientName,
     clientPhone = @clientPhone,
+    description = @description,
     pickup = @pickup,
     dropoff = @dropoff,
     extraStops = @extraStops,
     notes = @notes,
     driverId = @driverId,
+    helpersCount = @helpersCount,
     status = @status,
     flags = @flags,
     timestamps = @timestamps,

@@ -35,6 +35,7 @@ const ALLOWED_STATUSES = new Set([
 
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
 const isFiniteNumber = (value) => Number.isFinite(value);
+const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 const isLocation = (value) => (
   value &&
   typeof value.address === 'string' &&
@@ -118,10 +119,14 @@ app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
   const driversById = new Map(drivers.map((driver) => [driver.id, driver]));
   const storedRate = getSetting('hourlyRate');
   const hourlyRate = typeof storedRate === 'number' && Number.isFinite(storedRate) ? storedRate : null;
+  const storedHelperRate = getSetting('helperHourlyRate');
+  const helperHourlyRate = typeof storedHelperRate === 'number' && Number.isFinite(storedHelperRate) ? storedHelperRate : null;
   const header = [
     'job_id',
     'client_name',
     'driver_name',
+    'description',
+    'helpers_count',
     'pickup_address',
     'dropoff_address',
     'scheduled_date',
@@ -132,6 +137,9 @@ app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
     'duration_hours',
     'hourly_rate',
     'total_value',
+    'helper_hourly_rate',
+    'helpers_total_value',
+    'total_with_helpers',
     'created_at',
     'updated_at',
   ];
@@ -143,11 +151,20 @@ app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
     const durationMinutes = durationMs != null ? Math.round(durationMs / 60000) : null;
     const durationHours = durationMs != null ? Number((durationMs / 3600000).toFixed(2)) : null;
     const totalValue = hourlyRate != null && durationMs != null ? Number(((durationMs / 3600000) * hourlyRate).toFixed(2)) : null;
+    const helpersCount = Number.isFinite(job.helpersCount) ? job.helpersCount : 0;
+    const helpersTotalValue = helperHourlyRate != null && durationMs != null && helpersCount > 0
+      ? Number(((durationMs / 3600000) * helperHourlyRate * helpersCount).toFixed(2))
+      : null;
+    const totalWithHelpers = totalValue != null && helpersTotalValue != null
+      ? Number((totalValue + helpersTotalValue).toFixed(2))
+      : totalValue ?? helpersTotalValue;
     const driverName = job.driverId ? driversById.get(job.driverId)?.name ?? '' : '';
     rows.push([
       job.id,
       job.clientName,
       driverName,
+      job.description ?? '',
+      helpersCount,
       job.pickup?.address ?? '',
       job.dropoff?.address ?? '',
       job.scheduledDate ?? '',
@@ -158,6 +175,9 @@ app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
       durationHours,
       hourlyRate,
       totalValue,
+      helperHourlyRate,
+      helpersTotalValue,
+      totalWithHelpers,
       job.createdAt,
       job.updatedAt,
     ]);
@@ -212,6 +232,28 @@ app.put(`${API_PREFIX}/settings/hourly-rate`, (req, res) => {
   res.json({ hourlyRate });
 });
 
+app.get(`${API_PREFIX}/settings/helper-hourly-rate`, (_req, res) => {
+  const stored = getSetting('helperHourlyRate');
+  const hourlyRate = typeof stored === 'number' && Number.isFinite(stored) ? stored : null;
+  res.json({ hourlyRate });
+});
+
+app.put(`${API_PREFIX}/settings/helper-hourly-rate`, (req, res) => {
+  const body = req.body ?? {};
+  if (body.hourlyRate == null || body.hourlyRate === '') {
+    setSetting('helperHourlyRate', null);
+    res.json({ hourlyRate: null });
+    return;
+  }
+  if (!isFiniteNumber(body.hourlyRate) || body.hourlyRate < 0) {
+    res.status(400).json({ error: 'Invalid hourlyRate' });
+    return;
+  }
+  const saved = setSetting('helperHourlyRate', body.hourlyRate);
+  const hourlyRate = typeof saved === 'number' && Number.isFinite(saved) ? saved : null;
+  res.json({ hourlyRate });
+});
+
 app.post(`${API_PREFIX}/jobs`, (req, res) => {
   const body = req.body ?? {};
   if (!isNonEmptyString(body.id)) {
@@ -232,6 +274,14 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
   }
   if (!ALLOWED_STATUSES.has(body.status)) {
     res.status(400).json({ error: 'Invalid status' });
+    return;
+  }
+  if (body.description != null && typeof body.description !== 'string') {
+    res.status(400).json({ error: 'Invalid description' });
+    return;
+  }
+  if (body.helpersCount != null && !isNonNegativeInteger(body.helpersCount)) {
+    res.status(400).json({ error: 'Invalid helpersCount' });
     return;
   }
   if (body.driverId) {
@@ -261,6 +311,14 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
   }
   if (body.extraStops != null && !isLocationArray(body.extraStops)) {
     res.status(400).json({ error: 'Invalid extraStops' });
+    return;
+  }
+  if (body.description != null && typeof body.description !== 'string') {
+    res.status(400).json({ error: 'Invalid description' });
+    return;
+  }
+  if (body.helpersCount != null && !isNonNegativeInteger(body.helpersCount)) {
+    res.status(400).json({ error: 'Invalid helpersCount' });
     return;
   }
   if (body.driverId) {

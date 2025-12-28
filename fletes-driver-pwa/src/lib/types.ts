@@ -20,8 +20,8 @@ export interface DriverLocation {
   updatedAt: string;
 }
 export interface Job {
-  id: string; clientName: string; clientPhone?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
-  notes?: string; status: JobStatus; driverId?: string | null;
+  id: string; clientName: string; clientPhone?: string; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
+  notes?: string; helpersCount?: number; status: JobStatus; driverId?: string | null;
   scheduledDate?: string; scheduledTime?: string; scheduledAt?: number;
   flags: { nearPickupSent: boolean; arrivedPickupSent: boolean; nearDropoffSent: boolean; arrivedDropoffSent: boolean; };
   timestamps: { startJobAt?: string; startLoadingAt?: string; endLoadingAt?: string; startTripAt?: string; endTripAt?: string; startUnloadingAt?: string; endUnloadingAt?: string; };
