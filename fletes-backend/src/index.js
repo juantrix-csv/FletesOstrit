@@ -8,10 +8,13 @@ import {
   getDriverByCode,
   getDriverById,
   getJob,
+  getSetting,
+  listCompletedJobs,
   listDrivers,
   listDriverLocations,
   listJobs,
   seedJobsIfEmpty,
+  setSetting,
   upsertDriverLocation,
   updateDriver,
   updateJob,
@@ -39,6 +42,33 @@ const isLocation = (value) => (
   Number.isFinite(value.lng)
 );
 const isLocationArray = (value) => Array.isArray(value) && value.every(isLocation);
+
+const parseTimestampMs = (value) => {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const getJobStartMs = (job) =>
+  parseTimestampMs(job.timestamps?.startJobAt)
+  ?? parseTimestampMs(job.timestamps?.startLoadingAt)
+  ?? parseTimestampMs(job.timestamps?.startTripAt)
+  ?? parseTimestampMs(job.timestamps?.startUnloadingAt)
+  ?? null;
+
+const getJobEndMs = (job) =>
+  parseTimestampMs(job.timestamps?.endUnloadingAt)
+  ?? parseTimestampMs(job.timestamps?.endTripAt)
+  ?? null;
+
+const csvValue = (value) => {
+  if (value == null) return '';
+  const text = String(value);
+  if (/[",\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+};
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -82,6 +112,62 @@ app.get(`${API_PREFIX}/jobs`, (_req, res) => {
   res.json(listJobs());
 });
 
+app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
+  const completed = listCompletedJobs();
+  const drivers = listDrivers();
+  const driversById = new Map(drivers.map((driver) => [driver.id, driver]));
+  const storedRate = getSetting('hourlyRate');
+  const hourlyRate = typeof storedRate === 'number' && Number.isFinite(storedRate) ? storedRate : null;
+  const header = [
+    'job_id',
+    'client_name',
+    'driver_name',
+    'pickup_address',
+    'dropoff_address',
+    'scheduled_date',
+    'scheduled_time',
+    'start_time',
+    'end_time',
+    'duration_minutes',
+    'duration_hours',
+    'hourly_rate',
+    'total_value',
+    'created_at',
+    'updated_at',
+  ];
+  const rows = [header];
+  completed.forEach((job) => {
+    const startMs = getJobStartMs(job);
+    const endMs = getJobEndMs(job);
+    const durationMs = startMs != null && endMs != null ? Math.max(0, endMs - startMs) : null;
+    const durationMinutes = durationMs != null ? Math.round(durationMs / 60000) : null;
+    const durationHours = durationMs != null ? Number((durationMs / 3600000).toFixed(2)) : null;
+    const totalValue = hourlyRate != null && durationMs != null ? Number(((durationMs / 3600000) * hourlyRate).toFixed(2)) : null;
+    const driverName = job.driverId ? driversById.get(job.driverId)?.name ?? '' : '';
+    rows.push([
+      job.id,
+      job.clientName,
+      driverName,
+      job.pickup?.address ?? '',
+      job.dropoff?.address ?? '',
+      job.scheduledDate ?? '',
+      job.scheduledTime ?? '',
+      startMs != null ? new Date(startMs).toISOString() : '',
+      endMs != null ? new Date(endMs).toISOString() : '',
+      durationMinutes,
+      durationHours,
+      hourlyRate,
+      totalValue,
+      job.createdAt,
+      job.updatedAt,
+    ]);
+  });
+  const csv = rows.map((row) => row.map(csvValue).join(',')).join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="historial-fletes.csv"');
+  res.send(csv);
+});
+
 app.get(`${API_PREFIX}/jobs/:id`, (req, res) => {
   const job = getJob(req.params.id);
   if (!job) {
@@ -102,6 +188,28 @@ app.get(`${API_PREFIX}/jobs/:id`, (req, res) => {
     return;
   }
   res.json(job);
+});
+
+app.get(`${API_PREFIX}/settings/hourly-rate`, (_req, res) => {
+  const stored = getSetting('hourlyRate');
+  const hourlyRate = typeof stored === 'number' && Number.isFinite(stored) ? stored : null;
+  res.json({ hourlyRate });
+});
+
+app.put(`${API_PREFIX}/settings/hourly-rate`, (req, res) => {
+  const body = req.body ?? {};
+  if (body.hourlyRate == null || body.hourlyRate === '') {
+    setSetting('hourlyRate', null);
+    res.json({ hourlyRate: null });
+    return;
+  }
+  if (!isFiniteNumber(body.hourlyRate) || body.hourlyRate < 0) {
+    res.status(400).json({ error: 'Invalid hourlyRate' });
+    return;
+  }
+  const saved = setSetting('hourlyRate', body.hourlyRate);
+  const hourlyRate = typeof saved === 'number' && Number.isFinite(saved) ? saved : null;
+  res.json({ hourlyRate });
 });
 
 app.post(`${API_PREFIX}/jobs`, (req, res) => {

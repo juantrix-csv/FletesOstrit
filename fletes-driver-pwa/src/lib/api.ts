@@ -59,3 +59,19 @@ export const deleteDriver = async (id: string) => {
 export const listDriverLocations = () => fetchJson<DriverLocation[]>('/driver-locations');
 export const updateDriverLocation = (payload: Omit<DriverLocation, 'updatedAt'> & { driverCode?: string }) =>
   fetchJson<DriverLocation>('/driver-locations', { method: 'POST', body: JSON.stringify(payload) });
+
+export const getHourlyRate = () => fetchJson<{ hourlyRate: number | null }>('/settings/hourly-rate');
+export const setHourlyRate = (hourlyRate: number | null) =>
+  fetchJson<{ hourlyRate: number | null }>('/settings/hourly-rate', {
+    method: 'PUT',
+    body: JSON.stringify({ hourlyRate }),
+  });
+
+export const downloadJobsHistory = async () => {
+  const res = await fetch(`${API_BASE}/jobs/history/export`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.blob();
+};

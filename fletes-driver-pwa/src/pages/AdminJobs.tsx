@@ -11,9 +11,12 @@ import {
   createJob,
   deleteDriver,
   deleteJob,
+  downloadJobsHistory,
+  getHourlyRate,
   listDriverLocations,
   listDrivers,
   listJobs,
+  setHourlyRate,
   updateDriver,
   updateJob,
 } from '../lib/api';
@@ -21,7 +24,6 @@ import { cn, formatDuration, getScheduledAtMs } from '../lib/utils';
 import { reorderList } from '../lib/reorder';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
-const RATE_STORAGE_KEY = 'fletes-hourly-rate';
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
@@ -84,10 +86,8 @@ export default function AdminJobs() {
   const [driverPhone, setDriverPhone] = useState('');
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
-  const [hourlyRateInput, setHourlyRateInput] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem(RATE_STORAGE_KEY) ?? '';
-  });
+  const [hourlyRateInput, setHourlyRateInput] = useState('');
+  const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const locationsLoadedRef = useRef(false);
 
   const driversById = useMemo(() => {
@@ -96,15 +96,6 @@ export default function AdminJobs() {
     return map;
   }, [drivers]);
   const hourlyRateValue = useMemo(() => parseHourlyRate(hourlyRateInput), [hourlyRateInput]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (hourlyRateInput.trim()) {
-      localStorage.setItem(RATE_STORAGE_KEY, hourlyRateInput.trim());
-    } else {
-      localStorage.removeItem(RATE_STORAGE_KEY);
-    }
-  }, [hourlyRateInput]);
 
   const loadJobs = async () => {
     try {
@@ -147,6 +138,15 @@ export default function AdminJobs() {
     }
   };
 
+  const loadHourlyRate = async () => {
+    try {
+      const data = await getHourlyRate();
+      setHourlyRateInput(data.hourlyRate != null ? String(data.hourlyRate) : '');
+    } catch {
+      toast.error('No se pudo cargar el precio hora');
+    }
+  };
+
   const addExtraStop = (location: LocationData | null) => {
     if (!location) return;
     setExtraStops((prev) => [...prev, location]);
@@ -168,6 +168,7 @@ export default function AdminJobs() {
     loadJobs();
     loadDrivers();
     loadDriverLocations();
+    loadHourlyRate();
     const id = window.setInterval(loadDriverLocations, 12000);
     return () => clearInterval(id);
   }, []);
@@ -281,6 +282,40 @@ export default function AdminJobs() {
   const handleSelectDriverMap = (driverId: string) => {
     setSelectedDriverId(driverId);
     loadDriverLocations();
+  };
+
+  const handleSaveHourlyRate = async () => {
+    const parsed = parseHourlyRate(hourlyRateInput);
+    if (hourlyRateInput.trim() && parsed == null) {
+      toast.error('Precio hora invalido');
+      return;
+    }
+    try {
+      setSavingHourlyRate(true);
+      const saved = await setHourlyRate(parsed);
+      setHourlyRateInput(saved.hourlyRate != null ? String(saved.hourlyRate) : '');
+      toast.success('Precio hora actualizado');
+    } catch {
+      toast.error('No se pudo guardar el precio hora');
+    } finally {
+      setSavingHourlyRate(false);
+    }
+  };
+
+  const handleDownloadHistory = async () => {
+    try {
+      const blob = await downloadJobsHistory();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'historial-fletes.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('No se pudo descargar el historial');
+    }
   };
 
   const totalJobs = jobs.length;
@@ -728,6 +763,14 @@ export default function AdminJobs() {
                     onChange={(event) => setHourlyRateInput(event.target.value)}
                     className="mt-2 w-full rounded border px-2 py-1 text-sm"
                   />
+                  <button
+                    type="button"
+                    onClick={handleSaveHourlyRate}
+                    disabled={savingHourlyRate}
+                    className="mt-2 w-full rounded border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingHourlyRate ? 'Guardando...' : 'Guardar precio hora'}
+                  </button>
                   <p className="mt-2 text-xs text-gray-500">Total estimado: {totalRevenueLabel}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
@@ -748,7 +791,16 @@ export default function AdminJobs() {
                     <p className="text-xs uppercase tracking-wide text-gray-400">Historial</p>
                     <p className="text-lg font-semibold text-gray-900">Fletes realizados</p>
                   </div>
-                  <span className="text-xs text-gray-500">{completedHistory.length} completados</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">{completedHistory.length} completados</span>
+                    <button
+                      type="button"
+                      onClick={handleDownloadHistory}
+                      className="rounded border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700"
+                    >
+                      Descargar Excel
+                    </button>
+                  </div>
                 </div>
                 {completedHistory.length === 0 ? (
                   <p className="mt-3 text-sm text-gray-500">No hay fletes completados aun.</p>

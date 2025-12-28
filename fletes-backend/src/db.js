@@ -32,6 +32,13 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+`);
+
 const ensureJobsColumns = () => {
   const columns = db.prepare('PRAGMA table_info(jobs)').all().map((col) => col.name);
   if (!columns.includes('driverId')) {
@@ -196,12 +203,24 @@ const updateStmt = db.prepare(`
   WHERE id = @id;
 `);
 
+const getSettingStmt = db.prepare('SELECT value FROM settings WHERE key = ?');
+const upsertSettingStmt = db.prepare(`
+  INSERT INTO settings (key, value)
+  VALUES (?, ?)
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+`);
+
 export const listJobs = (opts = {}) => {
   if (opts.driverId) {
     const rows = db.prepare('SELECT * FROM jobs WHERE driverId = ? ORDER BY createdAt DESC').all(opts.driverId);
     return rows.map(fromRow);
   }
   const rows = db.prepare('SELECT * FROM jobs ORDER BY createdAt DESC').all();
+  return rows.map(fromRow);
+};
+
+export const listCompletedJobs = () => {
+  const rows = db.prepare('SELECT * FROM jobs WHERE status = ? ORDER BY updatedAt DESC').all('DONE');
   return rows.map(fromRow);
 };
 
@@ -255,6 +274,18 @@ export const updateJob = (id, patch) => {
 export const deleteJob = (id) => {
   const info = db.prepare('DELETE FROM jobs WHERE id = ?').run(id);
   return info.changes > 0;
+};
+
+export const getSetting = (key) => {
+  const row = getSettingStmt.get(key);
+  if (!row) return null;
+  return parseJson(row.value, row.value);
+};
+
+export const setSetting = (key, value) => {
+  const storedValue = JSON.stringify(value);
+  upsertSettingStmt.run(key, storedValue);
+  return getSetting(key);
 };
 
 const toDriverRow = (driver) => ({
