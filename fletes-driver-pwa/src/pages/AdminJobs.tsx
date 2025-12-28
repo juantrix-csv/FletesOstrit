@@ -490,8 +490,8 @@ export default function AdminJobs() {
   }, [dailyRevenueMaxValue]);
   const monthlyRevenueSeries = useMemo(() => {
     const now = new Date();
-    const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const label = `${monthShortFormatter.format(date)} ${String(date.getFullYear()).slice(-2)}`;
       return { key, label, total: 0 };
@@ -518,6 +518,9 @@ export default function AdminJobs() {
     const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => item.total));
     return maxValue;
   }, [monthlyRevenueSeries]);
+  const yearlyTotalLabel = monthlyRevenueSeries.length > 0
+    ? currencyFormatter.format(monthlyRevenueSeries.reduce((sum, item) => sum + item.total, 0))
+    : currencyFormatter.format(0);
   const monthlyRevenueScaleMax = monthlyRevenueMaxValue > 0 ? monthlyRevenueMaxValue : 1;
   const monthlyRevenueTicks = useMemo(() => {
     const steps = 4;
@@ -1083,11 +1086,14 @@ export default function AdminJobs() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos por mes</p>
-                    <p className="text-lg font-semibold text-gray-900">Progreso de los ultimos 6 meses</p>
+                    <p className="text-lg font-semibold text-gray-900">Progreso de los ultimos 12 meses</p>
                   </div>
                   {!hasMonthlyPricing && (
                     <span className="text-xs text-amber-600">Configura precios para ver montos</span>
                   )}
+                </div>
+                <div className="mt-3 text-3xl font-semibold text-emerald-600">
+                  {yearlyTotalLabel}
                 </div>
                 <div className="mt-4">
                   <svg viewBox="0 0 600 220" className="h-44 w-full">
