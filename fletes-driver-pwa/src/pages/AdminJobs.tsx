@@ -466,7 +466,11 @@ export default function AdminJobs() {
         : 0;
       target.total += jobValue + helpersValue;
     });
-    return series;
+    let runningTotal = 0;
+    return series.map((item) => {
+      runningTotal += item.total;
+      return { ...item, total: runningTotal };
+    });
   }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
   const dailyRevenueMaxValue = useMemo(() => {
     const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => item.total));
@@ -999,8 +1003,8 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos diarios</p>
-                    <p className="text-lg font-semibold text-gray-900">Mes actual: {currentMonthLabel}</p>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos diarios acumulados</p>
+                    <p className="text-lg font-semibold text-gray-900">Progreso del mes: {currentMonthLabel}</p>
                   </div>
                   {!hasMonthlyPricing && (
                     <span className="text-xs text-amber-600">Configura precios para ver montos</span>
