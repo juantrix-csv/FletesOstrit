@@ -34,6 +34,12 @@ const csvValue = (value) => {
   return text;
 };
 
+const getBilledHours = (durationMs) => {
+  if (durationMs == null) return null;
+  if (durationMs <= 0) return 0;
+  return Math.ceil(durationMs / 3600000);
+};
+
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
 const formatDate = (date) => {
@@ -132,10 +138,11 @@ const handleExport = async (res) => {
     const durationMs = startMs != null && endMs != null ? Math.max(0, endMs - startMs) : null;
     const durationMinutes = durationMs != null ? Math.round(durationMs / 60000) : null;
     const durationHours = durationMs != null ? Number((durationMs / 3600000).toFixed(2)) : null;
-    const totalValue = hourlyRate != null && durationMs != null ? Number(((durationMs / 3600000) * hourlyRate).toFixed(2)) : null;
+    const billedHours = getBilledHours(durationMs);
+    const totalValue = hourlyRate != null && billedHours != null ? Number((billedHours * hourlyRate).toFixed(2)) : null;
     const helpersCount = Number.isFinite(job.helpersCount) ? job.helpersCount : 0;
-    const helpersTotalValue = helperHourlyRate != null && durationMs != null && helpersCount > 0
-      ? Number(((durationMs / 3600000) * helperHourlyRate * helpersCount).toFixed(2))
+    const helpersTotalValue = helperHourlyRate != null && billedHours != null && helpersCount > 0
+      ? Number((billedHours * helperHourlyRate * helpersCount).toFixed(2))
       : null;
     const totalWithHelpers = totalValue != null && helpersTotalValue != null
       ? Number((totalValue + helpersTotalValue).toFixed(2))

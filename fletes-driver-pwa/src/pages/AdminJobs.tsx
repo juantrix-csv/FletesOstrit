@@ -68,6 +68,12 @@ const formatDurationMs = (ms: number) => {
   return `${hours} h ${minutes} min`;
 };
 
+const getBilledHours = (ms: number | null) => {
+  if (ms == null) return null;
+  if (ms <= 0) return 0;
+  return Math.ceil(ms / 3600000);
+};
+
 export default function AdminJobs() {
   const [tab, setTab] = useState<'jobs' | 'drivers' | 'analytics'>('jobs');
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -387,7 +393,9 @@ export default function AdminJobs() {
     if (hourlyRateValue == null) return null;
     return completedHistory.reduce((sum, entry) => {
       if (entry.durationMs == null) return sum;
-      return sum + (entry.durationMs / 3600000) * hourlyRateValue;
+      const billedHours = getBilledHours(entry.durationMs);
+      if (billedHours == null) return sum;
+      return sum + billedHours * hourlyRateValue;
     }, 0);
   }, [completedHistory, hourlyRateValue]);
   const totalHelperCost = useMemo(() => {
@@ -396,7 +404,9 @@ export default function AdminJobs() {
       if (entry.durationMs == null) return sum;
       const helpersCount = entry.job.helpersCount ?? 0;
       if (helpersCount <= 0) return sum;
-      return sum + (entry.durationMs / 3600000) * helperHourlyRateValue * helpersCount;
+      const billedHours = getBilledHours(entry.durationMs);
+      if (billedHours == null) return sum;
+      return sum + billedHours * helperHourlyRateValue * helpersCount;
     }, 0);
   }, [completedHistory, helperHourlyRateValue]);
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
@@ -904,11 +914,12 @@ export default function AdminJobs() {
                       const driver = entry.job.driverId ? driversById.get(entry.job.driverId) : null;
                       const durationLabel = entry.durationMs != null ? formatDurationMs(entry.durationMs) : 'Sin tiempos';
                       const helpersCount = entry.job.helpersCount ?? 0;
+                      const billedHours = getBilledHours(entry.durationMs);
                       const jobValue = hourlyRateValue != null && entry.durationMs != null
-                        ? (entry.durationMs / 3600000) * hourlyRateValue
+                        ? (billedHours ?? 0) * hourlyRateValue
                         : null;
                       const helpersValue = helperHourlyRateValue != null && entry.durationMs != null && helpersCount > 0
-                        ? (entry.durationMs / 3600000) * helperHourlyRateValue * helpersCount
+                        ? (billedHours ?? 0) * helperHourlyRateValue * helpersCount
                         : null;
                       const totalValue = jobValue != null || helpersValue != null
                         ? (jobValue ?? 0) + (helpersValue ?? 0)
