@@ -21,6 +21,48 @@ import { cn, formatDuration, getScheduledAtMs } from '../lib/utils';
 import { reorderList } from '../lib/reorder';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
+const RATE_STORAGE_KEY = 'fletes-hourly-rate';
+const currencyFormatter = new Intl.NumberFormat('es-AR', {
+  style: 'currency',
+  currency: 'ARS',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+const parseHourlyRate = (value: string) => {
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+};
+
+const parseTimestampMs = (value?: string) => {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const getJobStartMs = (job: Job) =>
+  parseTimestampMs(job.timestamps.startJobAt)
+  ?? parseTimestampMs(job.timestamps.startLoadingAt)
+  ?? parseTimestampMs(job.timestamps.startTripAt)
+  ?? parseTimestampMs(job.timestamps.startUnloadingAt)
+  ?? null;
+
+const getJobEndMs = (job: Job) =>
+  parseTimestampMs(job.timestamps.endUnloadingAt)
+  ?? parseTimestampMs(job.timestamps.endTripAt)
+  ?? null;
+
+const formatDurationMs = (ms: number) => {
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes} min`;
+  if (minutes === 0) return `${hours} h`;
+  return `${hours} h ${minutes} min`;
+};
 
 export default function AdminJobs() {
   const [tab, setTab] = useState<'jobs' | 'drivers' | 'analytics'>('jobs');
@@ -42,6 +84,10 @@ export default function AdminJobs() {
   const [driverPhone, setDriverPhone] = useState('');
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [hourlyRateInput, setHourlyRateInput] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return localStorage.getItem(RATE_STORAGE_KEY) ?? '';
+  });
   const locationsLoadedRef = useRef(false);
 
   const driversById = useMemo(() => {
@@ -49,6 +95,16 @@ export default function AdminJobs() {
     drivers.forEach((driver) => map.set(driver.id, driver));
     return map;
   }, [drivers]);
+  const hourlyRateValue = useMemo(() => parseHourlyRate(hourlyRateInput), [hourlyRateInput]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (hourlyRateInput.trim()) {
+      localStorage.setItem(RATE_STORAGE_KEY, hourlyRateInput.trim());
+    } else {
+      localStorage.removeItem(RATE_STORAGE_KEY);
+    }
+  }, [hourlyRateInput]);
 
   const loadJobs = async () => {
     try {
@@ -232,6 +288,34 @@ export default function AdminJobs() {
   const assignedJobs = jobs.filter((job) => job.driverId).length;
   const activeJobs = jobs.filter((job) => job.status !== 'DONE').length;
   const unassignedJobs = totalJobs - assignedJobs;
+  const completedHistory = useMemo(() => {
+    const entries = jobs
+      .filter((job) => job.status === 'DONE')
+      .map((job) => {
+        const startMs = getJobStartMs(job);
+        const endMs = getJobEndMs(job);
+        const durationMs = startMs != null && endMs != null ? Math.max(0, endMs - startMs) : null;
+        return { job, startMs, endMs, durationMs };
+      });
+    entries.sort((a, b) => (b.endMs ?? 0) - (a.endMs ?? 0));
+    return entries;
+  }, [jobs]);
+  const averageDurationMs = useMemo(() => {
+    const durations = completedHistory.map((entry) => entry.durationMs).filter((value): value is number => value != null);
+    if (durations.length === 0) return null;
+    const total = durations.reduce((sum, value) => sum + value, 0);
+    return total / durations.length;
+  }, [completedHistory]);
+  const totalRevenue = useMemo(() => {
+    if (hourlyRateValue == null) return null;
+    return completedHistory.reduce((sum, entry) => {
+      if (entry.durationMs == null) return sum;
+      return sum + (entry.durationMs / 3600000) * hourlyRateValue;
+    }, 0);
+  }, [completedHistory, hourlyRateValue]);
+  const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
+  const averageDurationLabel = averageDurationMs != null ? formatDurationMs(averageDurationMs) : 'N/D';
+  const totalRevenueLabel = totalRevenue != null ? currencyFormatter.format(totalRevenue) : 'Configura el precio';
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
     driverLocations.forEach((loc) => map.set(loc.driverId, loc));
@@ -612,36 +696,91 @@ export default function AdminJobs() {
           )}
 
           {tab === 'analytics' && (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Total fletes</p>
-                <p className="text-2xl font-semibold text-gray-900">{totalJobs}</p>
-                <p className="text-xs text-gray-500">Placeholder para comparativas futuras.</p>
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Total fletes</p>
+                  <p className="text-2xl font-semibold text-gray-900">{totalJobs}</p>
+                  <p className="text-xs text-gray-500">Incluye activos y completados.</p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Conductores activos</p>
+                  <p className="text-2xl font-semibold text-gray-900">{activeDrivers}</p>
+                  <p className="text-xs text-gray-500">Disponibilidad actual.</p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Tiempo promedio</p>
+                  <p className="text-2xl font-semibold text-gray-900">{averageDurationLabel}</p>
+                  <p className="text-xs text-gray-500">
+                    {completedHistory.length === 0 ? 'Aun no hay historicos.' : `Sobre ${completedHistory.length} completados.`}
+                  </p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Precio hora actual</p>
+                  <p className="text-2xl font-semibold text-gray-900">{hourlyRateLabel}</p>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    placeholder="Ej: 15000"
+                    value={hourlyRateInput}
+                    onChange={(event) => setHourlyRateInput(event.target.value)}
+                    className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                  />
+                  <p className="mt-2 text-xs text-gray-500">Total estimado: {totalRevenueLabel}</p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Fletes activos</p>
+                  <p className="text-2xl font-semibold text-gray-900">{activeJobs}</p>
+                  <p className="text-xs text-gray-500">En curso y pendientes.</p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Sin asignar</p>
+                  <p className="text-2xl font-semibold text-gray-900">{unassignedJobs}</p>
+                  <p className="text-xs text-gray-500">Pendientes de conductor.</p>
+                </div>
               </div>
+
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Conductores activos</p>
-                <p className="text-2xl font-semibold text-gray-900">{activeDrivers}</p>
-                <p className="text-xs text-gray-500">Placeholder para disponibilidad.</p>
-              </div>
-              <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Tiempo promedio</p>
-                <p className="text-2xl font-semibold text-gray-900">Proximamente</p>
-                <p className="text-xs text-gray-500">Se calculara con historicos.</p>
-              </div>
-              <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Cumplimiento</p>
-                <p className="text-2xl font-semibold text-gray-900">Proximamente</p>
-                <p className="text-xs text-gray-500">Indicadores personalizados.</p>
-              </div>
-              <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Fletes activos</p>
-                <p className="text-2xl font-semibold text-gray-900">{activeJobs}</p>
-                <p className="text-xs text-gray-500">En curso y pendientes.</p>
-              </div>
-              <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Sin asignar</p>
-                <p className="text-2xl font-semibold text-gray-900">{unassignedJobs}</p>
-                <p className="text-xs text-gray-500">Pendientes de conductor.</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Historial</p>
+                    <p className="text-lg font-semibold text-gray-900">Fletes realizados</p>
+                  </div>
+                  <span className="text-xs text-gray-500">{completedHistory.length} completados</span>
+                </div>
+                {completedHistory.length === 0 ? (
+                  <p className="mt-3 text-sm text-gray-500">No hay fletes completados aun.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {completedHistory.map((entry) => {
+                      const driver = entry.job.driverId ? driversById.get(entry.job.driverId) : null;
+                      const durationLabel = entry.durationMs != null ? formatDurationMs(entry.durationMs) : 'Sin tiempos';
+                      const valueLabel = hourlyRateValue != null && entry.durationMs != null
+                        ? currencyFormatter.format((entry.durationMs / 3600000) * hourlyRateValue)
+                        : hourlyRateValue == null
+                          ? 'Defini precio hora'
+                          : 'Sin tiempos';
+                      const endLabel = entry.endMs != null ? new Date(entry.endMs).toLocaleString() : 'Sin datos';
+                      return (
+                        <div key={entry.job.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-gray-900">{entry.job.clientName}</p>
+                              <p className="text-xs text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
+                              <p className="text-xs text-gray-500">Finalizado: {endLabel}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-semibold text-gray-900">{valueLabel}</p>
+                              <p className="text-xs text-gray-500">Duracion: {durationLabel}</p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}
