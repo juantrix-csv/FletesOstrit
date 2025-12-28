@@ -34,6 +34,7 @@ export default function AdminJobs() {
   const [extraStops, setExtraStops] = useState<LocationData[]>([]);
   const [extraStopDraft, setExtraStopDraft] = useState<LocationData | null>(null);
   const [extraStopKey, setExtraStopKey] = useState(0);
+  const [draggedStopIndex, setDraggedStopIndex] = useState<number | null>(null);
   const [mapTarget, setMapTarget] = useState<'pickup' | 'dropoff' | 'extra'>('pickup');
   const [driverName, setDriverName] = useState('');
   const [driverCode, setDriverCode] = useState('');
@@ -98,6 +99,17 @@ export default function AdminJobs() {
 
   const removeExtraStop = (index: number) => {
     setExtraStops((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleReorderStop = (targetIndex: number) => {
+    if (draggedStopIndex == null || draggedStopIndex === targetIndex) return;
+    setExtraStops((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(draggedStopIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setDraggedStopIndex(null);
   };
 
   useEffect(() => {
@@ -365,8 +377,20 @@ export default function AdminJobs() {
                         <p className="text-xs text-gray-500">Sin paradas extra.</p>
                       ) : (
                         <div className="space-y-1">
+                          <p className="text-[11px] text-gray-400">Arrastra para reordenar.</p>
                           {extraStops.map((stop, index) => (
-                            <div key={`${stop.lat}-${stop.lng}-${index}`} className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600">
+                            <div
+                              key={`${stop.lat}-${stop.lng}-${index}`}
+                              draggable
+                              onDragStart={() => setDraggedStopIndex(index)}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={() => handleReorderStop(index)}
+                              onDragEnd={() => setDraggedStopIndex(null)}
+                              className={cn(
+                                "flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
+                                draggedStopIndex === index ? "opacity-60" : "cursor-grab"
+                              )}
+                            >
                               <span className="truncate">{stop.address}</span>
                               <button
                                 type="button"
