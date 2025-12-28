@@ -100,6 +100,10 @@ export default function AdminJobs() {
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
+  const [assignedFilter, setAssignedFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending'>('all');
+  const [dateFilter, setDateFilter] = useState('');
+  const [driverFilter, setDriverFilter] = useState('');
   const locationsLoadedRef = useRef(false);
 
   const driversById = useMemo(() => {
@@ -536,6 +540,25 @@ export default function AdminJobs() {
     driverLocations.forEach((loc) => map.set(loc.driverId, loc));
     return map;
   }, [driverLocations]);
+  const filteredJobs = useMemo(() => {
+    let result = jobs;
+    if (assignedFilter === 'assigned') {
+      result = result.filter((job) => job.driverId);
+    } else if (assignedFilter === 'unassigned') {
+      result = result.filter((job) => !job.driverId);
+    }
+    if (statusFilter === 'pending') {
+      result = result.filter((job) => job.status === 'PENDING');
+    }
+    if (dateFilter) {
+      result = result.filter((job) => job.scheduledDate === dateFilter);
+    }
+    if (driverFilter) {
+      result = result.filter((job) => job.driverId === driverFilter);
+    }
+    return result;
+  }, [jobs, assignedFilter, statusFilter, dateFilter, driverFilter]);
+  const hasFilters = assignedFilter !== 'all' || statusFilter !== 'all' || dateFilter !== '' || driverFilter !== '';
   const selectedDriver = selectedDriverId ? driversById.get(selectedDriverId) : null;
   const selectedLocation = selectedDriverId ? driverLocationsById.get(selectedDriverId) ?? null : null;
   const selectedJob = useMemo(() => {
@@ -782,9 +805,83 @@ export default function AdminJobs() {
               </div>
 
               <div className="space-y-3">
+                {!loadingJobs && (
+                  <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Filtros</p>
+                      {hasFilters && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAssignedFilter('all');
+                            setStatusFilter('all');
+                            setDateFilter('');
+                            setDriverFilter('');
+                          }}
+                          className="text-xs font-semibold text-blue-600"
+                        >
+                          Limpiar filtros
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <label className="text-xs text-gray-500">
+                        Asignacion
+                        <select
+                          value={assignedFilter}
+                          onChange={(event) => setAssignedFilter(event.target.value as typeof assignedFilter)}
+                          className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                        >
+                          <option value="all">Todos</option>
+                          <option value="assigned">Asignados</option>
+                          <option value="unassigned">Sin asignar</option>
+                        </select>
+                      </label>
+                      <label className="text-xs text-gray-500">
+                        Estado
+                        <select
+                          value={statusFilter}
+                          onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+                          className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                        >
+                          <option value="all">Todos</option>
+                          <option value="pending">Pendientes</option>
+                        </select>
+                      </label>
+                      <label className="text-xs text-gray-500">
+                        Fecha
+                        <input
+                          type="date"
+                          value={dateFilter}
+                          onChange={(event) => setDateFilter(event.target.value)}
+                          className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                        />
+                      </label>
+                      <label className="text-xs text-gray-500">
+                        Conductor
+                        <select
+                          value={driverFilter}
+                          onChange={(event) => setDriverFilter(event.target.value)}
+                          disabled={assignedFilter === 'unassigned'}
+                          className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700 disabled:cursor-not-allowed disabled:bg-gray-100"
+                        >
+                          <option value="">Todos</option>
+                          {drivers.map((driver) => (
+                            <option key={driver.id} value={driver.id}>
+                              {driver.name} ({driver.code})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                )}
                 {loadingJobs && <p className="text-sm text-gray-500">Cargando fletes...</p>}
                 {!loadingJobs && jobs?.length === 0 && <p className="text-sm text-gray-500">No hay fletes cargados.</p>}
-                {!loadingJobs && jobs?.map((job) => {
+                {!loadingJobs && jobs?.length > 0 && filteredJobs.length === 0 && (
+                  <p className="text-sm text-gray-500">No hay fletes para los filtros seleccionados.</p>
+                )}
+                {!loadingJobs && filteredJobs?.map((job) => {
                   const tripStart = job.timestamps.startTripAt ?? job.timestamps.endLoadingAt;
                   const tripEnd = job.timestamps.endTripAt ?? job.timestamps.startUnloadingAt;
                   const loading = formatDuration(job.timestamps.startLoadingAt, job.timestamps.endLoadingAt);
@@ -1210,6 +1307,9 @@ export default function AdminJobs() {
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <p className="font-semibold text-gray-900">{entry.job.clientName}</p>
+                              {entry.job.description && (
+                                <p className="text-xs text-gray-500">Descripcion: {entry.job.description}</p>
+                              )}
                               <p className="text-xs text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
                               <p className="text-xs text-gray-500">Ayudantes: {helpersCount}</p>
                               <p className="text-xs text-gray-500">Finalizado: {endLabel}</p>
