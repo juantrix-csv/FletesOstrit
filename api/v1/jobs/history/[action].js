@@ -61,11 +61,14 @@ const buildDoneJob = ({
   pickup,
   dropoff,
   daysAgo,
+  endAt,
   durationMinutes,
   helpersCount,
   driverId,
 }) => {
-  const end = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+  const end = endAt instanceof Date
+    ? endAt
+    : new Date(Date.now() - (daysAgo ?? 0) * 24 * 60 * 60 * 1000);
   const start = new Date(end.getTime() - durationMinutes * 60 * 1000);
   const startLoadingAt = new Date(start.getTime() + 5 * 60 * 1000);
   const endLoadingAt = new Date(startLoadingAt.getTime() + 10 * 60 * 1000);
@@ -181,8 +184,9 @@ const handleExport = async (res) => {
 
 const handleSeed = async (req, res) => {
   const force = req.query?.force === '1' || req.query?.force === 'true';
+  const append = req.query?.append === '1' || req.query?.append === 'true';
   const existing = await listCompletedJobs();
-  if (existing.length > 0 && !force) {
+  if (existing.length > 0 && !force && !append) {
     res.status(200).json({ seeded: false, count: existing.length });
     return;
   }
@@ -206,41 +210,50 @@ const handleSeed = async (req, res) => {
   const pickupC = { address: 'Universidad Nacional de La Plata', lat: -34.9205, lng: -57.9536 };
   const dropoffC = { address: 'Terminal de Omnibus La Plata', lat: -34.9131, lng: -57.9507 };
 
-  const jobs = [
-    buildDoneJob({
-      clientName: 'Prueba Historial 1',
-      description: 'Mudanza chica',
-      pickup: pickupA,
-      dropoff: dropoffA,
-      daysAgo: 1,
-      durationMinutes: 70,
-      helpersCount: 1,
-      driverId: driver.id,
-    }),
-    buildDoneJob({
-      clientName: 'Prueba Historial 2',
-      description: 'Flete con paradas',
-      pickup: pickupB,
-      dropoff: dropoffB,
-      daysAgo: 3,
-      durationMinutes: 55,
-      helpersCount: 2,
-      driverId: driver.id,
-    }),
-    buildDoneJob({
-      clientName: 'Prueba Historial 3',
-      description: 'Entrega express',
-      pickup: pickupC,
-      dropoff: dropoffC,
-      daysAgo: 6,
-      durationMinutes: 95,
-      helpersCount: 0,
-      driverId: null,
-    }),
+  const templates = [
+    { clientName: 'Prueba Historial A', description: 'Mudanza chica', pickup: pickupA, dropoff: dropoffA, helpersCount: 1 },
+    { clientName: 'Prueba Historial B', description: 'Flete con paradas', pickup: pickupB, dropoff: dropoffB, helpersCount: 2 },
+    { clientName: 'Prueba Historial C', description: 'Entrega express', pickup: pickupC, dropoff: dropoffC, helpersCount: 0 },
+    { clientName: 'Prueba Historial D', description: 'Mudanza completa', pickup: pickupB, dropoff: dropoffA, helpersCount: 3 },
+    { clientName: 'Prueba Historial E', description: 'Traslado urgente', pickup: pickupA, dropoff: dropoffC, helpersCount: 0 },
   ];
+  const durationOptions = [35, 50, 65, 80, 95, 120, 140];
+  const months = Math.min(12, Math.max(1, Number.parseInt(req.query?.months ?? '6', 10) || 6));
+  const perMonth = Math.min(8, Math.max(1, Number.parseInt(req.query?.perMonth ?? '4', 10) || 4));
+  const msInDay = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const jobs = [];
+
+  for (let monthOffset = 0; monthOffset < months; monthOffset += 1) {
+    const baseDate = new Date(now.getFullYear(), now.getMonth() - monthOffset, 1);
+    for (let idx = 0; idx < perMonth; idx += 1) {
+      const template = templates[(monthOffset * perMonth + idx) % templates.length];
+      const day = 2 + ((idx * 6 + monthOffset * 3) % 24);
+      const hour = 8 + ((idx * 3) % 9);
+      const minute = (idx * 13) % 60;
+      const endDate = new Date(baseDate.getFullYear(), baseDate.getMonth(), day, hour, minute, 0, 0);
+      const durationMinutes = durationOptions[(idx + monthOffset) % durationOptions.length];
+      jobs.push(buildDoneJob({
+        clientName: template.clientName,
+        description: template.description,
+        pickup: template.pickup,
+        dropoff: template.dropoff,
+        endAt: endDate,
+        durationMinutes,
+        helpersCount: template.helpersCount,
+        driverId: (idx + monthOffset) % 5 === 0 ? null : driver.id,
+      }));
+    }
+  }
 
   await Promise.all(jobs.map((job) => createJob(job)));
-  res.status(200).json({ seeded: true, count: jobs.length });
+  res.status(200).json({
+    seeded: true,
+    count: jobs.length,
+    months,
+    perMonth,
+    totalExisting: existing.length,
+  });
 };
 
 export default async function handler(req, res) {
