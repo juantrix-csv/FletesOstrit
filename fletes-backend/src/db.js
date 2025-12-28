@@ -18,6 +18,7 @@ db.exec(`
     clientPhone TEXT,
     pickup TEXT NOT NULL,
     dropoff TEXT NOT NULL,
+    extraStops TEXT,
     notes TEXT,
     driverId TEXT,
     status TEXT NOT NULL,
@@ -35,6 +36,9 @@ const ensureJobsColumns = () => {
   const columns = db.prepare('PRAGMA table_info(jobs)').all().map((col) => col.name);
   if (!columns.includes('driverId')) {
     db.exec('ALTER TABLE jobs ADD COLUMN driverId TEXT;');
+  }
+  if (!columns.includes('extraStops')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN extraStops TEXT;');
   }
 };
 
@@ -81,6 +85,8 @@ const parseJson = (value, fallback) => {
   }
 };
 
+const normalizeExtraStops = (value) => (Array.isArray(value) ? value : []);
+
 const BA_UTC_OFFSET_HOURS = 3;
 const BA_TIMEZONE = 'America/Argentina/Buenos_Aires';
 
@@ -126,6 +132,7 @@ const toRow = (job) => ({
   clientPhone: job.clientPhone ?? null,
   pickup: JSON.stringify(job.pickup),
   dropoff: JSON.stringify(job.dropoff),
+  extraStops: JSON.stringify(normalizeExtraStops(job.extraStops)),
   notes: job.notes ?? null,
   driverId: job.driverId ?? null,
   status: job.status,
@@ -144,6 +151,7 @@ const fromRow = (row) => ({
   clientPhone: row.clientPhone ?? undefined,
   pickup: parseJson(row.pickup, null),
   dropoff: parseJson(row.dropoff, null),
+  extraStops: parseJson(row.extraStops, []),
   notes: row.notes ?? undefined,
   driverId: row.driverId ?? undefined,
   status: row.status,
@@ -158,11 +166,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, pickup, dropoff, notes, driverId, status,
+    id, clientName, clientPhone, pickup, dropoff, extraStops, notes, driverId, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @pickup, @dropoff, @notes, @driverId, @status,
+    @id, @clientName, @clientPhone, @pickup, @dropoff, @extraStops, @notes, @driverId, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -174,6 +182,7 @@ const updateStmt = db.prepare(`
     clientPhone = @clientPhone,
     pickup = @pickup,
     dropoff = @dropoff,
+    extraStops = @extraStops,
     notes = @notes,
     driverId = @driverId,
     status = @status,

@@ -31,7 +31,10 @@ export default function AdminJobs() {
   const [open, setOpen] = useState(false);
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
-  const [mapTarget, setMapTarget] = useState<'pickup' | 'dropoff'>('pickup');
+  const [extraStops, setExtraStops] = useState<LocationData[]>([]);
+  const [extraStopDraft, setExtraStopDraft] = useState<LocationData | null>(null);
+  const [extraStopKey, setExtraStopKey] = useState(0);
+  const [mapTarget, setMapTarget] = useState<'pickup' | 'dropoff' | 'extra'>('pickup');
   const [driverName, setDriverName] = useState('');
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
@@ -86,6 +89,17 @@ export default function AdminJobs() {
     }
   };
 
+  const addExtraStop = (location: LocationData | null) => {
+    if (!location) return;
+    setExtraStops((prev) => [...prev, location]);
+    setExtraStopDraft(null);
+    setExtraStopKey((prev) => prev + 1);
+  };
+
+  const removeExtraStop = (index: number) => {
+    setExtraStops((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   useEffect(() => {
     loadJobs();
     loadDrivers();
@@ -114,6 +128,7 @@ export default function AdminJobs() {
         scheduledAt: scheduledAt ?? undefined,
         pickup,
         dropoff,
+        extraStops,
         driverId: driverIdValue || undefined,
         status: 'PENDING',
         flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
@@ -125,6 +140,9 @@ export default function AdminJobs() {
       setOpen(false);
       setPickup(null);
       setDropoff(null);
+      setExtraStops([]);
+      setExtraStopDraft(null);
+      setExtraStopKey((prev) => prev + 1);
       setMapTarget('pickup');
       await loadJobs();
     } catch {
@@ -230,6 +248,7 @@ export default function AdminJobs() {
         return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       })[0] ?? null;
   }, [jobs, selectedDriverId, selectedLocation?.jobId]);
+  const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -322,6 +341,45 @@ export default function AdminJobs() {
                     </div>
                     <AddressAutocomplete label="Origen" placeholder="Buscar origen" onSelect={setPickup} selected={pickup} />
                     <AddressAutocomplete label="Destino" placeholder="Buscar destino" onSelect={setDropoff} selected={dropoff} />
+                    <div className="rounded border bg-gray-50 p-3 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-medium">Paradas extra</p>
+                        <span className="text-xs text-gray-400">{extraStops.length} agregadas</span>
+                      </div>
+                      <AddressAutocomplete
+                        key={extraStopKey}
+                        label="Agregar parada"
+                        placeholder="Buscar parada extra"
+                        onSelect={setExtraStopDraft}
+                        selected={extraStopDraft}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => addExtraStop(extraStopDraft)}
+                        disabled={!extraStopDraft}
+                        className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Agregar parada
+                      </button>
+                      {extraStops.length === 0 ? (
+                        <p className="text-xs text-gray-500">Sin paradas extra.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {extraStops.map((stop, index) => (
+                            <div key={`${stop.lat}-${stop.lng}-${index}`} className="flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600">
+                              <span className="truncate">{stop.address}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeExtraStop(index)}
+                                className="text-amber-600"
+                              >
+                                Quitar
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <select name="driverId" className="w-full border p-2">
                       <option value="">Sin asignar</option>
                       {drivers.map((driver) => (
@@ -354,18 +412,33 @@ export default function AdminJobs() {
                           >
                             Destino
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setMapTarget('extra')}
+                            className={cn(
+                              "rounded border px-2 py-1 text-xs",
+                              mapTarget === 'extra' ? "border-amber-500 bg-amber-500 text-white" : "bg-white text-gray-600"
+                            )}
+                          >
+                            Parada
+                          </button>
                         </div>
                       </div>
-                      <p className="text-xs text-gray-500">Click en el mapa para asignar {mapTarget === 'pickup' ? 'origen' : 'destino'}.</p>
+                      <p className="text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
                       <MapLocationPicker
                         pickup={pickup}
                         dropoff={dropoff}
+                        extraStops={extraStops}
                         active={mapTarget}
                         onSelect={(kind, location) => {
                           if (kind === 'pickup') {
                             setPickup(location);
-                          } else {
+                          } else if (kind === 'dropoff') {
                             setDropoff(location);
+                          } else {
+                            setExtraStops((prev) => [...prev, location]);
+                            setExtraStopDraft(null);
+                            setExtraStopKey((prev) => prev + 1);
                           }
                         }}
                       />
@@ -393,6 +466,9 @@ export default function AdminJobs() {
                           <p className="font-bold">{job.clientName}</p>
                           <p className="text-xs text-gray-700">Fecha: {job.scheduledDate || 'Sin fecha'} | Hora: {job.scheduledTime || 'Sin hora'}</p>
                           <p className="text-xs">{job.status}</p>
+                          {job.extraStops && job.extraStops.length > 0 && (
+                            <p className="text-xs text-gray-600">Paradas extra: {job.extraStops.length}</p>
+                          )}
                           <p className="text-xs text-gray-600">Carga: {loading} | Viaje: {trip} | Descarga: {unloading} | Total: {total}</p>
                         </div>
                         <button onClick={() => handleDeleteJob(job.id)} className="text-red-500 text-sm" aria-label="Eliminar">Eliminar</button>

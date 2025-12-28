@@ -27,6 +27,7 @@ const isLocation = (value) => (
   Number.isFinite(value.lat) &&
   Number.isFinite(value.lng)
 );
+const isLocationArray = (value) => Array.isArray(value) && value.every(isLocation);
 
 export default async function handler(req, res) {
   const { id } = req.query;
@@ -66,6 +67,10 @@ export default async function handler(req, res) {
     }
     if (body.dropoff && !isLocation(body.dropoff)) {
       res.status(400).json({ error: 'Invalid dropoff' });
+      return;
+    }
+    if (body.extraStops != null && !isLocationArray(body.extraStops)) {
+      res.status(400).json({ error: 'Invalid extraStops' });
       return;
     }
     if (body.driverId) {

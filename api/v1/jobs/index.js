@@ -28,6 +28,7 @@ const isLocation = (value) => (
   Number.isFinite(value.lat) &&
   Number.isFinite(value.lng)
 );
+const isLocationArray = (value) => Array.isArray(value) && value.every(isLocation);
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
@@ -65,6 +66,10 @@ export default async function handler(req, res) {
     }
     if (!isLocation(body.pickup) || !isLocation(body.dropoff)) {
       res.status(400).json({ error: 'Invalid pickup/dropoff' });
+      return;
+    }
+    if (body.extraStops != null && !isLocationArray(body.extraStops)) {
+      res.status(400).json({ error: 'Invalid extraStops' });
       return;
     }
     if (!ALLOWED_STATUSES.has(body.status)) {

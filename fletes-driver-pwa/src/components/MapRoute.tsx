@@ -6,6 +6,7 @@ import { calculateDistance, cn } from '../lib/utils';
 import type { Job, LocationData } from '../lib/types';
 
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+const EMPTY_STOPS: LocationData[] = [];
 
 export interface MapRouteHandle {
   centerOnUser: () => boolean;
@@ -48,6 +49,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const fallbackLocation: LocationData = { address: 'La Plata', lat: -34.9214, lng: -57.9544 };
   const pickup = job?.pickup ?? fallbackLocation;
   const dropoff = job?.dropoff ?? fallbackLocation;
+  const extraStops = job?.extraStops ?? EMPTY_STOPS;
   const status = job?.status ?? 'PENDING';
   const isDriving = mode ? mode === 'driving' : status === 'TO_PICKUP' || status === 'TO_DROPOFF';
   const target = status.includes('PICKUP') ? pickup : dropoff;
@@ -62,6 +64,10 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     loc.lat <= BA_BOUNDS.maxLat &&
     loc.lng >= BA_BOUNDS.minLon &&
     loc.lng <= BA_BOUNDS.maxLon;
+  const extraStopsValid = useMemo(
+    () => extraStops.filter((stop) => isValidLocation(stop)),
+    [extraStops]
+  );
   const pickupValid = isValidLocation(pickup);
   const dropoffValid = isValidLocation(dropoff);
   const targetValid = isValidLocation(target);
@@ -73,6 +79,13 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
 
   const routePoints = useMemo<RoutePoint[]>(() => {
     if (isDriving && driverLat != null && driverLng != null) {
+      if (status === 'TO_DROPOFF' && extraStopsValid.length > 0) {
+        return [
+          { lat: driverLat, lng: driverLng },
+          ...extraStopsValid.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+          { lat: dropoff.lat, lng: dropoff.lng },
+        ];
+      }
       return [
         { lat: driverLat, lng: driverLng },
         { lat: target.lat, lng: target.lng },
@@ -80,9 +93,10 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     }
     return [
       { lat: pickup.lat, lng: pickup.lng },
+      ...extraStopsValid.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
       { lat: dropoff.lat, lng: dropoff.lng },
     ];
-  }, [isDriving, driverLat, driverLng, target.lat, target.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng]);
+  }, [isDriving, driverLat, driverLng, target.lat, target.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, extraStopsValid, status]);
 
   useEffect(() => {
     if (!job) {
@@ -140,16 +154,18 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     if (isDriving || !job) return;
     if (viewMode !== 'route') return;
     map.easeTo({ pitch: 0, bearing: 0, duration: 400 });
-    if (!pickupValid || !dropoffValid) {
+    const points: Array<[number, number]> = [];
+    if (pickupValid) points.push([pickup.lng, pickup.lat]);
+    extraStopsValid.forEach((stop) => points.push([stop.lng, stop.lat]));
+    if (dropoffValid) points.push([dropoff.lng, dropoff.lat]);
+    if (points.length < 2) {
       map.easeTo({ center: [fallbackLocation.lng, fallbackLocation.lat], zoom: 12, duration: 600 });
       return;
     }
-    const bounds = new maplibregl.LngLatBounds(
-      [pickup.lng, pickup.lat],
-      [dropoff.lng, dropoff.lat]
-    );
+    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+    points.slice(1).forEach((point) => bounds.extend(point));
     map.fitBounds(bounds, { padding: getFitPadding(map), duration: 800 });
-  }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pickupValid, dropoffValid, viewMode]);
+  }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pickupValid, dropoffValid, extraStopsValid, viewMode]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -175,6 +191,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     const map = mapRef.current.getMap();
     const points: Array<[number, number]> = [];
     if (pickupValid) points.push([pickup.lng, pickup.lat]);
+    extraStopsValid.forEach((stop) => points.push([stop.lng, stop.lat]));
     if (dropoffValid) points.push([dropoff.lng, dropoff.lat]);
     if (coords && isValidLocation(coords)) points.push([coords.lng, coords.lat]);
     if (points.length === 0) return;
@@ -189,7 +206,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       [ne.lng + lngSpan, ne.lat + latSpan]
     );
     map.setMaxBounds(maxBounds);
-  }, [mapReady, pickupValid, dropoffValid, coords?.lat, coords?.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng]);
+  }, [mapReady, pickupValid, dropoffValid, coords?.lat, coords?.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, extraStopsValid]);
 
   useEffect(() => {
     if (!job) return;
@@ -213,11 +230,15 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       if (coords && isValidLocation(coords)) {
         points.push({ lat: coords.lat, lng: coords.lng });
       }
+      if (status === 'TO_DROPOFF') {
+        extraStopsValid.forEach((stop) => points.push({ lat: stop.lat, lng: stop.lng }));
+      }
       if (targetValid) {
         points.push({ lat: target.lat, lng: target.lng });
       }
     } else {
       if (pickupValid) points.push({ lat: pickup.lat, lng: pickup.lng });
+      extraStopsValid.forEach((stop) => points.push({ lat: stop.lat, lng: stop.lng }));
       if (dropoffValid) points.push({ lat: dropoff.lat, lng: dropoff.lng });
     }
 
@@ -259,7 +280,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   useImperativeHandle(ref, () => ({
     centerOnUser,
     fitRoute,
-  }), [mapReady, coords, pickupValid, dropoffValid, driverHeading]);
+  }), [mapReady, coords, pickupValid, dropoffValid, driverHeading, status, targetValid, extraStopsValid]);
 
   if (!job) {
     return (
@@ -309,6 +330,11 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
                 <div className="h-3 w-3 rounded-full bg-green-600 shadow" />
               </Marker>
             )}
+            {extraStopsValid.map((stop, index) => (
+              <Marker key={`${stop.lat}-${stop.lng}-${index}`} latitude={stop.lat} longitude={stop.lng}>
+                <div className="h-2.5 w-2.5 rounded-full bg-amber-500 shadow" />
+              </Marker>
+            ))}
             {dropoffValid && (
               <Marker latitude={dropoff.lat} longitude={dropoff.lng}>
                 <div className="h-3 w-3 rounded-full bg-red-600 shadow" />
@@ -316,10 +342,19 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
             )}
           </>
         )}
-        {isDriving && targetValid && (
-          <Marker latitude={target.lat} longitude={target.lng}>
-            <div className="h-3 w-3 rounded-full bg-red-600 shadow" />
-          </Marker>
+        {isDriving && (
+          <>
+            {status === 'TO_DROPOFF' && extraStopsValid.map((stop, index) => (
+              <Marker key={`${stop.lat}-${stop.lng}-${index}`} latitude={stop.lat} longitude={stop.lng}>
+                <div className="h-2.5 w-2.5 rounded-full bg-amber-500 shadow" />
+              </Marker>
+            ))}
+            {targetValid && (
+              <Marker latitude={target.lat} longitude={target.lng}>
+                <div className="h-3 w-3 rounded-full bg-red-600 shadow" />
+              </Marker>
+            )}
+          </>
         )}
         {coords && (
           <Marker latitude={coords.lat} longitude={coords.lng}>

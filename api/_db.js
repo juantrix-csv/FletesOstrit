@@ -17,6 +17,7 @@ export const ensureSchema = async () => {
       client_phone TEXT,
       pickup JSONB NOT NULL,
       dropoff JSONB NOT NULL,
+      extra_stops JSONB,
       notes TEXT,
       driver_id TEXT,
       status TEXT NOT NULL,
@@ -30,6 +31,7 @@ export const ensureSchema = async () => {
     );
   `;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
   await sql`
     CREATE TABLE IF NOT EXISTS drivers (
       id TEXT PRIMARY KEY,
@@ -73,6 +75,7 @@ const normalizeRow = (row) => ({
   clientPhone: row.client_phone ?? undefined,
   pickup: row.pickup,
   dropoff: row.dropoff,
+  extraStops: Array.isArray(row.extra_stops) ? row.extra_stops : [],
   notes: row.notes ?? undefined,
   driverId: row.driver_id ?? undefined,
   status: row.status,
@@ -114,7 +117,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, pickup, dropoff, notes, driver_id, status,
+      id, client_name, client_phone, pickup, dropoff, extra_stops, notes, driver_id, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -123,6 +126,7 @@ export const createJob = async (job) => {
       ${job.clientPhone ?? null},
       ${job.pickup},
       ${job.dropoff},
+      ${Array.isArray(job.extraStops) ? job.extraStops : []},
       ${job.notes ?? null},
       ${job.driverId ?? null},
       ${job.status},
@@ -167,6 +171,7 @@ export const updateJob = async (id, patch) => {
       client_phone = ${next.clientPhone ?? null},
       pickup = ${next.pickup},
       dropoff = ${next.dropoff},
+      extra_stops = ${Array.isArray(next.extraStops) ? next.extraStops : []},
       notes = ${next.notes ?? null},
       driver_id = ${next.driverId ?? null},
       status = ${next.status},

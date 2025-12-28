@@ -19,13 +19,20 @@ const isWithinBounds = (lat: number, lng: number) =>
 interface MapLocationPickerProps {
   pickup: LocationData | null;
   dropoff: LocationData | null;
-  active: 'pickup' | 'dropoff';
-  onSelect: (kind: 'pickup' | 'dropoff', location: LocationData) => void;
+  extraStops?: LocationData[];
+  active: 'pickup' | 'dropoff' | 'extra';
+  onSelect: (kind: 'pickup' | 'dropoff' | 'extra', location: LocationData) => void;
   className?: string;
 }
 
-export default function MapLocationPicker({ pickup, dropoff, active, onSelect, className }: MapLocationPickerProps) {
-  const activeLocation = active === 'pickup' ? pickup : dropoff;
+export default function MapLocationPicker({ pickup, dropoff, extraStops = [], active, onSelect, className }: MapLocationPickerProps) {
+  const activeLocation = active === 'pickup'
+    ? pickup
+    : active === 'dropoff'
+      ? dropoff
+      : extraStops.length > 0
+        ? extraStops[extraStops.length - 1]
+        : null;
   const center = useMemo(
     () => activeLocation ?? pickup ?? dropoff ?? fallbackLocation,
     [activeLocation, pickup, dropoff]
@@ -77,6 +84,11 @@ export default function MapLocationPicker({ pickup, dropoff, active, onSelect, c
             <div className={cn("h-3 w-3 rounded-full bg-red-600 shadow", active === 'dropoff' ? "ring-2 ring-red-200" : "ring-2 ring-white")} />
           </Marker>
         )}
+        {extraStops.map((stop, index) => (
+          <Marker key={`${stop.lat}-${stop.lng}-${index}`} latitude={stop.lat} longitude={stop.lng}>
+            <div className={cn("h-2.5 w-2.5 rounded-full bg-amber-500 shadow", active === 'extra' && index === extraStops.length - 1 ? "ring-2 ring-amber-200" : "ring-2 ring-white")} />
+          </Marker>
+        ))}
       </Map>
     </div>
   );

@@ -38,6 +38,7 @@ const isLocation = (value) => (
   Number.isFinite(value.lat) &&
   Number.isFinite(value.lng)
 );
+const isLocationArray = (value) => Array.isArray(value) && value.every(isLocation);
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -117,6 +118,10 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
     res.status(400).json({ error: 'Invalid pickup/dropoff' });
     return;
   }
+  if (body.extraStops != null && !isLocationArray(body.extraStops)) {
+    res.status(400).json({ error: 'Invalid extraStops' });
+    return;
+  }
   if (!ALLOWED_STATUSES.has(body.status)) {
     res.status(400).json({ error: 'Invalid status' });
     return;
@@ -144,6 +149,10 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
   }
   if (body.dropoff && !isLocation(body.dropoff)) {
     res.status(400).json({ error: 'Invalid dropoff' });
+    return;
+  }
+  if (body.extraStops != null && !isLocationArray(body.extraStops)) {
+    res.status(400).json({ error: 'Invalid extraStops' });
     return;
   }
   if (body.driverId) {
