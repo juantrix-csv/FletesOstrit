@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler from '../reverse-geocode.js';
+import handler from '../api/reverse-geocode.js';
 
 const createRes = () => {
   const res = {

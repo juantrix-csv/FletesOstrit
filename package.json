@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "npm --prefix fletes-driver-pwa run build",
-    "test:api": "node --test api"
+    "test:api": "node --test tests"
   },
   "dependencies": {
     "@vercel/postgres": "^0.10.0"
