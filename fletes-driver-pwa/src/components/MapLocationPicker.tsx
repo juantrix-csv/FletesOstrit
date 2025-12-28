@@ -16,6 +16,17 @@ const isWithinBounds = (lat: number, lng: number) =>
   lng >= BA_BOUNDS.minLon &&
   lng <= BA_BOUNDS.maxLon;
 
+const buildReverseUrl = (lat: number, lng: number) => {
+  const url = new URL('/api/reverse-geocode', window.location.origin);
+  url.searchParams.set('lat', String(lat));
+  url.searchParams.set('lon', String(lng));
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('zoom', '18');
+  url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('accept-language', 'es');
+  return url.toString();
+};
+
 interface MapLocationPickerProps {
   pickup: LocationData | null;
   dropoff: LocationData | null;
@@ -39,20 +50,29 @@ export default function MapLocationPicker({ pickup, dropoff, extraStops = [], ac
   );
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     mapRef.current.easeTo({ center: [center.lng, center.lat], duration: 400 });
   }, [center.lat, center.lng, mapReady]);
 
-  const handleClick = (event: MapLayerMouseEvent) => {
+  const handleClick = async (event: MapLayerMouseEvent) => {
     const { lng, lat } = event.lngLat;
     if (!isWithinBounds(lat, lng)) return;
-    onSelect(active, {
-      address: formatMapAddress(lat, lng),
-      lat,
-      lng,
-    });
+    const requestId = ++requestIdRef.current;
+    const fallbackAddress = formatMapAddress(lat, lng);
+    try {
+      const res = await fetch(buildReverseUrl(lat, lng));
+      if (!res.ok) throw new Error('reverse');
+      const data = await res.json();
+      const address = typeof data?.display_name === 'string' ? data.display_name : fallbackAddress;
+      if (requestId !== requestIdRef.current) return;
+      onSelect(active, { address, lat, lng });
+    } catch {
+      if (requestId !== requestIdRef.current) return;
+      onSelect(active, { address: fallbackAddress, lat, lng });
+    }
   };
 
   return (

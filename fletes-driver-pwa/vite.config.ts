@@ -49,6 +49,16 @@ export default defineConfig({
           });
         },
       },
+      '/api/reverse-geocode': {
+        target: 'https://nominatim.openstreetmap.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/reverse-geocode/, '/reverse'),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('User-Agent', 'FletesDriverPWA/1.0 (local dev)');
+          });
+        },
+      },
     },
   },
 });
