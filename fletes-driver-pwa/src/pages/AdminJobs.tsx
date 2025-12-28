@@ -18,6 +18,7 @@ import {
   updateJob,
 } from '../lib/api';
 import { cn, formatDuration, getScheduledAtMs } from '../lib/utils';
+import { reorderList } from '../lib/reorder';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
@@ -103,12 +104,7 @@ export default function AdminJobs() {
 
   const handleReorderStop = (targetIndex: number) => {
     if (draggedStopIndex == null || draggedStopIndex === targetIndex) return;
-    setExtraStops((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(draggedStopIndex, 1);
-      next.splice(targetIndex, 0, moved);
-      return next;
-    });
+    setExtraStops((prev) => reorderList(prev, draggedStopIndex, targetIndex));
     setDraggedStopIndex(null);
   };
 

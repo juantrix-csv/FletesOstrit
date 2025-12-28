@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre';
 import type { LocationData } from '../lib/types';
+import { reverseGeocodeLocation } from '../lib/geocode';
 import { cn } from '../lib/utils';
 
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
@@ -15,17 +16,6 @@ const isWithinBounds = (lat: number, lng: number) =>
   lat <= BA_BOUNDS.maxLat &&
   lng >= BA_BOUNDS.minLon &&
   lng <= BA_BOUNDS.maxLon;
-
-const buildReverseUrl = (lat: number, lng: number) => {
-  const url = new URL('/api/reverse-geocode', window.location.origin);
-  url.searchParams.set('lat', String(lat));
-  url.searchParams.set('lon', String(lng));
-  url.searchParams.set('format', 'jsonv2');
-  url.searchParams.set('zoom', '18');
-  url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('accept-language', 'es');
-  return url.toString();
-};
 
 interface MapLocationPickerProps {
   pickup: LocationData | null;
@@ -62,17 +52,9 @@ export default function MapLocationPicker({ pickup, dropoff, extraStops = [], ac
     if (!isWithinBounds(lat, lng)) return;
     const requestId = ++requestIdRef.current;
     const fallbackAddress = formatMapAddress(lat, lng);
-    try {
-      const res = await fetch(buildReverseUrl(lat, lng));
-      if (!res.ok) throw new Error('reverse');
-      const data = await res.json();
-      const address = typeof data?.display_name === 'string' ? data.display_name : fallbackAddress;
-      if (requestId !== requestIdRef.current) return;
-      onSelect(active, { address, lat, lng });
-    } catch {
-      if (requestId !== requestIdRef.current) return;
-      onSelect(active, { address: fallbackAddress, lat, lng });
-    }
+    const location = await reverseGeocodeLocation(lat, lng, fallbackAddress);
+    if (requestId !== requestIdRef.current) return;
+    onSelect(active, location);
   };
 
   return (

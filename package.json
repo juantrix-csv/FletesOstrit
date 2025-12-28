@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm --prefix fletes-driver-pwa run build"
+    "build": "npm --prefix fletes-driver-pwa run build",
+    "test:api": "node --test api"
   },
   "dependencies": {
     "@vercel/postgres": "^0.10.0"
