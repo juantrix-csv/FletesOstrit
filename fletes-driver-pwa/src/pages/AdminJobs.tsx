@@ -32,6 +32,7 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
+const monthFormatter = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' });
 
 const parseHourlyRate = (value: string) => {
   const normalized = value.trim().replace(',', '.');
@@ -414,6 +415,29 @@ export default function AdminJobs() {
   const averageDurationLabel = averageDurationMs != null ? formatDurationMs(averageDurationMs) : 'N/D';
   const totalRevenueLabel = totalRevenue != null ? currencyFormatter.format(totalRevenue) : 'Configura el precio';
   const totalHelperCostLabel = totalHelperCost != null ? currencyFormatter.format(totalHelperCost) : 'Configura el precio';
+  const currentMonthLabel = monthFormatter.format(new Date());
+  const monthlyGrossTotal = useMemo(() => {
+    if (hourlyRateValue == null) return null;
+    const now = new Date();
+    const month = now.getMonth();
+    const year = now.getFullYear();
+    return completedHistory.reduce((sum, entry) => {
+      if (entry.endMs == null || entry.durationMs == null) return sum;
+      const endDate = new Date(entry.endMs);
+      if (endDate.getMonth() !== month || endDate.getFullYear() !== year) return sum;
+      const billedHours = getBilledHours(entry.durationMs);
+      if (billedHours == null) return sum;
+      const helpersCount = entry.job.helpersCount ?? 0;
+      const jobValue = billedHours * hourlyRateValue;
+      const helpersValue = helperHourlyRateValue != null && helpersCount > 0
+        ? billedHours * helperHourlyRateValue * helpersCount
+        : 0;
+      return sum + jobValue + helpersValue;
+    }, 0);
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  const monthlyGrossLabel = monthlyGrossTotal != null
+    ? currencyFormatter.format(monthlyGrossTotal)
+    : 'Configura el precio';
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
     driverLocations.forEach((loc) => map.set(loc.driverId, loc));
@@ -894,6 +918,7 @@ export default function AdminJobs() {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">Historial</p>
                     <p className="text-lg font-semibold text-gray-900">Fletes realizados</p>
+                    <p className="text-xs text-gray-500">Total bruto {currentMonthLabel}: {monthlyGrossLabel}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-gray-500">{completedHistory.length} completados</span>
