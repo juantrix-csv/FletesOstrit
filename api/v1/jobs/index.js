@@ -22,6 +22,7 @@ const parseBody = (req) => {
 };
 
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
+const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 const isLocation = (value) => (
   value &&
   typeof value.address === 'string' &&
@@ -74,6 +75,14 @@ export default async function handler(req, res) {
     }
     if (!ALLOWED_STATUSES.has(body.status)) {
       res.status(400).json({ error: 'Invalid status' });
+      return;
+    }
+    if (body.description != null && typeof body.description !== 'string') {
+      res.status(400).json({ error: 'Invalid description' });
+      return;
+    }
+    if (body.helpersCount != null && !isNonNegativeInteger(body.helpersCount)) {
+      res.status(400).json({ error: 'Invalid helpersCount' });
       return;
     }
     if (body.driverId) {

@@ -28,6 +28,7 @@ const isLocation = (value) => (
   Number.isFinite(value.lng)
 );
 const isLocationArray = (value) => Array.isArray(value) && value.every(isLocation);
+const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 
 export default async function handler(req, res) {
   const { id } = req.query;
@@ -71,6 +72,14 @@ export default async function handler(req, res) {
     }
     if (body.extraStops != null && !isLocationArray(body.extraStops)) {
       res.status(400).json({ error: 'Invalid extraStops' });
+      return;
+    }
+    if (body.description != null && typeof body.description !== 'string') {
+      res.status(400).json({ error: 'Invalid description' });
+      return;
+    }
+    if (body.helpersCount != null && !isNonNegativeInteger(body.helpersCount)) {
+      res.status(400).json({ error: 'Invalid helpersCount' });
       return;
     }
     if (body.driverId) {

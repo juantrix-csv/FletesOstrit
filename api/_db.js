@@ -15,11 +15,13 @@ export const ensureSchema = async () => {
       id TEXT PRIMARY KEY,
       client_name TEXT NOT NULL,
       client_phone TEXT,
+      description TEXT,
       pickup JSONB NOT NULL,
       dropoff JSONB NOT NULL,
       extra_stops JSONB,
       notes TEXT,
       driver_id TEXT,
+      helpers_count INTEGER,
       status TEXT NOT NULL,
       flags JSONB NOT NULL,
       timestamps JSONB NOT NULL,
@@ -32,6 +34,8 @@ export const ensureSchema = async () => {
   `;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS description TEXT;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helpers_count INTEGER;`;
   await sql`
     CREATE TABLE IF NOT EXISTS drivers (
       id TEXT PRIMARY KEY,
@@ -55,6 +59,12 @@ export const ensureSchema = async () => {
       updated_at TEXT NOT NULL
     );
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value JSONB
+    );
+  `;
 };
 
 export const computeScheduledAt = (date, time) => {
@@ -73,11 +83,13 @@ const normalizeRow = (row) => ({
   id: row.id,
   clientName: row.client_name,
   clientPhone: row.client_phone ?? undefined,
+  description: row.description ?? undefined,
   pickup: row.pickup,
   dropoff: row.dropoff,
   extraStops: Array.isArray(row.extra_stops) ? row.extra_stops : [],
   notes: row.notes ?? undefined,
   driverId: row.driver_id ?? undefined,
+  helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
   status: row.status,
   flags: row.flags ?? defaultFlags,
   timestamps: row.timestamps ?? {},
@@ -95,6 +107,12 @@ export const listJobs = async (opts = {}) => {
     return rows.map(normalizeRow);
   }
   const { rows } = await sql`SELECT * FROM jobs ORDER BY created_at DESC`;
+  return rows.map(normalizeRow);
+};
+
+export const listCompletedJobs = async () => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM jobs WHERE status = 'DONE' ORDER BY updated_at DESC`;
   return rows.map(normalizeRow);
 };
 
@@ -117,18 +135,20 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, pickup, dropoff, extra_stops, notes, driver_id, status,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, notes, driver_id, helpers_count, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
       ${job.id},
       ${job.clientName},
       ${job.clientPhone ?? null},
+      ${job.description ?? null},
       ${job.pickup},
       ${job.dropoff},
       ${Array.isArray(job.extraStops) ? job.extraStops : []},
       ${job.notes ?? null},
       ${job.driverId ?? null},
+      ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
       ${job.status},
       ${flags},
       ${timestamps},
@@ -169,11 +189,13 @@ export const updateJob = async (id, patch) => {
     UPDATE jobs SET
       client_name = ${next.clientName},
       client_phone = ${next.clientPhone ?? null},
+      description = ${next.description ?? null},
       pickup = ${next.pickup},
       dropoff = ${next.dropoff},
       extra_stops = ${Array.isArray(next.extraStops) ? next.extraStops : []},
       notes = ${next.notes ?? null},
       driver_id = ${next.driverId ?? null},
+      helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       status = ${next.status},
       flags = ${next.flags ?? defaultFlags},
       timestamps = ${next.timestamps ?? {}},
@@ -192,6 +214,35 @@ export const deleteJob = async (id) => {
   await ensureSchema();
   const result = await sql`DELETE FROM jobs WHERE id = ${id}`;
   return result.rowCount > 0;
+};
+
+const normalizeSettingValue = (value) => {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
+export const getSetting = async (key) => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT value FROM settings WHERE key = ${key}`;
+  if (rows.length === 0) return null;
+  return normalizeSettingValue(rows[0].value);
+};
+
+export const setSetting = async (key, value) => {
+  await ensureSchema();
+  await sql`
+    INSERT INTO settings (key, value)
+    VALUES (${key}, ${value})
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+  `;
+  return getSetting(key);
 };
 
 const normalizeLocationRow = (row) => ({
