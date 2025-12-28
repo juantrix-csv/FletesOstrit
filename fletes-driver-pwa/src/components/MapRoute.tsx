@@ -24,6 +24,21 @@ interface RoutePoint {
   lng: number;
 }
 
+const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
+
+const interpolateHeading = (from: number, to: number, t: number) => {
+  const start = normalizeHeading(from);
+  const end = normalizeHeading(to);
+  let diff = end - start;
+  if (diff > 180) diff -= 360;
+  if (diff < -180) diff += 360;
+  return normalizeHeading(start + diff * t);
+};
+
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
 const buildRouteUrl = (points: RoutePoint[]) => {
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(';');
   const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coords}`);
@@ -43,8 +58,18 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const { coords } = useGeoLocation();
   const mapRef = useRef<MapRef | null>(null);
   const lastRouteRef = useRef<{ lat: number; lng: number; targetKey: string; at: number } | null>(null);
+  const smoothRef = useRef<{
+    start: { lat: number; lng: number; heading: number | null; speed: number | null; accuracy: number };
+    target: { lat: number; lng: number; heading: number | null; speed: number | null; accuracy: number };
+    startTime: number;
+    duration: number;
+  } | null>(null);
+  const smoothedCoordsRef = useRef<typeof coords | null>(null);
+  const animationRef = useRef<number | null>(null);
+  const manualViewUntilRef = useRef<number | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
+  const [smoothedCoords, setSmoothedCoords] = useState<typeof coords | null>(null);
 
   const fallbackLocation: LocationData = { address: 'La Plata', lat: -34.9214, lng: -57.9544 };
   const pickup = job?.pickup ?? fallbackLocation;
@@ -56,6 +81,8 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const driverLat = coords?.lat;
   const driverLng = coords?.lng;
   const driverHeading = coords?.heading ?? 0;
+  const displayCoords = smoothedCoords ?? coords;
+  const displayHeading = Number.isFinite(displayCoords?.heading) ? displayCoords?.heading ?? 0 : driverHeading;
   const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
   const isValidLocation = (loc: { lat: number; lng: number }) =>
     Number.isFinite(loc.lat) &&
@@ -76,6 +103,77 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const center: [number, number] = [centerLat, centerLng];
   const [viewMode, setViewMode] = useState<'route' | 'follow'>(() => (isDriving ? 'follow' : 'route'));
   const [manualView, setManualView] = useState(false);
+
+  useEffect(() => {
+    if (!coords) {
+      smoothedCoordsRef.current = null;
+      smoothRef.current = null;
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+      setSmoothedCoords(null);
+      return;
+    }
+    const current = smoothedCoordsRef.current ?? coords;
+    const distance = calculateDistance(current.lat, current.lng, coords.lat, coords.lng);
+    if (!Number.isFinite(distance) || distance > 350) {
+      smoothedCoordsRef.current = coords;
+      setSmoothedCoords(coords);
+      smoothRef.current = null;
+      return;
+    }
+    const duration = clampNumber(distance * 12, 300, 1200);
+    smoothRef.current = {
+      start: {
+        lat: current.lat,
+        lng: current.lng,
+        heading: current.heading ?? null,
+        speed: current.speed ?? null,
+        accuracy: current.accuracy,
+      },
+      target: {
+        lat: coords.lat,
+        lng: coords.lng,
+        heading: coords.heading ?? null,
+        speed: coords.speed ?? null,
+        accuracy: coords.accuracy,
+      },
+      startTime: performance.now(),
+      duration,
+    };
+    if (animationRef.current == null) {
+      animationRef.current = requestAnimationFrame(function tick(now) {
+        const state = smoothRef.current;
+        if (!state) {
+          animationRef.current = null;
+          return;
+        }
+        const rawT = clampNumber((now - state.startTime) / state.duration, 0, 1);
+        const eased = easeOutCubic(rawT);
+        const nextLat = state.start.lat + (state.target.lat - state.start.lat) * eased;
+        const nextLng = state.start.lng + (state.target.lng - state.start.lng) * eased;
+        const nextHeading = state.start.heading != null && state.target.heading != null
+          ? interpolateHeading(state.start.heading, state.target.heading, eased)
+          : state.target.heading ?? state.start.heading ?? null;
+        const next = {
+          lat: nextLat,
+          lng: nextLng,
+          accuracy: state.target.accuracy,
+          heading: nextHeading,
+          speed: state.target.speed ?? null,
+        };
+        smoothedCoordsRef.current = next;
+        setSmoothedCoords(next);
+        if (rawT < 1) {
+          animationRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        smoothRef.current = null;
+        animationRef.current = null;
+      });
+    }
+  }, [coords?.lat, coords?.lng, coords?.heading, coords?.speed, coords?.accuracy]);
 
   const routePoints = useMemo<RoutePoint[]>(() => {
     if (isDriving && driverLat != null && driverLng != null) {
@@ -173,7 +271,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     if (viewMode !== 'follow') return;
     const map = mapRef.current.getMap();
     const zoom = Math.max(map.getZoom(), 15.5);
-    const bearing = Number.isFinite(driverHeading) ? driverHeading : map.getBearing();
+    const bearing = Number.isFinite(displayHeading) ? displayHeading : map.getBearing();
     map.easeTo({
       center: [coords.lng, coords.lat],
       zoom,
@@ -182,9 +280,9 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       duration: 500,
       offset: [0, 120],
     });
-  }, [mapReady, isDriving, coords?.lat, coords?.lng, driverHeading, viewMode]);
+  }, [mapReady, isDriving, coords?.lat, coords?.lng, displayHeading, viewMode]);
 
-  const driverRotation = Number.isFinite(driverHeading) ? driverHeading : 0;
+  const driverRotation = Number.isFinite(displayHeading) ? displayHeading : 0;
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -211,6 +309,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   useEffect(() => {
     if (!job) return;
     setManualView(false);
+    manualViewUntilRef.current = null;
     setViewMode(isDriving ? 'follow' : 'route');
   }, [job?.id]);
 
@@ -219,9 +318,22 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     setViewMode(isDriving ? 'follow' : 'route');
   }, [isDriving, manualView]);
 
+  useEffect(() => {
+    if (!isDriving || !manualView) return;
+    if (viewMode !== 'route') return;
+    const until = manualViewUntilRef.current;
+    if (!until) return;
+    if (Date.now() >= until) {
+      manualViewUntilRef.current = null;
+      setManualView(false);
+      setViewMode('follow');
+    }
+  }, [isDriving, manualView, viewMode, coords?.lat, coords?.lng]);
+
   const fitRoute = () => {
     if (!mapReady || !mapRef.current) return false;
     setManualView(true);
+    manualViewUntilRef.current = Date.now() + 12000;
     setViewMode('route');
     const map = mapRef.current.getMap();
     map.easeTo({ pitch: 0, bearing: 0, duration: 0 });
@@ -261,11 +373,12 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
 
   const centerOnUser = () => {
     if (!mapReady || !mapRef.current || !coords) return false;
-    setManualView(true);
+    setManualView(false);
+    manualViewUntilRef.current = null;
     setViewMode('follow');
     const map = mapRef.current.getMap();
     const zoom = Math.max(map.getZoom(), 15.5);
-    const bearing = Number.isFinite(driverHeading) ? driverHeading : map.getBearing();
+    const bearing = Number.isFinite(displayHeading) ? displayHeading : map.getBearing();
     map.easeTo({
       center: [coords.lng, coords.lat],
       zoom,
@@ -280,7 +393,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   useImperativeHandle(ref, () => ({
     centerOnUser,
     fitRoute,
-  }), [mapReady, coords, pickupValid, dropoffValid, driverHeading, status, targetValid, extraStopsValid]);
+  }), [mapReady, coords, pickupValid, dropoffValid, displayHeading, status, targetValid, extraStopsValid]);
 
   if (!job) {
     return (
@@ -356,8 +469,8 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
             )}
           </>
         )}
-        {coords && (
-          <Marker latitude={coords.lat} longitude={coords.lng}>
+        {displayCoords && (
+          <Marker latitude={displayCoords.lat} longitude={displayCoords.lng}>
             <div className="driver-marker">
               <div className="driver-arrow" style={{ transform: `rotate(${driverRotation}deg)` }} />
             </div>
