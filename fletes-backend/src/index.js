@@ -36,6 +36,7 @@ const ALLOWED_STATUSES = new Set([
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
 const isFiniteNumber = (value) => Number.isFinite(value);
 const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
+const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;
 const isLocation = (value) => (
   value &&
   typeof value.address === 'string' &&
@@ -146,6 +147,8 @@ app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
     'helper_hourly_rate',
     'helpers_total_value',
     'total_with_helpers',
+    'charged_amount',
+    'total_billed',
     'created_at',
     'updated_at',
   ];
@@ -165,6 +168,8 @@ app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
     const totalWithHelpers = totalValue != null && helpersTotalValue != null
       ? Number((totalValue + helpersTotalValue).toFixed(2))
       : totalValue ?? helpersTotalValue;
+    const chargedAmount = Number.isFinite(job.chargedAmount) ? job.chargedAmount : null;
+    const totalBilled = chargedAmount != null ? Number(chargedAmount.toFixed(2)) : totalWithHelpers;
     const driverName = job.driverId ? driversById.get(job.driverId)?.name ?? '' : '';
     rows.push([
       job.id,
@@ -185,6 +190,8 @@ app.get(`${API_PREFIX}/jobs/history/export`, (_req, res) => {
       helperHourlyRate,
       helpersTotalValue,
       totalWithHelpers,
+      chargedAmount,
+      totalBilled,
       job.createdAt,
       job.updatedAt,
     ]);
@@ -291,6 +298,10 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
     res.status(400).json({ error: 'Invalid helpersCount' });
     return;
   }
+  if (body.chargedAmount != null && !isNonNegativeNumber(body.chargedAmount)) {
+    res.status(400).json({ error: 'Invalid chargedAmount' });
+    return;
+  }
   if (body.driverId) {
     const driver = getDriverById(body.driverId);
     if (!driver) {
@@ -326,6 +337,10 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
   }
   if (body.helpersCount != null && !isNonNegativeInteger(body.helpersCount)) {
     res.status(400).json({ error: 'Invalid helpersCount' });
+    return;
+  }
+  if (body.chargedAmount != null && !isNonNegativeNumber(body.chargedAmount)) {
+    res.status(400).json({ error: 'Invalid chargedAmount' });
     return;
   }
   if (body.driverId) {

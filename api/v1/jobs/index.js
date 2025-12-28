@@ -23,6 +23,7 @@ const parseBody = (req) => {
 
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
 const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
+const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;
 const isLocation = (value) => (
   value &&
   typeof value.address === 'string' &&
@@ -83,6 +84,10 @@ export default async function handler(req, res) {
     }
     if (body.helpersCount != null && !isNonNegativeInteger(body.helpersCount)) {
       res.status(400).json({ error: 'Invalid helpersCount' });
+      return;
+    }
+    if (body.chargedAmount != null && !isNonNegativeNumber(body.chargedAmount)) {
+      res.status(400).json({ error: 'Invalid chargedAmount' });
       return;
     }
     if (body.driverId) {

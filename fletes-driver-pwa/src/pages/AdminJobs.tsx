@@ -43,6 +43,8 @@ const parseHourlyRate = (value: string) => {
   return parsed;
 };
 
+const parseMoneyInput = (value: string) => parseHourlyRate(value);
+
 const parseTimestampMs = (value?: string) => {
   if (!value) return null;
   const ms = new Date(value).getTime();
@@ -100,6 +102,8 @@ export default function AdminJobs() {
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
+  const [chargedAmountDrafts, setChargedAmountDrafts] = useState<Record<string, string>>({});
+  const [savingChargedAmountId, setSavingChargedAmountId] = useState<string | null>(null);
   const [assignedFilter, setAssignedFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending'>('all');
   const [dateFilter, setDateFilter] = useState('');
@@ -356,6 +360,52 @@ export default function AdminJobs() {
     }
   };
 
+  const handleSaveChargedAmount = async (job: Job) => {
+    const raw = chargedAmountDrafts[job.id] ?? (job.chargedAmount != null ? String(job.chargedAmount) : '');
+    const parsed = parseMoneyInput(raw);
+    if (raw.trim() && parsed == null) {
+      toast.error('Monto cobrado invalido');
+      return;
+    }
+    try {
+      setSavingChargedAmountId(job.id);
+      const updated = await updateJob(job.id, { chargedAmount: raw.trim() ? parsed : null });
+      setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
+      setChargedAmountDrafts((prev) => {
+        const next = { ...prev };
+        if (raw.trim()) {
+          next[job.id] = String(parsed);
+        } else {
+          delete next[job.id];
+        }
+        return next;
+      });
+      toast.success('Cobro actualizado');
+    } catch {
+      toast.error('No se pudo actualizar el cobro');
+    } finally {
+      setSavingChargedAmountId(null);
+    }
+  };
+
+  const handleClearChargedAmount = async (job: Job) => {
+    try {
+      setSavingChargedAmountId(job.id);
+      const updated = await updateJob(job.id, { chargedAmount: null });
+      setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
+      setChargedAmountDrafts((prev) => {
+        const next = { ...prev };
+        delete next[job.id];
+        return next;
+      });
+      toast.success('Cobro eliminado');
+    } catch {
+      toast.error('No se pudo eliminar el cobro');
+    } finally {
+      setSavingChargedAmountId(null);
+    }
+  };
+
   const handleDownloadHistory = async () => {
     try {
       const blob = await downloadJobsHistory();
@@ -389,6 +439,21 @@ export default function AdminJobs() {
     entries.sort((a, b) => (b.endMs ?? 0) - (a.endMs ?? 0));
     return entries;
   }, [jobs]);
+  const hasChargeOverrides = useMemo(
+    () => completedHistory.some((entry) => entry.job.chargedAmount != null),
+    [completedHistory],
+  );
+  const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
+    if (entry.job.chargedAmount != null) return entry.job.chargedAmount;
+    if (hourlyRateValue == null || entry.durationMs == null) return null;
+    const billedHours = getBilledHours(entry.durationMs);
+    if (billedHours == null) return null;
+    const helpersCount = entry.job.helpersCount ?? 0;
+    const helpersValue = helperHourlyRateValue != null && helpersCount > 0
+      ? billedHours * helperHourlyRateValue * helpersCount
+      : 0;
+    return billedHours * hourlyRateValue + helpersValue;
+  };
   const averageDurationMs = useMemo(() => {
     const durations = completedHistory.map((entry) => entry.durationMs).filter((value): value is number => value != null);
     if (durations.length === 0) return null;
@@ -396,14 +461,12 @@ export default function AdminJobs() {
     return total / durations.length;
   }, [completedHistory]);
   const totalRevenue = useMemo(() => {
-    if (hourlyRateValue == null) return null;
+    if (hourlyRateValue == null && !hasChargeOverrides) return null;
     return completedHistory.reduce((sum, entry) => {
-      if (entry.durationMs == null) return sum;
-      const billedHours = getBilledHours(entry.durationMs);
-      if (billedHours == null) return sum;
-      return sum + billedHours * hourlyRateValue;
+      const total = getEntryTotal(entry);
+      return total != null ? sum + total : sum;
     }, 0);
-  }, [completedHistory, hourlyRateValue]);
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, hasChargeOverrides]);
   const totalHelperCost = useMemo(() => {
     if (helperHourlyRateValue == null) return null;
     return completedHistory.reduce((sum, entry) => {
@@ -419,27 +482,22 @@ export default function AdminJobs() {
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
   const averageDurationLabel = averageDurationMs != null ? formatDurationMs(averageDurationMs) : 'N/D';
   const totalRevenueLabel = totalRevenue != null ? currencyFormatter.format(totalRevenue) : 'Configura el precio';
+  const totalRevenueCaption = hasChargeOverrides ? 'Total cobrado' : 'Total estimado';
   const totalHelperCostLabel = totalHelperCost != null ? currencyFormatter.format(totalHelperCost) : 'Configura el precio';
   const currentMonthLabel = monthFormatter.format(new Date());
   const monthlyGrossTotal = useMemo(() => {
-    if (hourlyRateValue == null) return null;
+    if (hourlyRateValue == null && !hasChargeOverrides) return null;
     const now = new Date();
     const month = now.getMonth();
     const year = now.getFullYear();
     return completedHistory.reduce((sum, entry) => {
-      if (entry.endMs == null || entry.durationMs == null) return sum;
+      if (entry.endMs == null) return sum;
       const endDate = new Date(entry.endMs);
       if (endDate.getMonth() !== month || endDate.getFullYear() !== year) return sum;
-      const billedHours = getBilledHours(entry.durationMs);
-      if (billedHours == null) return sum;
-      const helpersCount = entry.job.helpersCount ?? 0;
-      const jobValue = billedHours * hourlyRateValue;
-      const helpersValue = helperHourlyRateValue != null && helpersCount > 0
-        ? billedHours * helperHourlyRateValue * helpersCount
-        : 0;
-      return sum + jobValue + helpersValue;
+      const total = getEntryTotal(entry);
+      return total != null ? sum + total : sum;
     }, 0);
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, hasChargeOverrides]);
   const monthlyGrossLabel = monthlyGrossTotal != null
     ? currencyFormatter.format(monthlyGrossTotal)
     : 'Configura el precio';
@@ -455,20 +513,15 @@ export default function AdminJobs() {
     });
     const byKey = new Map(series.map((item) => [item.key, item]));
     completedHistory.forEach((entry) => {
-      if (entry.endMs == null || entry.durationMs == null) return;
+      if (entry.endMs == null) return;
       const endDate = new Date(entry.endMs);
       if (endDate.getMonth() !== month || endDate.getFullYear() !== year) return;
       const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
       const target = byKey.get(key);
       if (!target) return;
-      const billedHours = getBilledHours(entry.durationMs);
-      if (billedHours == null) return;
-      const helpersCount = entry.job.helpersCount ?? 0;
-      const jobValue = hourlyRateValue != null ? billedHours * hourlyRateValue : 0;
-      const helpersValue = helperHourlyRateValue != null && helpersCount > 0
-        ? billedHours * helperHourlyRateValue * helpersCount
-        : 0;
-      target.total += jobValue + helpersValue;
+      const total = getEntryTotal(entry);
+      if (total == null) return;
+      target.total += total;
     });
     let runningTotal = 0;
     return series.map((item) => {
@@ -502,19 +555,14 @@ export default function AdminJobs() {
     });
     const byKey = new Map(months.map((item) => [item.key, item]));
     completedHistory.forEach((entry) => {
-      if (entry.endMs == null || entry.durationMs == null) return;
+      if (entry.endMs == null) return;
       const endDate = new Date(entry.endMs);
       const key = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}`;
       const target = byKey.get(key);
       if (!target) return;
-      const billedHours = getBilledHours(entry.durationMs);
-      if (billedHours == null) return;
-      const helpersCount = entry.job.helpersCount ?? 0;
-      const jobValue = hourlyRateValue != null ? billedHours * hourlyRateValue : 0;
-      const helpersValue = helperHourlyRateValue != null && helpersCount > 0
-        ? billedHours * helperHourlyRateValue * helpersCount
-        : 0;
-      target.total += jobValue + helpersValue;
+      const total = getEntryTotal(entry);
+      if (total == null) return;
+      target.total += total;
     });
     return months;
   }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
@@ -534,7 +582,7 @@ export default function AdminJobs() {
       return { value, label: currencyFormatter.format(value) };
     });
   }, [monthlyRevenueMaxValue]);
-  const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null;
+  const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null || hasChargeOverrides;
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
     driverLocations.forEach((loc) => map.set(loc.driverId, loc));
@@ -1066,7 +1114,7 @@ export default function AdminJobs() {
                   >
                     {savingHourlyRate ? 'Guardando...' : 'Guardar precio hora'}
                   </button>
-                  <p className="mt-2 text-xs text-gray-500">Total flete estimado: {totalRevenueLabel}</p>
+                  <p className="mt-2 text-xs text-gray-500">{totalRevenueCaption}: {totalRevenueLabel}</p>
                   <div className="mt-4 border-t pt-3">
                     <p className="text-xs uppercase tracking-wide text-gray-400">Precio hora ayudante</p>
                     <p className="text-lg font-semibold text-gray-900">{helperHourlyRateLabel}</p>
@@ -1288,6 +1336,8 @@ export default function AdminJobs() {
                       const totalValue = jobValue != null || helpersValue != null
                         ? (jobValue ?? 0) + (helpersValue ?? 0)
                         : null;
+                      const chargedAmount = entry.job.chargedAmount ?? null;
+                      const chargedAmountLabel = chargedAmount != null ? currencyFormatter.format(chargedAmount) : null;
                       const jobValueLabel = jobValue != null
                         ? currencyFormatter.format(jobValue)
                         : hourlyRateValue == null
@@ -1300,8 +1350,11 @@ export default function AdminJobs() {
                           : helpersCount > 0
                             ? 'Sin tiempos'
                             : 'Sin ayudantes';
-                      const totalValueLabel = totalValue != null ? currencyFormatter.format(totalValue) : 'N/D';
+                      const computedTotalLabel = totalValue != null ? currencyFormatter.format(totalValue) : 'N/D';
+                      const displayTotalLabel = chargedAmountLabel ?? computedTotalLabel;
                       const endLabel = entry.endMs != null ? new Date(entry.endMs).toLocaleString() : 'Sin datos';
+                      const chargedInputValue = chargedAmountDrafts[entry.job.id] ?? (chargedAmount != null ? String(chargedAmount) : '');
+                      const isSavingCharge = savingChargedAmountId === entry.job.id;
                       return (
                         <div key={entry.job.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
                           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1315,11 +1368,51 @@ export default function AdminJobs() {
                               <p className="text-xs text-gray-500">Finalizado: {endLabel}</p>
                             </div>
                             <div className="text-right">
-                              <p className="text-sm font-semibold text-gray-900">{totalValueLabel}</p>
+                              <p className="text-sm font-semibold text-gray-900">{displayTotalLabel}</p>
+                              {chargedAmountLabel && (
+                                <p className="text-xs text-emerald-600">Cobrado</p>
+                              )}
+                              {chargedAmountLabel && totalValue != null && (
+                                <p className="text-xs text-gray-500">Estimado: {computedTotalLabel}</p>
+                              )}
                               <p className="text-xs text-gray-500">Flete: {jobValueLabel}</p>
                               <p className="text-xs text-gray-500">Ayudantes: {helpersValueLabel}</p>
                               <p className="text-xs text-gray-500">Duracion: {durationLabel}</p>
                             </div>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                            <span className="text-[11px] uppercase tracking-wide text-gray-400">Cobrado</span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              placeholder="Ej: 30000"
+                              value={chargedInputValue}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setChargedAmountDrafts((prev) => ({ ...prev, [entry.job.id]: value }));
+                              }}
+                              className="w-28 rounded border px-2 py-1 text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveChargedAmount(entry.job)}
+                              disabled={isSavingCharge}
+                              className="rounded border border-blue-200 px-2 py-1 text-[11px] font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isSavingCharge ? 'Guardando...' : 'Guardar'}
+                            </button>
+                            {chargedAmount != null && (
+                              <button
+                                type="button"
+                                onClick={() => handleClearChargedAmount(entry.job)}
+                                disabled={isSavingCharge}
+                                className="rounded border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Limpiar
+                              </button>
+                            )}
                           </div>
                         </div>
                       );

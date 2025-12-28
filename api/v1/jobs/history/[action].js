@@ -129,6 +129,8 @@ const handleExport = async (res) => {
     'helper_hourly_rate',
     'helpers_total_value',
     'total_with_helpers',
+    'charged_amount',
+    'total_billed',
     'created_at',
     'updated_at',
   ];
@@ -150,6 +152,8 @@ const handleExport = async (res) => {
     const totalWithHelpers = totalValue != null && helpersTotalValue != null
       ? Number((totalValue + helpersTotalValue).toFixed(2))
       : totalValue ?? helpersTotalValue;
+    const chargedAmount = Number.isFinite(job.chargedAmount) ? job.chargedAmount : null;
+    const totalBilled = chargedAmount != null ? Number(chargedAmount.toFixed(2)) : totalWithHelpers;
     const driverName = job.driverId ? driversById.get(job.driverId)?.name ?? '' : '';
 
     rows.push([
@@ -171,6 +175,8 @@ const handleExport = async (res) => {
       helperHourlyRate,
       helpersTotalValue,
       totalWithHelpers,
+      chargedAmount,
+      totalBilled,
       job.createdAt,
       job.updatedAt,
     ]);

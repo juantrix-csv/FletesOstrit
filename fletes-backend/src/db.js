@@ -23,6 +23,7 @@ db.exec(`
     notes TEXT,
     driverId TEXT,
     helpersCount INTEGER,
+    chargedAmount REAL,
     status TEXT NOT NULL,
     flags TEXT NOT NULL,
     timestamps TEXT NOT NULL,
@@ -54,6 +55,9 @@ const ensureJobsColumns = () => {
   }
   if (!columns.includes('helpersCount')) {
     db.exec('ALTER TABLE jobs ADD COLUMN helpersCount INTEGER;');
+  }
+  if (!columns.includes('chargedAmount')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN chargedAmount REAL;');
   }
 };
 
@@ -152,6 +156,7 @@ const toRow = (job) => ({
   notes: job.notes ?? null,
   driverId: job.driverId ?? null,
   helpersCount: Number.isFinite(job.helpersCount) ? job.helpersCount : null,
+  chargedAmount: Number.isFinite(job.chargedAmount) ? job.chargedAmount : null,
   status: job.status,
   flags: JSON.stringify(job.flags ?? defaultFlags),
   timestamps: JSON.stringify(job.timestamps ?? {}),
@@ -173,6 +178,7 @@ const fromRow = (row) => ({
   notes: row.notes ?? undefined,
   driverId: row.driverId ?? undefined,
   helpersCount: Number.isFinite(row.helpersCount) ? row.helpersCount : undefined,
+  chargedAmount: Number.isFinite(row.chargedAmount) ? row.chargedAmount : undefined,
   status: row.status,
   flags: parseJson(row.flags, defaultFlags),
   timestamps: parseJson(row.timestamps, {}),
@@ -185,11 +191,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, description, pickup, dropoff, extraStops, notes, driverId, helpersCount, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, notes, driverId, helpersCount, chargedAmount, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @notes, @driverId, @helpersCount, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @notes, @driverId, @helpersCount, @chargedAmount, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -206,6 +212,7 @@ const updateStmt = db.prepare(`
     notes = @notes,
     driverId = @driverId,
     helpersCount = @helpersCount,
+    chargedAmount = @chargedAmount,
     status = @status,
     flags = @flags,
     timestamps = @timestamps,
