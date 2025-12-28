@@ -7,6 +7,11 @@ import { cn } from '../lib/utils';
 const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
 const fallbackCenter = { lat: -34.9214, lng: -57.9544 };
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' } as const;
+const MAX_BOUNDS: [[number, number], [number, number]] = [
+  [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
+  [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],
+];
 
 interface DriversOverviewMapProps {
   locations: DriverLocation[];
@@ -25,6 +30,10 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
     drivers.forEach((driver) => map.set(driver.id, driver));
     return map;
   }, [drivers]);
+  const initialViewState = useMemo(
+    () => ({ latitude: fallbackCenter.lat, longitude: fallbackCenter.lng, zoom: 10 }),
+    []
+  );
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -49,19 +58,16 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
     <div className={cn("h-[280px] w-full overflow-hidden rounded-xl border bg-white", className)}>
       <MapGL
         ref={mapRef}
-        initialViewState={{ latitude: fallbackCenter.lat, longitude: fallbackCenter.lng, zoom: 10 }}
+        initialViewState={initialViewState}
         mapStyle={MAP_STYLE}
         onLoad={() => setMapReady(true)}
-        maxBounds={[
-          [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
-          [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],
-        ]}
+        maxBounds={MAX_BOUNDS}
         reuseMaps
         attributionControl={false}
         dragRotate={false}
         pitchWithRotate={false}
         touchPitch={false}
-        style={{ width: '100%', height: '100%' }}
+        style={MAP_CONTAINER_STYLE}
       >
         {locations.map((loc) => {
           const driver = driversById.get(loc.driverId);

@@ -18,32 +18,53 @@ interface SyncOptions {
 export const useDriverLocationSync = ({ session, jobId, coords }: SyncOptions) => {
   const lastSentRef = useRef(0);
   const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const coordsRef = useRef<typeof coords>(null);
 
   useEffect(() => {
-    if (!session || !coords) return;
-    const now = Date.now();
-    const last = lastSentRef.current;
-    const lastCoords = lastCoordsRef.current;
-    const minInterval = 8000;
-    const movedEnough = !lastCoords
-      ? true
-      : Math.abs(coords.lat - lastCoords.lat) > 0.0002 || Math.abs(coords.lng - lastCoords.lng) > 0.0002;
+    coordsRef.current = coords ?? null;
+  }, [coords]);
 
-    if (!movedEnough && now - last < minInterval) return;
+  useEffect(() => {
+    if (!session) return;
 
-    lastSentRef.current = now;
-    lastCoordsRef.current = { lat: coords.lat, lng: coords.lng };
+    const sendLocation = (current: NonNullable<typeof coords>) => {
+      const now = Date.now();
+      const last = lastSentRef.current;
+      const lastCoords = lastCoordsRef.current;
+      const minInterval = 8000;
+      const movedEnough = !lastCoords
+        ? true
+        : Math.abs(current.lat - lastCoords.lat) > 0.0002 || Math.abs(current.lng - lastCoords.lng) > 0.0002;
 
-    const payload: Omit<DriverLocation, 'updatedAt'> = {
-      driverId: session.driverId,
-      lat: coords.lat,
-      lng: coords.lng,
-      accuracy: coords.accuracy,
-      heading: coords.heading,
-      speed: coords.speed,
-      jobId: jobId ?? null,
+      if (!movedEnough && now - last < minInterval) return;
+
+      lastSentRef.current = now;
+      lastCoordsRef.current = { lat: current.lat, lng: current.lng };
+
+      const payload: Omit<DriverLocation, 'updatedAt'> = {
+        driverId: session.driverId,
+        lat: current.lat,
+        lng: current.lng,
+        accuracy: current.accuracy,
+        heading: current.heading,
+        speed: current.speed,
+        jobId: jobId ?? null,
+      };
+
+      updateDriverLocation(payload).catch(() => {});
     };
 
-    updateDriverLocation(payload).catch(() => {});
-  }, [session, coords, jobId]);
+    if (coords) {
+      sendLocation(coords);
+    }
+
+    const id = window.setInterval(() => {
+      const current = coordsRef.current;
+      if (current) {
+        sendLocation(current);
+      }
+    }, 15000);
+
+    return () => clearInterval(id);
+  }, [session, jobId, coords]);
 };

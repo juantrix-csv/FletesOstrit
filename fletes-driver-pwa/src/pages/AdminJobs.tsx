@@ -77,7 +77,7 @@ export default function AdminJobs() {
       const data = await listDriverLocations();
       setDriverLocations(data);
     } catch {
-      setDriverLocations([]);
+      // Keep last known positions on transient errors.
     } finally {
       if (!locationsLoadedRef.current) {
         locationsLoadedRef.current = true;
@@ -194,6 +194,11 @@ export default function AdminJobs() {
     } catch {
       toast.error('No se pudo eliminar el conductor');
     }
+  };
+
+  const handleSelectDriverMap = (driverId: string) => {
+    setSelectedDriverId(driverId);
+    loadDriverLocations();
   };
 
   const totalJobs = jobs.length;
@@ -481,7 +486,7 @@ export default function AdminJobs() {
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setSelectedDriverId(driver.id)}
+                        onClick={() => handleSelectDriverMap(driver.id)}
                         className="rounded border px-2 py-1 text-xs text-blue-600"
                       >
                         Ver mapa
