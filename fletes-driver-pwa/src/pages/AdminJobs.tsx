@@ -439,6 +439,48 @@ export default function AdminJobs() {
   const monthlyGrossLabel = monthlyGrossTotal != null
     ? currencyFormatter.format(monthlyGrossTotal)
     : 'Configura el precio';
+  const dailyRevenueSeries = useMemo(() => {
+    const now = new Date();
+    const month = now.getMonth();
+    const year = now.getFullYear();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const series = Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+      const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      return { key, day, total: 0 };
+    });
+    const byKey = new Map(series.map((item) => [item.key, item]));
+    completedHistory.forEach((entry) => {
+      if (entry.endMs == null || entry.durationMs == null) return;
+      const endDate = new Date(entry.endMs);
+      if (endDate.getMonth() !== month || endDate.getFullYear() !== year) return;
+      const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
+      const target = byKey.get(key);
+      if (!target) return;
+      const billedHours = getBilledHours(entry.durationMs);
+      if (billedHours == null) return;
+      const helpersCount = entry.job.helpersCount ?? 0;
+      const jobValue = hourlyRateValue != null ? billedHours * hourlyRateValue : 0;
+      const helpersValue = helperHourlyRateValue != null && helpersCount > 0
+        ? billedHours * helperHourlyRateValue * helpersCount
+        : 0;
+      target.total += jobValue + helpersValue;
+    });
+    return series;
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  const dailyRevenueMaxValue = useMemo(() => {
+    const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => item.total));
+    return maxValue;
+  }, [dailyRevenueSeries]);
+  const dailyRevenueScaleMax = dailyRevenueMaxValue > 0 ? dailyRevenueMaxValue : 1;
+  const dailyRevenueTicks = useMemo(() => {
+    const steps = 4;
+    const maxValue = dailyRevenueMaxValue;
+    return Array.from({ length: steps + 1 }, (_, index) => {
+      const value = maxValue > 0 ? (maxValue * (steps - index)) / steps : 0;
+      return { value, label: currencyFormatter.format(value) };
+    });
+  }, [dailyRevenueMaxValue]);
   const monthlyRevenueSeries = useMemo(() => {
     const now = new Date();
     const months = Array.from({ length: 6 }, (_, index) => {
@@ -465,10 +507,19 @@ export default function AdminJobs() {
     });
     return months;
   }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
-  const monthlyRevenueMax = useMemo(() => {
+  const monthlyRevenueMaxValue = useMemo(() => {
     const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => item.total));
-    return maxValue > 0 ? maxValue : 1;
+    return maxValue;
   }, [monthlyRevenueSeries]);
+  const monthlyRevenueScaleMax = monthlyRevenueMaxValue > 0 ? monthlyRevenueMaxValue : 1;
+  const monthlyRevenueTicks = useMemo(() => {
+    const steps = 4;
+    const maxValue = monthlyRevenueMaxValue;
+    return Array.from({ length: steps + 1 }, (_, index) => {
+      const value = maxValue > 0 ? (maxValue * (steps - index)) / steps : 0;
+      return { value, label: currencyFormatter.format(value) };
+    });
+  }, [monthlyRevenueMaxValue]);
   const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null;
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
@@ -948,6 +999,79 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos diarios</p>
+                    <p className="text-lg font-semibold text-gray-900">Mes actual: {currentMonthLabel}</p>
+                  </div>
+                  {!hasMonthlyPricing && (
+                    <span className="text-xs text-amber-600">Configura precios para ver montos</span>
+                  )}
+                </div>
+                <div className="mt-4">
+                  <svg viewBox="0 0 720 240" className="h-44 w-full">
+                    <defs>
+                      <linearGradient id="daily-line" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.4" />
+                        <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.05" />
+                      </linearGradient>
+                    </defs>
+                    {dailyRevenueTicks.map((tick, index) => {
+                      const y = 20 + (150 * index) / (dailyRevenueTicks.length - 1);
+                      return (
+                        <g key={tick.value}>
+                          <line x1="60" y1={y} x2="700" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
+                          <text x="6" y={y + 4} fontSize="10" fill="#6b7280">
+                            {tick.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    <polyline
+                      fill="url(#daily-line)"
+                      stroke="none"
+                      points={[
+                        `60,170`,
+                        ...dailyRevenueSeries.map((item, index) => {
+                          const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                          const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
+                          return `${x},${y}`;
+                        }),
+                        `700,170`,
+                      ].join(' ')}
+                    />
+                    <polyline
+                      fill="none"
+                      stroke="#0284c7"
+                      strokeWidth="2.5"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={dailyRevenueSeries.map((item, index) => {
+                        const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                        const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
+                        return `${x},${y}`;
+                      }).join(' ')}
+                    />
+                    {dailyRevenueSeries.map((item, index) => {
+                      const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                      const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
+                      const showLabel = item.day === 1 || item.day % 5 === 0 || index === dailyRevenueSeries.length - 1;
+                      return (
+                        <g key={item.key}>
+                          <circle cx={x} cy={y} r="3.5" fill="#0284c7" />
+                          {showLabel && (
+                            <text x={x} y="208" textAnchor="middle" fontSize="9" fill="#6b7280">
+                              {item.day}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos por mes</p>
                     <p className="text-lg font-semibold text-gray-900">Progreso de los ultimos 6 meses</p>
                   </div>
@@ -955,21 +1079,63 @@ export default function AdminJobs() {
                     <span className="text-xs text-amber-600">Configura precios para ver montos</span>
                   )}
                 </div>
-                <div className="mt-4 flex h-36 items-end gap-3">
-                  {monthlyRevenueSeries.map((item) => (
-                    <div key={item.key} className="flex flex-1 flex-col items-center gap-2">
-                      <div className="flex h-24 w-full items-end justify-center">
-                        <div
-                          className="w-full rounded-full bg-emerald-500/80"
-                          style={{ height: `${Math.round((item.total / monthlyRevenueMax) * 100)}%` }}
-                        />
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[11px] uppercase tracking-wide text-gray-500">{item.label}</p>
-                        <p className="text-xs font-semibold text-gray-900">{currencyFormatter.format(item.total)}</p>
-                      </div>
-                    </div>
-                  ))}
+                <div className="mt-4">
+                  <svg viewBox="0 0 600 220" className="h-44 w-full">
+                    <defs>
+                      <linearGradient id="monthly-line" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.45" />
+                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.05" />
+                      </linearGradient>
+                    </defs>
+                    {monthlyRevenueTicks.map((tick, index) => {
+                      const y = 20 + (140 * index) / (monthlyRevenueTicks.length - 1);
+                      return (
+                        <g key={tick.value}>
+                          <line x1="60" y1={y} x2="590" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
+                          <text x="6" y={y + 4} fontSize="10" fill="#6b7280">
+                            {tick.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    <polyline
+                      fill="url(#monthly-line)"
+                      stroke="none"
+                      points={[
+                        `60,160`,
+                        ...monthlyRevenueSeries.map((item, index) => {
+                          const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                          const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
+                          return `${x},${y}`;
+                        }),
+                        `590,160`,
+                      ].join(' ')}
+                    />
+                    <polyline
+                      fill="none"
+                      stroke="#059669"
+                      strokeWidth="3"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={monthlyRevenueSeries.map((item, index) => {
+                        const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                        const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
+                        return `${x},${y}`;
+                      }).join(' ')}
+                    />
+                    {monthlyRevenueSeries.map((item, index) => {
+                      const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                      const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
+                      return (
+                        <g key={item.key}>
+                          <circle cx={x} cy={y} r="5" fill="#059669" />
+                          <text x={x} y="198" textAnchor="middle" fontSize="10" fill="#6b7280">
+                            {item.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
                 </div>
               </div>
 
