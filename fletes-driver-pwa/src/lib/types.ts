@@ -22,7 +22,7 @@ export interface DriverLocation {
 export interface Job {
   id: string; clientName: string; clientPhone?: string; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
   notes?: string; helpersCount?: number; status: JobStatus; driverId?: string | null;
-  chargedAmount?: number;
+  chargedAmount?: number | null;
   scheduledDate?: string; scheduledTime?: string; scheduledAt?: number;
   flags: { nearPickupSent: boolean; arrivedPickupSent: boolean; nearDropoffSent: boolean; arrivedDropoffSent: boolean; };
   timestamps: { startJobAt?: string; startLoadingAt?: string; endLoadingAt?: string; startTripAt?: string; endTripAt?: string; startUnloadingAt?: string; endUnloadingAt?: string; };
