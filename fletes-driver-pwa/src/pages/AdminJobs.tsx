@@ -56,6 +56,39 @@ const isSameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 const isSameMonth = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+const getDayOverlapRange = (start: Date, end: Date, day: Date) => {
+  const dayStart = startOfDay(day);
+  const dayEnd = addDays(dayStart, 1);
+  const rangeStart = start > dayStart ? start : dayStart;
+  const rangeEnd = end < dayEnd ? end : dayEnd;
+  if (rangeEnd <= rangeStart) return null;
+  return { rangeStart, rangeEnd };
+};
+const getHourSlotsForDay = (start: Date, end: Date, day: Date) => {
+  const overlap = getDayOverlapRange(start, end, day);
+  if (!overlap) return [];
+  const slots: number[] = [];
+  let cursor = new Date(overlap.rangeStart);
+  cursor.setMinutes(0, 0, 0);
+  while (cursor < overlap.rangeEnd) {
+    slots.push(cursor.getHours());
+    cursor = new Date(
+      cursor.getFullYear(),
+      cursor.getMonth(),
+      cursor.getDate(),
+      cursor.getHours() + 1,
+      0,
+      0,
+      0,
+    );
+  }
+  return slots;
+};
+const formatJobRangeForDay = (start: Date, end: Date, day: Date) => {
+  const overlap = getDayOverlapRange(start, end, day);
+  if (!overlap) return '';
+  return `${timeFormatter.format(overlap.rangeStart)}-${timeFormatter.format(overlap.rangeEnd)}`;
+};
 
 const parseHourlyRate = (value: string) => {
   const normalized = value.trim().replace(',', '.');
@@ -66,6 +99,13 @@ const parseHourlyRate = (value: string) => {
 };
 
 const parseMoneyInput = (value: string) => parseHourlyRate(value);
+const parseDurationHours = (value: string) => {
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
 
 const parseTimestampMs = (value?: string) => {
   if (!value) return null;
@@ -98,6 +138,21 @@ const getBilledHours = (ms: number | null) => {
   if (ms == null) return null;
   if (ms <= 0) return 0;
   return Math.ceil(ms / 3600000);
+};
+
+type CalendarJob = {
+  job: Job;
+  start: Date;
+  end: Date;
+  scheduledAt: number;
+  durationMinutes: number;
+};
+
+const getEstimatedDurationMinutes = (job: Job) => {
+  if (Number.isFinite(job.estimatedDurationMinutes) && (job.estimatedDurationMinutes as number) > 0) {
+    return job.estimatedDurationMinutes as number;
+  }
+  return 60;
 };
 
 export default function AdminJobs() {
@@ -238,12 +293,19 @@ export default function AdminJobs() {
     const scheduledDate = String(fd.get('scheduledDate') || '');
     const scheduledTime = String(fd.get('scheduledTime') || '');
     const description = String(fd.get('description') || '').trim();
+    const estimatedDurationRaw = String(fd.get('estimatedDurationHours') || '').trim();
+    const estimatedHours = parseDurationHours(estimatedDurationRaw);
     const helpersCountRaw = String(fd.get('helpersCount') || '').trim();
     const helpersCount = helpersCountRaw ? Number.parseInt(helpersCountRaw, 10) : undefined;
     if (helpersCountRaw && (!Number.isInteger(helpersCount) || (helpersCount ?? 0) < 0)) {
       toast.error('Cantidad de ayudantes invalida');
       return;
     }
+    if (estimatedHours == null) {
+      toast.error('Duracion estimada invalida');
+      return;
+    }
+    const estimatedDurationMinutes = Math.max(1, Math.round(estimatedHours * 60));
     const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
     const driverIdValue = String(fd.get('driverId') || '').trim();
     try {
@@ -251,6 +313,7 @@ export default function AdminJobs() {
         id: uuidv4(),
         clientName: String(fd.get('cn') || ''),
         description: description || undefined,
+        estimatedDurationMinutes,
         scheduledDate,
         scheduledTime,
         scheduledAt: scheduledAt ?? undefined,
@@ -657,21 +720,30 @@ export default function AdminJobs() {
       .map((job) => {
         const scheduledAt = getScheduledAtMs(job.scheduledDate, job.scheduledTime, job.scheduledAt);
         if (scheduledAt == null) return null;
-        const date = new Date(scheduledAt);
-        return { job, date, scheduledAt };
+        const durationMinutes = getEstimatedDurationMinutes(job);
+        const start = new Date(scheduledAt);
+        const end = new Date(scheduledAt + durationMinutes * 60000);
+        return { job, start, end, scheduledAt, durationMinutes };
       })
-      .filter((item): item is { job: Job; date: Date; scheduledAt: number } => item != null)
+      .filter((item): item is CalendarJob => item != null)
       .sort((a, b) => a.scheduledAt - b.scheduledAt);
   }, [jobs]);
   const scheduledJobsByDay = useMemo(() => {
-    const map = new Map<string, { job: Job; date: Date; scheduledAt: number }[]>();
+    const map = new Map<string, CalendarJob[]>();
     scheduledJobs.forEach((item) => {
-      const key = buildDateKey(item.date);
-      const bucket = map.get(key);
-      if (bucket) {
-        bucket.push(item);
-      } else {
-        map.set(key, [item]);
+      const endInclusive = new Date(item.end.getTime() - 1);
+      if (endInclusive < item.start) return;
+      let cursor = startOfDay(item.start);
+      const lastDay = startOfDay(endInclusive);
+      while (cursor <= lastDay) {
+        const key = buildDateKey(cursor);
+        const bucket = map.get(key);
+        if (bucket) {
+          bucket.push(item);
+        } else {
+          map.set(key, [item]);
+        }
+        cursor = addDays(cursor, 1);
       }
     });
     map.forEach((items) => items.sort((a, b) => a.scheduledAt - b.scheduledAt));
@@ -698,17 +770,23 @@ export default function AdminJobs() {
     });
   };
   const dayJobs = getDayJobs(calendarDate);
-  const dayJobsByHour = new Map<number, { job: Job; date: Date; scheduledAt: number }[]>();
+  const dayJobsByHour = new Map<number, CalendarJob[]>();
+  const dayBlockedHours = new Set<number>();
   dayJobs.forEach((item) => {
-    const hour = item.date.getHours();
-    const bucket = dayJobsByHour.get(hour);
-    if (bucket) {
-      bucket.push(item);
-    } else {
-      dayJobsByHour.set(hour, [item]);
-    }
+    const hours = getHourSlotsForDay(item.start, item.end, calendarDate);
+    hours.forEach((hour) => {
+      if (hour < calendarStartHour || hour >= calendarEndHour) return;
+      dayBlockedHours.add(hour);
+      const bucket = dayJobsByHour.get(hour);
+      if (bucket) {
+        bucket.push(item);
+      } else {
+        dayJobsByHour.set(hour, [item]);
+      }
+    });
   });
-  const dayFreeHours = calendarHours.filter((hour) => !dayJobsByHour.has(hour));
+  dayJobsByHour.forEach((items) => items.sort((a, b) => a.scheduledAt - b.scheduledAt));
+  const dayFreeHours = calendarHours.filter((hour) => !dayBlockedHours.has(hour));
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -823,6 +901,15 @@ export default function AdminJobs() {
                       <input name="scheduledDate" type="date" className="w-full border p-2" required />
                       <input name="scheduledTime" type="time" className="w-full border p-2" required />
                     </div>
+                    <input
+                      name="estimatedDurationHours"
+                      type="number"
+                      min="0.5"
+                      step="0.5"
+                      placeholder="Duracion estimada (horas)"
+                      className="w-full border p-2"
+                      required
+                    />
                     <AddressAutocomplete label="Origen" placeholder="Buscar origen" onSelect={setPickup} selected={pickup} />
                     <AddressAutocomplete label="Destino" placeholder="Buscar destino" onSelect={setDropoff} selected={dropoff} />
                     <div className="rounded border bg-gray-50 p-3 space-y-2">
@@ -1028,6 +1115,9 @@ export default function AdminJobs() {
                   const trip = formatDuration(tripStart, tripEnd);
                   const unloading = formatDuration(job.timestamps.startUnloadingAt, job.timestamps.endUnloadingAt);
                   const total = formatDuration(job.timestamps.startLoadingAt, job.timestamps.endUnloadingAt);
+                  const estimatedLabel = Number.isFinite(job.estimatedDurationMinutes)
+                    ? formatDurationMs((job.estimatedDurationMinutes as number) * 60000)
+                    : 'N/D';
                   const driver = job.driverId ? driversById.get(job.driverId) : null;
                   return (
                     <div key={job.id} className="space-y-2 rounded border-l-4 border-blue-500 bg-white p-3 shadow-sm">
@@ -1039,6 +1129,7 @@ export default function AdminJobs() {
                           {job.description && (
                             <p className="text-xs text-gray-600">Descripcion: {job.description}</p>
                           )}
+                          <p className="text-xs text-gray-600">Estimado: {estimatedLabel}</p>
                           <p className="text-xs text-gray-600">Ayudantes: {job.helpersCount ?? 0}</p>
                           {job.extraStops && job.extraStops.length > 0 && (
                             <p className="text-xs text-gray-600">Paradas extra: {job.extraStops.length}</p>
@@ -1157,7 +1248,7 @@ export default function AdminJobs() {
                                 {hourJobs.map((item) => (
                                   <div key={item.job.id} className="rounded bg-white px-2 py-1 text-xs text-gray-700 shadow-sm">
                                     <span className="font-semibold">{item.job.clientName}</span>
-                                    <span className="text-gray-400"> - {timeFormatter.format(item.date)}</span>
+                                    <span className="text-gray-400"> - {formatJobRangeForDay(item.start, item.end, calendarDate)}</span>
                                   </div>
                                 ))}
                               </div>
@@ -1190,8 +1281,14 @@ export default function AdminJobs() {
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
                     {weekDays.map((day) => {
                       const items = getDayJobs(day);
-                      const usedHours = new Set(items.map((item) => item.date.getHours()));
-                      const freeHours = calendarHours.filter((hour) => !usedHours.has(hour));
+                      const blockedHours = new Set<number>();
+                      items.forEach((item) => {
+                        getHourSlotsForDay(item.start, item.end, day).forEach((hour) => {
+                          if (hour < calendarStartHour || hour >= calendarEndHour) return;
+                          blockedHours.add(hour);
+                        });
+                      });
+                      const freeHours = calendarHours.filter((hour) => !blockedHours.has(hour));
                       const isToday = isSameDay(day, calendarToday);
                       return (
                         <div
@@ -1212,7 +1309,7 @@ export default function AdminJobs() {
                                   key={item.job.id}
                                   className="truncate rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700"
                                 >
-                                  {timeFormatter.format(item.date)} - {item.job.clientName}
+                                  {formatJobRangeForDay(item.start, item.end, day)} - {item.job.clientName}
                                 </div>
                               ))
                             )}
@@ -1260,7 +1357,7 @@ export default function AdminJobs() {
                             <div className="mt-2 space-y-1">
                               {items.slice(0, 3).map((item) => (
                                 <div key={item.job.id} className="truncate rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-700">
-                                  {timeFormatter.format(item.date)} {item.job.clientName}
+                                  {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
                                 </div>
                               ))}
                               {items.length > 3 && (
@@ -1275,8 +1372,8 @@ export default function AdminJobs() {
                 )}
 
                 <p className="mt-4 text-[11px] text-gray-400">
-                  Huecos estimados por bloques de 1 hora entre {String(calendarStartHour).padStart(2, '0')}:00 y {String(calendarEndHour - 1).padStart(2, '0')}:00.
-                  Solo se muestran fletes con fecha y hora definida.
+                  Huecos estimados por bloques de 1 hora entre {String(calendarStartHour).padStart(2, '0')}:00 y {String(calendarEndHour - 1).padStart(2, '0')}:00,
+                  segun la duracion estimada de cada flete. Solo se muestran fletes con fecha y hora definida.
                 </p>
               </div>
             </div>

@@ -36,6 +36,7 @@ const ALLOWED_STATUSES = new Set([
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
 const isFiniteNumber = (value) => Number.isFinite(value);
 const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
+const isPositiveInteger = (value) => Number.isInteger(value) && value > 0;
 const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;
 const isLocation = (value) => (
   value &&
@@ -298,6 +299,10 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
     res.status(400).json({ error: 'Invalid helpersCount' });
     return;
   }
+  if (body.estimatedDurationMinutes != null && !isPositiveInteger(body.estimatedDurationMinutes)) {
+    res.status(400).json({ error: 'Invalid estimatedDurationMinutes' });
+    return;
+  }
   if (body.chargedAmount != null && !isNonNegativeNumber(body.chargedAmount)) {
     res.status(400).json({ error: 'Invalid chargedAmount' });
     return;
@@ -337,6 +342,10 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
   }
   if (body.helpersCount != null && !isNonNegativeInteger(body.helpersCount)) {
     res.status(400).json({ error: 'Invalid helpersCount' });
+    return;
+  }
+  if (body.estimatedDurationMinutes != null && !isPositiveInteger(body.estimatedDurationMinutes)) {
+    res.status(400).json({ error: 'Invalid estimatedDurationMinutes' });
     return;
   }
   if (body.chargedAmount != null && !isNonNegativeNumber(body.chargedAmount)) {

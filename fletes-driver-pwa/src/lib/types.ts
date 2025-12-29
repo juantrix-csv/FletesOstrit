@@ -21,7 +21,7 @@ export interface DriverLocation {
 }
 export interface Job {
   id: string; clientName: string; clientPhone?: string; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
-  notes?: string; helpersCount?: number; status: JobStatus; driverId?: string | null;
+  notes?: string; helpersCount?: number; estimatedDurationMinutes?: number | null; status: JobStatus; driverId?: string | null;
   chargedAmount?: number | null;
   scheduledDate?: string; scheduledTime?: string; scheduledAt?: number;
   flags: { nearPickupSent: boolean; arrivedPickupSent: boolean; nearDropoffSent: boolean; arrivedDropoffSent: boolean; };

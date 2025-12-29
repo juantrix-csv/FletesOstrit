@@ -22,6 +22,7 @@ export const ensureSchema = async () => {
       notes TEXT,
       driver_id TEXT,
       helpers_count INTEGER,
+      estimated_duration_minutes INTEGER,
       charged_amount DOUBLE PRECISION,
       status TEXT NOT NULL,
       flags JSONB NOT NULL,
@@ -37,6 +38,7 @@ export const ensureSchema = async () => {
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS description TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helpers_count INTEGER;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_duration_minutes INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charged_amount DOUBLE PRECISION;`;
   await sql`
     CREATE TABLE IF NOT EXISTS drivers (
@@ -92,6 +94,7 @@ const normalizeRow = (row) => ({
   notes: row.notes ?? undefined,
   driverId: row.driver_id ?? undefined,
   helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
+  estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
   chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : undefined,
   status: row.status,
   flags: row.flags ?? defaultFlags,
@@ -138,7 +141,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, notes, driver_id, helpers_count, charged_amount, status,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -152,6 +155,7 @@ export const createJob = async (job) => {
       ${job.notes ?? null},
       ${job.driverId ?? null},
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
+      ${Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null},
       ${Number.isFinite(job.chargedAmount) ? job.chargedAmount : null},
       ${job.status},
       ${flags},
@@ -200,6 +204,7 @@ export const updateJob = async (id, patch) => {
       notes = ${next.notes ?? null},
       driver_id = ${next.driverId ?? null},
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
+      estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
       charged_amount = ${Number.isFinite(next.chargedAmount) ? next.chargedAmount : null},
       status = ${next.status},
       flags = ${next.flags ?? defaultFlags},
