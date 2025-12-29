@@ -34,6 +34,28 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
 });
 const monthFormatter = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' });
 const monthShortFormatter = new Intl.DateTimeFormat('es-AR', { month: 'short' });
+const dayFormatter = new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: '2-digit', month: 'short' });
+const dayLongFormatter = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+const timeFormatter = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit' });
+const calendarStartHour = 6;
+const calendarEndHour = 22;
+const calendarHours = Array.from({ length: calendarEndHour - calendarStartHour }, (_, index) => calendarStartHour + index);
+
+const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const addDays = (date: Date, offset: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset);
+const startOfWeek = (date: Date) => {
+  const base = startOfDay(date);
+  const weekday = base.getDay();
+  const diff = (weekday + 6) % 7;
+  return addDays(base, -diff);
+};
+const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+const buildDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const isSameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const isSameMonth = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
 
 const parseHourlyRate = (value: string) => {
   const normalized = value.trim().replace(',', '.');
@@ -79,7 +101,9 @@ const getBilledHours = (ms: number | null) => {
 };
 
 export default function AdminJobs() {
-  const [tab, setTab] = useState<'jobs' | 'drivers' | 'analytics'>('jobs');
+  const [tab, setTab] = useState<'jobs' | 'drivers' | 'calendar' | 'analytics'>('jobs');
+  const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
+  const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
@@ -627,6 +651,64 @@ export default function AdminJobs() {
       })[0] ?? null;
   }, [jobs, selectedDriverId, selectedLocation?.jobId]);
   const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
+  const scheduledJobs = useMemo(() => {
+    return jobs
+      .filter((job) => job.status !== 'DONE')
+      .map((job) => {
+        const scheduledAt = getScheduledAtMs(job.scheduledDate, job.scheduledTime, job.scheduledAt);
+        if (scheduledAt == null) return null;
+        const date = new Date(scheduledAt);
+        return { job, date, scheduledAt };
+      })
+      .filter((item): item is { job: Job; date: Date; scheduledAt: number } => item != null)
+      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+  }, [jobs]);
+  const scheduledJobsByDay = useMemo(() => {
+    const map = new Map<string, { job: Job; date: Date; scheduledAt: number }[]>();
+    scheduledJobs.forEach((item) => {
+      const key = buildDateKey(item.date);
+      const bucket = map.get(key);
+      if (bucket) {
+        bucket.push(item);
+      } else {
+        map.set(key, [item]);
+      }
+    });
+    map.forEach((items) => items.sort((a, b) => a.scheduledAt - b.scheduledAt));
+    return map;
+  }, [scheduledJobs]);
+  const getDayJobs = (date: Date) => scheduledJobsByDay.get(buildDateKey(date)) ?? [];
+  const calendarToday = startOfDay(new Date());
+  const weekStart = startOfWeek(calendarDate);
+  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const monthStart = startOfMonth(calendarDate);
+  const monthGridStart = startOfWeek(monthStart);
+  const monthDays = Array.from({ length: 42 }, (_, index) => addDays(monthGridStart, index));
+  const calendarRangeLabel = calendarView === 'day'
+    ? dayLongFormatter.format(calendarDate)
+    : calendarView === 'week'
+      ? `${dayFormatter.format(weekDays[0])} - ${dayFormatter.format(weekDays[6])}`
+      : monthFormatter.format(calendarDate);
+  const handleCalendarToday = () => setCalendarDate(new Date());
+  const moveCalendar = (direction: -1 | 1) => {
+    setCalendarDate((prev) => {
+      if (calendarView === 'day') return addDays(prev, direction);
+      if (calendarView === 'week') return addDays(prev, direction * 7);
+      return new Date(prev.getFullYear(), prev.getMonth() + direction, 1);
+    });
+  };
+  const dayJobs = getDayJobs(calendarDate);
+  const dayJobsByHour = new Map<number, { job: Job; date: Date; scheduledAt: number }[]>();
+  dayJobs.forEach((item) => {
+    const hour = item.date.getHours();
+    const bucket = dayJobsByHour.get(hour);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      dayJobsByHour.set(hour, [item]);
+    }
+  });
+  const dayFreeHours = calendarHours.filter((hour) => !dayJobsByHour.has(hour));
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -634,7 +716,7 @@ export default function AdminJobs() {
         <div>
           <p className="text-xs uppercase tracking-wide text-blue-500">Panel Admin</p>
           <h1 className="text-2xl font-bold text-gray-900">Gestion de fletes</h1>
-          <p className="text-sm text-gray-500">Asignaciones, conductores y analiticas.</p>
+          <p className="text-sm text-gray-500">Asignaciones, conductores, calendario y analiticas.</p>
         </div>
         <div className="hidden lg:flex gap-2">
           <span className="rounded-full border px-3 py-1 text-xs text-gray-600">Fletes activos: {activeJobs}</span>
@@ -687,6 +769,16 @@ export default function AdminJobs() {
             </button>
             <button
               type="button"
+              onClick={() => setTab('calendar')}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-semibold",
+                tab === 'calendar' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
+              )}
+            >
+              Calendario
+            </button>
+            <button
+              type="button"
               onClick={() => setTab('analytics')}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs font-semibold",
@@ -698,7 +790,7 @@ export default function AdminJobs() {
           </div>
           <div className="hidden lg:block rounded-2xl border bg-white p-3 text-xs text-gray-500">
             <p className="font-semibold text-gray-700">Atajos</p>
-            <p>Usa los tabs para navegar entre fletes, conductores y analiticas.</p>
+            <p>Usa los tabs para navegar entre fletes, conductores, calendario y analiticas.</p>
             <p className="mt-2">Desde PC podes asignar rapido y crear fletes en paralelo.</p>
           </div>
         </aside>
@@ -974,6 +1066,218 @@ export default function AdminJobs() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {tab === 'calendar' && (
+            <div className="space-y-4">
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Calendario</p>
+                    <h2 className="text-lg font-semibold text-gray-900">Agenda de fletes</h2>
+                    <p className="text-xs text-gray-500">Visualiza huecos disponibles para agendar.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCalendarToday}
+                      className="rounded-full border px-3 py-1 text-xs font-semibold text-gray-600"
+                    >
+                      Hoy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveCalendar(-1)}
+                      className="rounded-full border px-3 py-1 text-xs font-semibold text-gray-600"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveCalendar(1)}
+                      className="rounded-full border px-3 py-1 text-xs font-semibold text-gray-600"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-gray-700">{calendarRangeLabel}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCalendarView('day')}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs font-semibold",
+                        calendarView === 'day' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
+                      )}
+                    >
+                      Dia
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarView('week')}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs font-semibold",
+                        calendarView === 'week' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
+                      )}
+                    >
+                      Semana
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarView('month')}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs font-semibold",
+                        calendarView === 'month' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
+                      )}
+                    >
+                      Mes
+                    </button>
+                  </div>
+                </div>
+
+                {calendarView === 'day' && (
+                  <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_220px]">
+                    <div className="space-y-2">
+                      {calendarHours.map((hour) => {
+                        const hourJobs = dayJobsByHour.get(hour) ?? [];
+                        return (
+                          <div key={hour} className="flex items-start gap-3 rounded border border-gray-100 bg-gray-50 px-3 py-2">
+                            <div className="w-16 text-xs font-semibold text-gray-500">
+                              {String(hour).padStart(2, '0')}:00
+                            </div>
+                            {hourJobs.length === 0 ? (
+                              <p className="text-xs text-gray-400">Libre</p>
+                            ) : (
+                              <div className="space-y-1">
+                                {hourJobs.map((item) => (
+                                  <div key={item.job.id} className="rounded bg-white px-2 py-1 text-xs text-gray-700 shadow-sm">
+                                    <span className="font-semibold">{item.job.clientName}</span>
+                                    <span className="text-gray-400"> - {timeFormatter.format(item.date)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="rounded-2xl border bg-gray-50 p-3 text-xs">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-400">Huecos disponibles</p>
+                      {dayFreeHours.length === 0 ? (
+                        <p className="mt-2 text-xs text-gray-500">No hay huecos libres para este dia.</p>
+                      ) : (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {dayFreeHours.map((hour) => (
+                            <span
+                              key={hour}
+                              className="rounded-full border border-emerald-200 bg-white px-2 py-1 text-[11px] text-emerald-700"
+                            >
+                              {String(hour).padStart(2, '0')}:00
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {calendarView === 'week' && (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+                    {weekDays.map((day) => {
+                      const items = getDayJobs(day);
+                      const usedHours = new Set(items.map((item) => item.date.getHours()));
+                      const freeHours = calendarHours.filter((hour) => !usedHours.has(hour));
+                      const isToday = isSameDay(day, calendarToday);
+                      return (
+                        <div
+                          key={buildDateKey(day)}
+                          className={cn(
+                            "rounded-2xl border p-3 text-xs",
+                            isToday ? "border-blue-500 bg-blue-50/40" : "border-gray-100 bg-white"
+                          )}
+                        >
+                          <p className="text-[11px] uppercase tracking-wide text-gray-400">{dayFormatter.format(day)}</p>
+                          <p className="mt-1 text-[11px] text-gray-500">Huecos: {freeHours.length}</p>
+                          <div className="mt-2 space-y-1">
+                            {items.length === 0 ? (
+                              <p className="text-xs text-gray-400">Libre</p>
+                            ) : (
+                              items.map((item) => (
+                                <div
+                                  key={item.job.id}
+                                  className="truncate rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700"
+                                >
+                                  {timeFormatter.format(item.date)} - {item.job.clientName}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {calendarView === 'month' && (
+                  <div className="mt-4">
+                    <div className="grid grid-cols-7 gap-2 text-[11px] uppercase tracking-wide text-gray-400">
+                      <span>Lun</span>
+                      <span>Mar</span>
+                      <span>Mie</span>
+                      <span>Jue</span>
+                      <span>Vie</span>
+                      <span>Sab</span>
+                      <span>Dom</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-7 gap-2">
+                      {monthDays.map((day) => {
+                        const items = getDayJobs(day);
+                        const isCurrentMonth = isSameMonth(day, calendarDate);
+                        const isToday = isSameDay(day, calendarToday);
+                        return (
+                          <div
+                            key={buildDateKey(day)}
+                            className={cn(
+                              "min-h-[90px] rounded-2xl border p-2 text-[11px]",
+                              isCurrentMonth ? "border-gray-100 bg-white" : "border-gray-100 bg-gray-50 text-gray-400"
+                            )}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className={cn("text-xs font-semibold", isToday ? "text-blue-600" : "text-gray-700")}>
+                                {day.getDate()}
+                              </span>
+                              {items.length > 0 && (
+                                <span className="rounded-full bg-blue-50 px-2 py-[2px] text-[10px] text-blue-600">
+                                  {items.length} {items.length === 1 ? 'flete' : 'fletes'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-2 space-y-1">
+                              {items.slice(0, 3).map((item) => (
+                                <div key={item.job.id} className="truncate rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-700">
+                                  {timeFormatter.format(item.date)} {item.job.clientName}
+                                </div>
+                              ))}
+                              {items.length > 3 && (
+                                <p className="text-[10px] text-gray-400">+{items.length - 3} mas</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <p className="mt-4 text-[11px] text-gray-400">
+                  Huecos estimados por bloques de 1 hora entre {String(calendarStartHour).padStart(2, '0')}:00 y {String(calendarEndHour - 1).padStart(2, '0')}:00.
+                  Solo se muestran fletes con fecha y hora definida.
+                </p>
               </div>
             </div>
           )}
