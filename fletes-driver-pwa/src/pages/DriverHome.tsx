@@ -5,6 +5,7 @@ import type { Job } from '../lib/types';
 import { getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { Play } from 'lucide-react';
 import { clearDriverSession, getDriverSession, type DriverSession } from '../lib/driverSession';
+import { getNetworkProfile } from '../lib/network';
 import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 export default function DriverHome() {
@@ -28,6 +29,7 @@ export default function DriverHome() {
     let active = true;
     setLoading(true);
     const load = async () => {
+      if (document.visibilityState !== 'visible') return;
       try {
         const data = await listJobs({ driverId: session.driverId });
         if (active) setJobs(data);
@@ -38,10 +40,17 @@ export default function DriverHome() {
       }
     };
     load();
-    const id = window.setInterval(load, 15000);
+    const { saveData } = getNetworkProfile();
+    const intervalMs = saveData ? 30000 : 15000;
+    const id = window.setInterval(load, intervalMs);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       active = false;
       clearInterval(id);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [session]);
   const active = jobs.find((job) => job.status !== 'DONE' && job.status !== 'PENDING');

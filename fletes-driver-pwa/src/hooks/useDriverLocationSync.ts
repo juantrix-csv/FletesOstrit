@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { updateDriverLocation } from '../lib/api';
+import { getNetworkProfile } from '../lib/network';
 import type { DriverLocation } from '../lib/types';
 import type { DriverSession } from '../lib/driverSession';
 
@@ -27,16 +28,20 @@ export const useDriverLocationSync = ({ session, jobId, coords }: SyncOptions) =
   useEffect(() => {
     if (!session) return;
 
+    const { saveData } = getNetworkProfile();
+
     const sendLocation = (current: NonNullable<typeof coords>) => {
       const now = Date.now();
       const last = lastSentRef.current;
       const lastCoords = lastCoordsRef.current;
-      const minInterval = 8000;
+      const minInterval = saveData ? 15000 : 8000;
+      const maxInterval = saveData ? 60000 : 30000;
       const movedEnough = !lastCoords
         ? true
         : Math.abs(current.lat - lastCoords.lat) > 0.0002 || Math.abs(current.lng - lastCoords.lng) > 0.0002;
 
-      if (!movedEnough && now - last < minInterval) return;
+      if (movedEnough && now - last < minInterval) return;
+      if (!movedEnough && now - last < maxInterval) return;
 
       lastSentRef.current = now;
       lastCoordsRef.current = { lat: current.lat, lng: current.lng };
@@ -58,12 +63,13 @@ export const useDriverLocationSync = ({ session, jobId, coords }: SyncOptions) =
       sendLocation(coords);
     }
 
+    const intervalMs = saveData ? 30000 : 15000;
     const id = window.setInterval(() => {
       const current = coordsRef.current;
       if (current) {
         sendLocation(current);
       }
-    }, 15000);
+    }, intervalMs);
 
     return () => clearInterval(id);
   }, [session, jobId, coords]);
