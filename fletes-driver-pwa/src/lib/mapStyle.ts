@@ -27,7 +27,7 @@ const palette = {
 };
 
 const isLayerIdMatch = (layerId: string, matcher: RegExp) => matcher.test(layerId);
-const getSourceLayer = (layer: maplibregl.Layer) => (layer as { 'source-layer'?: string })['source-layer'];
+const getSourceLayer = (layer: { [key: string]: unknown }) => layer['source-layer'] as string | undefined;
 
 const ROAD_MOTORWAY_MATCH = /(motorway|trunk)/i;
 const ROAD_PRIMARY_MATCH = /(primary)/i;
@@ -54,9 +54,9 @@ export const applyMapPalette = (map: maplibregl.Map) => {
   const style = map.getStyle();
   if (!style?.layers) return;
 
-  style.layers.forEach((layer) => {
+  (style.layers as Array<{ id: string; type: string; [key: string]: unknown }>).forEach((layer) => {
     const id = layer.id.toLowerCase();
-    const sourceLayer = getSourceLayer(layer as maplibregl.Layer);
+    const sourceLayer = getSourceLayer(layer);
     if (ROUTE_LAYER_MATCH.test(id)) return;
 
     if (layer.type === 'background') {
