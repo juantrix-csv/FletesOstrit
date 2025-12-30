@@ -39,6 +39,7 @@ const dayLongFormatter = new Intl.DateTimeFormat('es-AR', { weekday: 'long', day
 const timeFormatter = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit' });
 const calendarStartHour = 6;
 const calendarEndHour = 22;
+const calendarHourHeight = 56;
 const calendarHours = Array.from({ length: calendarEndHour - calendarStartHour }, (_, index) => calendarStartHour + index);
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -88,6 +89,22 @@ const formatJobRangeForDay = (start: Date, end: Date, day: Date) => {
   const overlap = getDayOverlapRange(start, end, day);
   if (!overlap) return '';
   return `${timeFormatter.format(overlap.rangeStart)}-${timeFormatter.format(overlap.rangeEnd)}`;
+};
+const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const getMinutesIntoDay = (date: Date) => date.getHours() * 60 + date.getMinutes();
+const getEventBlockStyle = (start: Date, end: Date, day: Date) => {
+  const overlap = getDayOverlapRange(start, end, day);
+  if (!overlap) return null;
+  const startMinutes = getMinutesIntoDay(overlap.rangeStart);
+  const endMinutes = getMinutesIntoDay(overlap.rangeEnd);
+  const minMinutes = calendarStartHour * 60;
+  const maxMinutes = calendarEndHour * 60;
+  const clampedStart = clampNumber(startMinutes, minMinutes, maxMinutes);
+  const clampedEnd = clampNumber(endMinutes, minMinutes, maxMinutes);
+  if (clampedEnd <= clampedStart) return null;
+  const top = ((clampedStart - minMinutes) / 60) * calendarHourHeight;
+  const height = Math.max(24, ((clampedEnd - clampedStart) / 60) * calendarHourHeight);
+  return { top, height };
 };
 
 const parseHourlyRate = (value: string) => {
@@ -859,23 +876,16 @@ export default function AdminJobs() {
     });
   };
   const dayJobs = getDayJobs(calendarDate);
-  const dayJobsByHour = new Map<number, CalendarJob[]>();
   const dayBlockedHours = new Set<number>();
   dayJobs.forEach((item) => {
     const hours = getHourSlotsForDay(item.start, item.end, calendarDate);
     hours.forEach((hour) => {
       if (hour < calendarStartHour || hour >= calendarEndHour) return;
       dayBlockedHours.add(hour);
-      const bucket = dayJobsByHour.get(hour);
-      if (bucket) {
-        bucket.push(item);
-      } else {
-        dayJobsByHour.set(hour, [item]);
-      }
     });
   });
-  dayJobsByHour.forEach((items) => items.sort((a, b) => a.scheduledAt - b.scheduledAt));
   const dayFreeHours = calendarHours.filter((hour) => !dayBlockedHours.has(hour));
+  const calendarGridHeight = calendarHours.length * calendarHourHeight;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -1432,29 +1442,46 @@ export default function AdminJobs() {
 
                 {calendarView === 'day' && (
                   <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_220px]">
-                    <div className="space-y-2">
-                      {calendarHours.map((hour) => {
-                        const hourJobs = dayJobsByHour.get(hour) ?? [];
-                        return (
-                          <div key={hour} className="flex items-start gap-3 rounded border border-gray-100 bg-gray-50 px-3 py-2">
-                            <div className="w-16 text-xs font-semibold text-gray-500">
-                              {String(hour).padStart(2, '0')}:00
+                    <div className="rounded-2xl border bg-white p-3">
+                      <div className="grid grid-cols-[56px_1fr]">
+                        <div className="flex flex-col" style={{ height: calendarGridHeight }}>
+                          {calendarHours.map((hour) => (
+                            <div
+                              key={hour}
+                              className="pr-2 text-right text-[11px] text-gray-400"
+                              style={{ height: calendarHourHeight }}
+                            >
+                              <div className="pt-0.5">{String(hour).padStart(2, '0')}:00</div>
                             </div>
-                            {hourJobs.length === 0 ? (
-                              <p className="text-xs text-gray-400">Libre</p>
-                            ) : (
-                              <div className="space-y-1">
-                                {hourJobs.map((item) => (
-                                  <div key={item.job.id} className="rounded bg-white px-2 py-1 text-xs text-gray-700 shadow-sm">
-                                    <span className="font-semibold">{item.job.clientName}</span>
-                                    <span className="text-gray-400"> - {formatJobRangeForDay(item.start, item.end, calendarDate)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                          ))}
+                        </div>
+                        <div className="relative border-l border-gray-100" style={{ height: calendarGridHeight }}>
+                          <div
+                            className="absolute inset-0 grid"
+                            style={{ gridTemplateRows: `repeat(${calendarHours.length}, ${calendarHourHeight}px)` }}
+                          >
+                            {calendarHours.map((hour) => (
+                              <div key={hour} className="border-t border-gray-100" />
+                            ))}
                           </div>
-                        );
-                      })}
+                          {dayJobs.map((item) => {
+                            const style = getEventBlockStyle(item.start, item.end, calendarDate);
+                            if (!style) return null;
+                            return (
+                              <div
+                                key={item.job.id}
+                                className="absolute left-2 right-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800 shadow-sm"
+                                style={{ top: style.top, height: style.height }}
+                              >
+                                <div className="font-semibold truncate">{item.job.clientName}</div>
+                                <div className="text-[10px] text-blue-600">
+                                  {formatJobRangeForDay(item.start, item.end, calendarDate)}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                     <div className="rounded-2xl border bg-gray-50 p-3 text-xs">
                       <p className="text-[11px] uppercase tracking-wide text-gray-400">Huecos disponibles</p>
@@ -1477,45 +1504,80 @@ export default function AdminJobs() {
                 )}
 
                 {calendarView === 'week' && (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
-                    {weekDays.map((day) => {
-                      const items = getDayJobs(day);
-                      const blockedHours = new Set<number>();
-                      items.forEach((item) => {
-                        getHourSlotsForDay(item.start, item.end, day).forEach((hour) => {
-                          if (hour < calendarStartHour || hour >= calendarEndHour) return;
-                          blockedHours.add(hour);
-                        });
-                      });
-                      const freeHours = calendarHours.filter((hour) => !blockedHours.has(hour));
-                      const isToday = isSameDay(day, calendarToday);
-                      return (
-                        <div
-                          key={buildDateKey(day)}
-                          className={cn(
-                            "rounded-2xl border p-3 text-xs",
-                            isToday ? "border-blue-500 bg-blue-50/40" : "border-gray-100 bg-white"
-                          )}
-                        >
-                          <p className="text-[11px] uppercase tracking-wide text-gray-400">{dayFormatter.format(day)}</p>
-                          <p className="mt-1 text-[11px] text-gray-500">Huecos: {freeHours.length}</p>
-                          <div className="mt-2 space-y-1">
-                            {items.length === 0 ? (
-                              <p className="text-xs text-gray-400">Libre</p>
-                            ) : (
-                              items.map((item) => (
-                                <div
-                                  key={item.job.id}
-                                  className="truncate rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-700"
-                                >
-                                  {formatJobRangeForDay(item.start, item.end, day)} - {item.job.clientName}
-                                </div>
-                              ))
-                            )}
-                          </div>
+                  <div className="mt-4 rounded-2xl border bg-white p-3">
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[960px]">
+                        <div className="grid grid-cols-[56px_repeat(7,1fr)] text-[11px] text-gray-500">
+                          <div />
+                          {weekDays.map((day) => {
+                            const isToday = isSameDay(day, calendarToday);
+                            return (
+                              <div
+                                key={buildDateKey(day)}
+                                className={cn(
+                                  "px-2 py-1 text-center font-semibold",
+                                  isToday ? "text-blue-600" : "text-gray-600"
+                                )}
+                              >
+                                {dayFormatter.format(day)}
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
+                        <div className="mt-2 grid grid-cols-[56px_repeat(7,1fr)]">
+                          <div className="flex flex-col" style={{ height: calendarGridHeight }}>
+                            {calendarHours.map((hour) => (
+                              <div
+                                key={hour}
+                                className="pr-2 text-right text-[11px] text-gray-400"
+                                style={{ height: calendarHourHeight }}
+                              >
+                                <div className="pt-0.5">{String(hour).padStart(2, '0')}:00</div>
+                              </div>
+                            ))}
+                          </div>
+                          {weekDays.map((day) => {
+                            const items = getDayJobs(day);
+                            const isToday = isSameDay(day, calendarToday);
+                            return (
+                              <div
+                                key={buildDateKey(day)}
+                                className={cn(
+                                  "relative border-l border-gray-100",
+                                  isToday ? "bg-blue-50/40" : "bg-white"
+                                )}
+                                style={{ height: calendarGridHeight }}
+                              >
+                                <div
+                                  className="absolute inset-0 grid"
+                                  style={{ gridTemplateRows: `repeat(${calendarHours.length}, ${calendarHourHeight}px)` }}
+                                >
+                                  {calendarHours.map((hour) => (
+                                    <div key={hour} className="border-t border-gray-100" />
+                                  ))}
+                                </div>
+                                {items.map((item) => {
+                                  const style = getEventBlockStyle(item.start, item.end, day);
+                                  if (!style) return null;
+                                  return (
+                                    <div
+                                      key={item.job.id}
+                                      className="absolute left-1 right-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-1 text-[10px] text-blue-800 shadow-sm"
+                                      style={{ top: style.top, height: style.height }}
+                                    >
+                                      <div className="font-semibold truncate">{item.job.clientName}</div>
+                                      <div className="text-[9px] text-blue-600">
+                                        {formatJobRangeForDay(item.start, item.end, day)}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
 
