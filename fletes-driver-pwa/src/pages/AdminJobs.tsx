@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import AddressAutocomplete from '../components/AddressAutocomplete';
@@ -165,6 +166,32 @@ type CalendarJob = {
   durationMinutes: number;
 };
 
+type AdminTab = 'jobs' | 'drivers' | 'calendar' | 'analytics';
+
+const resolveAdminTab = (value?: string | null): AdminTab | null => {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case 'jobs':
+    case 'job':
+    case 'fletes':
+      return 'jobs';
+    case 'drivers':
+    case 'driver':
+    case 'conductores':
+      return 'drivers';
+    case 'calendar':
+    case 'calendario':
+      return 'calendar';
+    case 'analytics':
+    case 'analiticas':
+    case 'analitica':
+      return 'analytics';
+    default:
+      return null;
+  }
+};
+
 type EditJobDraft = {
   clientName: string;
   description: string;
@@ -199,7 +226,12 @@ const formatDurationHours = (minutes?: number | null) => {
 };
 
 export default function AdminJobs() {
-  const [tab, setTab] = useState<'jobs' | 'drivers' | 'calendar' | 'analytics'>('jobs');
+  const { section } = useParams<{ section?: string }>();
+  const location = useLocation();
+  const tab = useMemo<AdminTab>(() => {
+    const searchParams = new URLSearchParams(location.search);
+    return resolveAdminTab(searchParams.get('tab')) ?? resolveAdminTab(section) ?? 'jobs';
+  }, [location.search, section]);
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -822,7 +854,6 @@ export default function AdminJobs() {
   const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
   const scheduledJobs = useMemo(() => {
     return jobs
-      .filter((job) => job.status !== 'DONE')
       .map((job) => {
         const scheduledAt = getScheduledAtMs(job.scheduledDate, job.scheduledTime, job.scheduledAt);
         if (scheduledAt == null) return null;
@@ -921,58 +952,7 @@ export default function AdminJobs() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[220px_1fr]">
-        <aside className="space-y-3">
-          <div className="flex flex-wrap gap-2 lg:flex-col">
-            <button
-              type="button"
-              onClick={() => setTab('jobs')}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold",
-                tab === 'jobs' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
-              )}
-            >
-              Fletes
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('drivers')}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold",
-                tab === 'drivers' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
-              )}
-            >
-              Conductores
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('calendar')}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold",
-                tab === 'calendar' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
-              )}
-            >
-              Calendario
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('analytics')}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold",
-                tab === 'analytics' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
-              )}
-            >
-              Analiticas
-            </button>
-          </div>
-          <div className="hidden lg:block rounded-2xl border bg-white p-3 text-xs text-gray-500">
-            <p className="font-semibold text-gray-700">Atajos</p>
-            <p>Usa los tabs para navegar entre fletes, conductores, calendario y analiticas.</p>
-            <p className="mt-2">Desde PC podes asignar rapido y crear fletes en paralelo.</p>
-          </div>
-        </aside>
-
-        <section className="space-y-4">
+      <section className="space-y-4">
           {tab === 'jobs' && (
             <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
               <div className="space-y-3">
@@ -2084,8 +2064,7 @@ export default function AdminJobs() {
               </div>
             </div>
           )}
-        </section>
-      </div>
+      </section>
 
       {selectedDriverId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

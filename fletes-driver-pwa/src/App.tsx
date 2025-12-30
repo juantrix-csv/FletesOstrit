@@ -14,6 +14,7 @@ export default function App() {
           <Route path="/driver/login" element={<DriverLogin />} />
           <Route path="/job/:id" element={<JobWorkflow />} />
           <Route path="/admin" element={<AdminJobs />} />
+          <Route path="/admin/:section" element={<AdminJobs />} />
         </Routes>
       </Layout>
     </BrowserRouter>

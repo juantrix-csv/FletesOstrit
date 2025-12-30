@@ -436,7 +436,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
             <Layer
               id="route-line"
               type="line"
-              paint={{ 'line-color': '#6B6B6B', 'line-width': 5, 'line-opacity': 0.9 }}
+              paint={{ 'line-color': '#2563EB', 'line-width': 5, 'line-opacity': 0.9 }}
             />
           </Source>
         )}
