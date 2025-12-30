@@ -2,7 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const versionRaw = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.npm_package_version ?? 'dev';
+const appVersion = versionRaw === 'dev' ? versionRaw : versionRaw.slice(0, 8);
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [
     react(),
     VitePWA({
