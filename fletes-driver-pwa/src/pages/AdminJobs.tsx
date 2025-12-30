@@ -148,11 +148,37 @@ type CalendarJob = {
   durationMinutes: number;
 };
 
+type EditJobDraft = {
+  clientName: string;
+  description: string;
+  scheduledDate: string;
+  scheduledTime: string;
+  estimatedDurationHours: string;
+  helpersCount: string;
+  driverId: string;
+};
+
+const emptyEditDraft: EditJobDraft = {
+  clientName: '',
+  description: '',
+  scheduledDate: '',
+  scheduledTime: '',
+  estimatedDurationHours: '',
+  helpersCount: '',
+  driverId: '',
+};
+
 const getEstimatedDurationMinutes = (job: Job) => {
   if (Number.isFinite(job.estimatedDurationMinutes) && (job.estimatedDurationMinutes as number) > 0) {
     return job.estimatedDurationMinutes as number;
   }
   return 60;
+};
+
+const formatDurationHours = (minutes?: number | null) => {
+  if (!Number.isFinite(minutes) || (minutes as number) <= 0) return '1';
+  const hours = (minutes as number) / 60;
+  return hours.toFixed(2).replace(/\.?0+$/, '');
 };
 
 export default function AdminJobs() {
@@ -183,6 +209,9 @@ export default function AdminJobs() {
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
   const [chargedAmountDrafts, setChargedAmountDrafts] = useState<Record<string, string>>({});
   const [savingChargedAmountId, setSavingChargedAmountId] = useState<string | null>(null);
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EditJobDraft>(emptyEditDraft);
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
   const [assignedFilter, setAssignedFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending'>('all');
   const [dateFilter, setDateFilter] = useState('');
@@ -358,6 +387,66 @@ export default function AdminJobs() {
       toast.success('Asignacion guardada');
     } catch {
       toast.error('No se pudo asignar el conductor');
+    }
+  };
+
+  const startEditJob = (job: Job) => {
+    setEditingJobId(job.id);
+    setEditDraft({
+      clientName: job.clientName ?? '',
+      description: job.description ?? '',
+      scheduledDate: job.scheduledDate ?? '',
+      scheduledTime: job.scheduledTime ?? '',
+      estimatedDurationHours: formatDurationHours(job.estimatedDurationMinutes),
+      helpersCount: Number.isFinite(job.helpersCount) ? String(job.helpersCount) : '',
+      driverId: job.driverId ?? '',
+    });
+  };
+
+  const cancelEditJob = () => {
+    setEditingJobId(null);
+    setEditDraft(emptyEditDraft);
+  };
+
+  const handleSaveEditJob = async (job: Job) => {
+    const clientName = editDraft.clientName.trim();
+    if (!clientName) {
+      toast.error('Nombre del cliente requerido');
+      return;
+    }
+    if (!editDraft.scheduledDate || !editDraft.scheduledTime) {
+      toast.error('Fecha y hora requeridas');
+      return;
+    }
+    const estimatedHours = parseDurationHours(editDraft.estimatedDurationHours);
+    if (estimatedHours == null) {
+      toast.error('Duracion estimada invalida');
+      return;
+    }
+    const helpersCountRaw = editDraft.helpersCount.trim();
+    const helpersCount = helpersCountRaw ? Number.parseInt(helpersCountRaw, 10) : undefined;
+    if (helpersCountRaw && (!Number.isInteger(helpersCount) || (helpersCount ?? 0) < 0)) {
+      toast.error('Cantidad de ayudantes invalida');
+      return;
+    }
+    try {
+      setSavingEditId(job.id);
+      const updated = await updateJob(job.id, {
+        clientName,
+        description: editDraft.description.trim() || undefined,
+        scheduledDate: editDraft.scheduledDate,
+        scheduledTime: editDraft.scheduledTime,
+        estimatedDurationMinutes: Math.max(1, Math.round(estimatedHours * 60)),
+        helpersCount: helpersCountRaw ? helpersCount : undefined,
+        driverId: editDraft.driverId ? editDraft.driverId : null,
+      });
+      setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
+      toast.success('Flete actualizado');
+      cancelEditJob();
+    } catch {
+      toast.error('No se pudo actualizar el flete');
+    } finally {
+      setSavingEditId(null);
     }
   };
 
@@ -1119,6 +1208,7 @@ export default function AdminJobs() {
                     ? formatDurationMs((job.estimatedDurationMinutes as number) * 60000)
                     : 'N/D';
                   const driver = job.driverId ? driversById.get(job.driverId) : null;
+                  const isEditing = editingJobId === job.id;
                   return (
                     <div key={job.id} className="space-y-2 rounded border-l-4 border-blue-500 bg-white p-3 shadow-sm">
                       <div className="flex items-start justify-between gap-3">
@@ -1136,24 +1226,133 @@ export default function AdminJobs() {
                           )}
                           <p className="text-xs text-gray-600">Carga: {loading} | Viaje: {trip} | Descarga: {unloading} | Total: {total}</p>
                         </div>
-                        <button onClick={() => handleDeleteJob(job.id)} className="text-red-500 text-sm" aria-label="Eliminar">Eliminar</button>
+                        <div className="flex flex-col items-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => (isEditing ? cancelEditJob() : startEditJob(job))}
+                            className="text-blue-600 text-sm"
+                          >
+                            {isEditing ? 'Cancelar' : 'Editar'}
+                          </button>
+                          <button onClick={() => handleDeleteJob(job.id)} className="text-red-500 text-sm" aria-label="Eliminar">
+                            Eliminar
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <label className="text-xs text-gray-500">Conductor:</label>
-                        <select
-                          value={job.driverId ?? ''}
-                          onChange={(e) => handleAssignJob(job, e.target.value)}
-                          className="rounded border px-2 py-1 text-xs"
-                        >
-                          <option value="">Sin asignar</option>
-                          {drivers.map((driver) => (
-                            <option key={driver.id} value={driver.id}>
-                              {driver.name} ({driver.code})
-                            </option>
-                          ))}
-                        </select>
-                        {driver && <span className="text-xs text-gray-500">Activo: {driver.active ? 'Si' : 'No'}</span>}
-                      </div>
+                      {!isEditing && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="text-xs text-gray-500">Conductor:</label>
+                          <select
+                            value={job.driverId ?? ''}
+                            onChange={(e) => handleAssignJob(job, e.target.value)}
+                            className="rounded border px-2 py-1 text-xs"
+                          >
+                            <option value="">Sin asignar</option>
+                            {drivers.map((driver) => (
+                              <option key={driver.id} value={driver.id}>
+                                {driver.name} ({driver.code})
+                              </option>
+                            ))}
+                          </select>
+                          {driver && <span className="text-xs text-gray-500">Activo: {driver.active ? 'Si' : 'No'}</span>}
+                        </div>
+                      )}
+                      {isEditing && (
+                        <div className="rounded border bg-gray-50 p-3">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <label className="text-xs text-gray-500">
+                              Cliente
+                              <input
+                                type="text"
+                                value={editDraft.clientName}
+                                onChange={(event) => setEditDraft((prev) => ({ ...prev, clientName: event.target.value }))}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                              />
+                            </label>
+                            <label className="text-xs text-gray-500">
+                              Fecha
+                              <input
+                                type="date"
+                                value={editDraft.scheduledDate}
+                                onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledDate: event.target.value }))}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                              />
+                            </label>
+                            <label className="text-xs text-gray-500">
+                              Hora
+                              <input
+                                type="time"
+                                value={editDraft.scheduledTime}
+                                onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledTime: event.target.value }))}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                              />
+                            </label>
+                            <label className="text-xs text-gray-500">
+                              Duracion estimada (horas)
+                              <input
+                                type="number"
+                                min="0.5"
+                                step="0.5"
+                                value={editDraft.estimatedDurationHours}
+                                onChange={(event) => setEditDraft((prev) => ({ ...prev, estimatedDurationHours: event.target.value }))}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                              />
+                            </label>
+                            <label className="text-xs text-gray-500">
+                              Ayudantes
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={editDraft.helpersCount}
+                                onChange={(event) => setEditDraft((prev) => ({ ...prev, helpersCount: event.target.value }))}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                              />
+                            </label>
+                            <label className="text-xs text-gray-500">
+                              Conductor
+                              <select
+                                value={editDraft.driverId}
+                                onChange={(event) => setEditDraft((prev) => ({ ...prev, driverId: event.target.value }))}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                              >
+                                <option value="">Sin asignar</option>
+                                {drivers.map((driver) => (
+                                  <option key={driver.id} value={driver.id}>
+                                    {driver.name} ({driver.code})
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+                          <label className="mt-2 block text-xs text-gray-500">
+                            Descripcion
+                            <textarea
+                              value={editDraft.description}
+                              onChange={(event) => setEditDraft((prev) => ({ ...prev, description: event.target.value }))}
+                              rows={2}
+                              className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                            />
+                          </label>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditJob(job)}
+                              disabled={savingEditId === job.id}
+                              className="rounded border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {savingEditId === job.id ? 'Guardando...' : 'Guardar cambios'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditJob}
+                              className="rounded border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
