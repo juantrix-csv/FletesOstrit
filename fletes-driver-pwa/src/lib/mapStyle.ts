@@ -27,6 +27,7 @@ const palette = {
 };
 
 const isLayerIdMatch = (layerId: string, matcher: RegExp) => matcher.test(layerId);
+const getSourceLayer = (layer: maplibregl.AnyLayer) => layer['source-layer'];
 
 const ROAD_MOTORWAY_MATCH = /(motorway|trunk)/i;
 const ROAD_PRIMARY_MATCH = /(primary)/i;
@@ -55,6 +56,7 @@ export const applyMapPalette = (map: maplibregl.Map) => {
 
   style.layers.forEach((layer) => {
     const id = layer.id.toLowerCase();
+    const sourceLayer = getSourceLayer(layer as maplibregl.AnyLayer);
     if (ROUTE_LAYER_MATCH.test(id)) return;
 
     if (layer.type === 'background') {
@@ -63,6 +65,48 @@ export const applyMapPalette = (map: maplibregl.Map) => {
     }
 
     if (layer.type === 'fill') {
+      if (sourceLayer === 'landuse') {
+        map.setPaintProperty(layer.id, 'fill-color', [
+          'match',
+          ['get', 'class'],
+          'park', palette.park,
+          'garden', palette.park,
+          'grass', palette.park,
+          'forest', palette.forest,
+          'wood', palette.forest,
+          'nature_reserve', palette.forest,
+          'industrial', palette.industrial,
+          'commercial', palette.industrial,
+          'residential', palette.urban,
+          'sand', palette.desert,
+          'beach', palette.desert,
+          palette.land,
+        ]);
+        return;
+      }
+      if (sourceLayer === 'landcover') {
+        map.setPaintProperty(layer.id, 'fill-color', [
+          'match',
+          ['get', 'class'],
+          'wood', palette.forest,
+          'forest', palette.forest,
+          'scrub', palette.forest,
+          palette.land,
+        ]);
+        return;
+      }
+      if (sourceLayer === 'water') {
+        map.setPaintProperty(layer.id, 'fill-color', [
+          'match',
+          ['get', 'class'],
+          'lake', palette.lake,
+          'reservoir', palette.lake,
+          'basin', palette.lake,
+          'canal', palette.canal,
+          palette.water,
+        ]);
+        return;
+      }
       if (isLayerIdMatch(id, PARK_MATCH)) {
         map.setPaintProperty(layer.id, 'fill-color', palette.park);
         return;
@@ -105,6 +149,32 @@ export const applyMapPalette = (map: maplibregl.Map) => {
     }
 
     if (layer.type === 'line') {
+      if (sourceLayer === 'waterway') {
+        map.setPaintProperty(layer.id, 'line-color', [
+          'match',
+          ['get', 'class'],
+          'canal', palette.canal,
+          palette.water,
+        ]);
+        return;
+      }
+      if (sourceLayer === 'transportation') {
+        map.setPaintProperty(layer.id, 'line-color', [
+          'match',
+          ['get', 'class'],
+          'motorway', palette.motorway,
+          'trunk', palette.primary,
+          'primary', palette.primary,
+          'secondary', palette.secondary,
+          'tertiary', palette.secondary,
+          'minor', palette.minor,
+          'service', palette.minor,
+          'track', palette.unpaved,
+          'path', palette.unpaved,
+          palette.minor,
+        ]);
+        return;
+      }
       if (ROAD_MOTORWAY_MATCH.test(id)) {
         map.setPaintProperty(layer.id, 'line-color', palette.motorway);
         return;
@@ -127,19 +197,19 @@ export const applyMapPalette = (map: maplibregl.Map) => {
     }
 
     if (layer.type === 'symbol') {
-      if (LABEL_POI_MATCH.test(id)) {
+      if (sourceLayer === 'poi' || LABEL_POI_MATCH.test(id)) {
         map.setPaintProperty(layer.id, 'text-color', palette.labelPoi);
-      } else if (LABEL_REGION_MATCH.test(id)) {
-        map.setPaintProperty(layer.id, 'text-color', palette.labelRegion);
-      } else if (LABEL_CITY_MATCH.test(id)) {
+      } else if (sourceLayer === 'place' || LABEL_CITY_MATCH.test(id)) {
         map.setPaintProperty(layer.id, 'text-color', palette.labelCity);
-      } else if (LABEL_STREET_MATCH.test(id)) {
+      } else if (sourceLayer === 'boundary' || LABEL_REGION_MATCH.test(id)) {
+        map.setPaintProperty(layer.id, 'text-color', palette.labelRegion);
+      } else if (sourceLayer === 'transportation_name' || LABEL_STREET_MATCH.test(id)) {
         map.setPaintProperty(layer.id, 'text-color', palette.labelStreet);
       }
       map.setPaintProperty(layer.id, 'text-halo-color', palette.labelHalo);
       map.setPaintProperty(layer.id, 'text-halo-width', 1);
       map.setPaintProperty(layer.id, 'text-halo-blur', 0.5);
-      if (LABEL_POI_MATCH.test(id)) {
+      if (sourceLayer === 'poi' || LABEL_POI_MATCH.test(id)) {
         map.setPaintProperty(layer.id, 'icon-color', palette.labelPoi);
       }
     }
