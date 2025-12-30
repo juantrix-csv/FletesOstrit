@@ -905,6 +905,7 @@ export default function AdminJobs() {
       return new Date(prev.getFullYear(), prev.getMonth() + direction, 1);
     });
   };
+  const openJobDetail = (jobId: string) => setSelectedJobId(jobId);
   const dayJobs = getDayJobs(calendarDate);
   const dayBlockedHours = new Set<number>();
   dayJobs.forEach((item) => {
@@ -1525,7 +1526,8 @@ export default function AdminJobs() {
                             return (
                               <div
                                 key={item.job.id}
-                                className="absolute left-2 right-2 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800 shadow-sm"
+                                onClick={() => openJobDetail(item.job.id)}
+                                className="absolute left-2 right-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800 shadow-sm hover:bg-blue-100"
                                 style={{ top: style.top, height: style.height }}
                               >
                                 <div className="font-semibold truncate">{item.job.clientName}</div>
@@ -1622,7 +1624,8 @@ export default function AdminJobs() {
                                   return (
                                     <div
                                       key={item.job.id}
-                                      className="absolute left-1 right-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-1 text-[10px] text-blue-800 shadow-sm"
+                                      onClick={() => openJobDetail(item.job.id)}
+                                      className="absolute left-1 right-1 cursor-pointer rounded-md border border-blue-200 bg-blue-50 px-1.5 py-1 text-[10px] text-blue-800 shadow-sm hover:bg-blue-100"
                                       style={{ top: style.top, height: style.height }}
                                     >
                                       <div className="font-semibold truncate">{item.job.clientName}</div>
@@ -1677,7 +1680,11 @@ export default function AdminJobs() {
                             </div>
                             <div className="mt-2 space-y-1">
                               {items.slice(0, 3).map((item) => (
-                                <div key={item.job.id} className="truncate rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-700">
+                                <div
+                                  key={item.job.id}
+                                  onClick={() => openJobDetail(item.job.id)}
+                                  className="truncate rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-700 cursor-pointer hover:bg-gray-200"
+                                >
                                   {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
                                 </div>
                               ))}
@@ -2090,6 +2097,13 @@ export default function AdminJobs() {
                               <p className="text-xs text-gray-500">Finalizado: {endLabel}</p>
                             </div>
                             <div className="text-right">
+                              <button
+                                type="button"
+                                onClick={() => openJobDetail(entry.job.id)}
+                                className="mb-1 rounded border px-2 py-1 text-[11px] font-semibold text-blue-600"
+                              >
+                                Detalle
+                              </button>
                               <p className="text-sm font-semibold text-gray-900">{displayTotalLabel}</p>
                               {chargedAmountLabel && (
                                 <p className="text-xs text-emerald-600">Cobrado</p>
