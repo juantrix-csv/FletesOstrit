@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre';
 import type { LocationData } from '../lib/types';
 import { reverseGeocodeLocation } from '../lib/geocode';
-import { MAP_STYLE } from '../lib/mapStyle';
+import { MAP_STYLE, applyHighContrastMap } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -64,7 +64,11 @@ export default function MapLocationPicker({ pickup, dropoff, extraStops = [], ac
         initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 11.5 }}
         mapStyle={MAP_STYLE}
         onClick={handleClick}
-        onLoad={() => setMapReady(true)}
+        onLoad={() => {
+          setMapReady(true);
+          const map = mapRef.current?.getMap();
+          if (map) applyHighContrastMap(map);
+        }}
         maxBounds={[
           [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
           [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],
