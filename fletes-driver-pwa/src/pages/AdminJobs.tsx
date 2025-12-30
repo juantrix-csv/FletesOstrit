@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
+import { Flag, MapPin, MoreVertical } from 'lucide-react';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
-import type { Driver, DriverLocation, Job, LocationData } from '../lib/types';
+import type { Driver, DriverLocation, Job, JobStatus, LocationData } from '../lib/types';
 import {
   createDriver,
   createJob,
@@ -200,6 +201,16 @@ const formatDurationHours = (minutes?: number | null) => {
   return hours.toFixed(2).replace(/\.?0+$/, '');
 };
 
+const getStatusBadge = (status: JobStatus) => {
+  if (status === 'DONE') {
+    return { label: 'Completado', className: 'bg-emerald-100 text-emerald-700' };
+  }
+  if (status === 'PENDING') {
+    return { label: 'Pendiente', className: 'bg-amber-100 text-amber-700' };
+  }
+  return { label: 'En curso', className: 'bg-blue-100 text-blue-700' };
+};
+
 export default function AdminJobs() {
   const [tab, setTab] = useState<'jobs' | 'drivers' | 'calendar' | 'analytics'>('jobs');
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
@@ -225,6 +236,9 @@ export default function AdminJobs() {
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedMapJobId, setSelectedMapJobId] = useState<string | null>(null);
+  const [openJobMenuId, setOpenJobMenuId] = useState<string | null>(null);
+  const [mapSearchLocation, setMapSearchLocation] = useState<LocationData | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState('');
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
@@ -276,6 +290,17 @@ export default function AdminJobs() {
     const id = window.setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!openJobMenuId) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest('[data-job-menu]')) return;
+      setOpenJobMenuId(null);
+    };
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, [openJobMenuId]);
 
   const tabParam = searchParams.get('tab');
   const normalizedTab = tabParam === 'drivers' || tabParam === 'calendar' || tabParam === 'analytics' ? tabParam : tabParam === 'jobs' ? 'jobs' : null;
@@ -824,6 +849,18 @@ export default function AdminJobs() {
     return result;
   }, [jobs, assignedFilter, statusFilter, dateFilter, driverFilter]);
   const hasFilters = assignedFilter !== 'all' || statusFilter !== 'all' || dateFilter !== '' || driverFilter !== '';
+  const selectedMapJob = useMemo(() => {
+    if (selectedMapJobId) {
+      return filteredJobs.find((job) => job.id === selectedMapJobId) ?? null;
+    }
+    return filteredJobs[0] ?? null;
+  }, [filteredJobs, selectedMapJobId]);
+
+  useEffect(() => {
+    if (!selectedMapJobId) return;
+    if (filteredJobs.some((job) => job.id === selectedMapJobId)) return;
+    setSelectedMapJobId(filteredJobs[0]?.id ?? null);
+  }, [filteredJobs, selectedMapJobId]);
   const selectedDriver = selectedDriverId ? driversById.get(selectedDriverId) : null;
   const selectedLocation = selectedDriverId ? driverLocationsById.get(selectedDriverId) ?? null : null;
   const selectedDriverJob = useMemo(() => {
@@ -1019,17 +1056,12 @@ export default function AdminJobs() {
               Analiticas
             </button>
           </div>
-          <div className="hidden lg:block rounded-2xl border bg-white p-3 text-xs text-gray-500">
-            <p className="font-semibold text-gray-700">Atajos</p>
-            <p>Usa los tabs para navegar entre fletes, conductores, calendario y analiticas.</p>
-            <p className="mt-2">Desde PC podes asignar rapido y crear fletes en paralelo.</p>
-          </div>
         </aside>
 
         <section className="space-y-4">
           {tab === 'jobs' && (
-            <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-              <div className="space-y-3">
+            <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+              <div className="flex min-h-[70vh] flex-col gap-3">
                 <button onClick={() => setOpen(!open)} className="w-full rounded bg-blue-600 p-3 text-white">
                   {open ? 'Cerrar' : 'Nuevo Flete'}
                 </button>
@@ -1182,9 +1214,7 @@ export default function AdminJobs() {
                     <button className="w-full rounded bg-green-600 p-2 text-white">Guardar</button>
                   </form>
                 )}
-              </div>
 
-              <div className="space-y-3">
                 {!loadingJobs && (
                   <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1204,7 +1234,7 @@ export default function AdminJobs() {
                         </button>
                       )}
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-2">
                       <label className="text-xs text-gray-500">
                         Asignacion
                         <select
@@ -1256,177 +1286,264 @@ export default function AdminJobs() {
                     </div>
                   </div>
                 )}
-                {loadingJobs && <p className="text-sm text-gray-500">Cargando fletes...</p>}
-                {!loadingJobs && jobs?.length === 0 && <p className="text-sm text-gray-500">No hay fletes cargados.</p>}
-                {!loadingJobs && jobs?.length > 0 && filteredJobs.length === 0 && (
-                  <p className="text-sm text-gray-500">No hay fletes para los filtros seleccionados.</p>
-                )}
-                {!loadingJobs && filteredJobs?.map((job) => {
-                  const tripStart = job.timestamps.startTripAt ?? job.timestamps.endLoadingAt;
-                  const tripEnd = job.timestamps.endTripAt ?? job.timestamps.startUnloadingAt;
-                  const loading = formatDuration(job.timestamps.startLoadingAt, job.timestamps.endLoadingAt);
-                  const trip = formatDuration(tripStart, tripEnd);
-                  const unloading = formatDuration(job.timestamps.startUnloadingAt, job.timestamps.endUnloadingAt);
-                  const total = formatDuration(job.timestamps.startLoadingAt, job.timestamps.endUnloadingAt);
-                  const estimatedLabel = Number.isFinite(job.estimatedDurationMinutes)
-                    ? formatDurationMs((job.estimatedDurationMinutes as number) * 60000)
-                    : 'N/D';
-                  const driver = job.driverId ? driversById.get(job.driverId) : null;
-                  const isEditing = editingJobId === job.id;
-                  return (
-                    <div key={job.id} className="space-y-2 rounded border-l-4 border-blue-500 bg-white p-3 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-bold">{job.clientName}</p>
-                          <p className="text-xs text-gray-700">Fecha: {job.scheduledDate || 'Sin fecha'} | Hora: {job.scheduledTime || 'Sin hora'}</p>
-                          <p className="text-xs">{job.status}</p>
-                          {job.description && (
-                            <p className="text-xs text-gray-600">Descripcion: {job.description}</p>
-                          )}
-                          <p className="text-xs text-gray-600">Estimado: {estimatedLabel}</p>
-                          <p className="text-xs text-gray-600">Ayudantes: {job.helpersCount ?? 0}</p>
-                          {job.extraStops && job.extraStops.length > 0 && (
-                            <p className="text-xs text-gray-600">Paradas extra: {job.extraStops.length}</p>
-                          )}
-                          <p className="text-xs text-gray-600">Carga: {loading} | Viaje: {trip} | Descarga: {unloading} | Total: {total}</p>
+
+                <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
+                  {loadingJobs && <p className="text-sm text-gray-500">Cargando fletes...</p>}
+                  {!loadingJobs && jobs?.length === 0 && <p className="text-sm text-gray-500">No hay fletes cargados.</p>}
+                  {!loadingJobs && jobs?.length > 0 && filteredJobs.length === 0 && (
+                    <p className="text-sm text-gray-500">No hay fletes para los filtros seleccionados.</p>
+                  )}
+                  {!loadingJobs && filteredJobs?.map((job) => {
+                    const tripStart = job.timestamps.startTripAt ?? job.timestamps.endLoadingAt;
+                    const tripEnd = job.timestamps.endTripAt ?? job.timestamps.startUnloadingAt;
+                    const loading = formatDuration(job.timestamps.startLoadingAt, job.timestamps.endLoadingAt);
+                    const trip = formatDuration(tripStart, tripEnd);
+                    const unloading = formatDuration(job.timestamps.startUnloadingAt, job.timestamps.endUnloadingAt);
+                    const total = formatDuration(job.timestamps.startLoadingAt, job.timestamps.endUnloadingAt);
+                    const estimatedLabel = Number.isFinite(job.estimatedDurationMinutes)
+                      ? formatDurationMs((job.estimatedDurationMinutes as number) * 60000)
+                      : 'N/D';
+                    const driver = job.driverId ? driversById.get(job.driverId) : null;
+                    const isEditing = editingJobId === job.id;
+                    const statusBadge = getStatusBadge(job.status);
+                    const isMapActive = selectedMapJob?.id === job.id;
+                    return (
+                      <div
+                        key={job.id}
+                        onClick={() => setSelectedMapJobId(job.id)}
+                        className={cn(
+                          "space-y-2 rounded border bg-white p-3 shadow-sm transition",
+                          isMapActive ? "border-blue-400 ring-1 ring-blue-200" : "border-gray-100 hover:border-blue-200"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-gray-900 truncate">{job.clientName}</p>
+                              <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", statusBadge.className)}>
+                                {statusBadge.label}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500">Fecha: {job.scheduledDate || 'Sin fecha'} | Hora: {job.scheduledTime || 'Sin hora'}</p>
+                            {job.description && (
+                              <p className="text-xs text-gray-600">Descripcion: {job.description}</p>
+                            )}
+                            <div className="mt-1 space-y-1">
+                              <div className="flex items-start gap-2 text-xs text-gray-600">
+                                <MapPin size={12} className="mt-0.5 text-emerald-600" />
+                                <span className="truncate">{job.pickup.address}</span>
+                              </div>
+                              <div className="flex items-start gap-2 text-xs text-gray-600">
+                                <Flag size={12} className="mt-0.5 text-rose-600" />
+                                <span className="truncate">{job.dropoff.address}</span>
+                              </div>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-500">
+                              <span>Estimado: {estimatedLabel}</span>
+                              <span>Ayudantes: {job.helpersCount ?? 0}</span>
+                              {job.extraStops && job.extraStops.length > 0 && (
+                                <span>Paradas: {job.extraStops.length}</span>
+                              )}
+                              <span>Carga: {loading}</span>
+                              <span>Viaje: {trip}</span>
+                              <span>Descarga: {unloading}</span>
+                              <span>Total: {total}</span>
+                            </div>
+                          </div>
+                          <div className="relative" data-job-menu>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setOpenJobMenuId((prev) => (prev === job.id ? null : job.id));
+                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 text-gray-500 hover:bg-gray-100"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                            {openJobMenuId === job.id && (
+                              <div className="absolute right-0 mt-2 w-32 rounded-lg border bg-white py-1 text-xs shadow" data-job-menu>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setSelectedJobId(job.id);
+                                    setOpenJobMenuId(null);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-gray-700 hover:bg-gray-100"
+                                >
+                                  Detalle
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (isEditing) cancelEditJob();
+                                    else startEditJob(job);
+                                    setOpenJobMenuId(null);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-gray-700 hover:bg-gray-100"
+                                >
+                                  {isEditing ? 'Cancelar' : 'Editar'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleDeleteJob(job.id);
+                                    setOpenJobMenuId(null);
+                                  }}
+                                  className="w-full px-3 py-1.5 text-left text-red-600 hover:bg-red-50"
+                                >
+                                  Eliminar
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex flex-col items-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedJobId(job.id)}
-                            className="text-gray-600 text-sm"
-                          >
-                            Detalle
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => (isEditing ? cancelEditJob() : startEditJob(job))}
-                            className="text-blue-600 text-sm"
-                          >
-                            {isEditing ? 'Cancelar' : 'Editar'}
-                          </button>
-                          <button onClick={() => handleDeleteJob(job.id)} className="text-red-500 text-sm" aria-label="Eliminar">
-                            Eliminar
-                          </button>
-                        </div>
-                      </div>
-                      {!isEditing && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <label className="text-xs text-gray-500">Conductor:</label>
-                          <select
-                            value={job.driverId ?? ''}
-                            onChange={(e) => handleAssignJob(job, e.target.value)}
-                            className="rounded border px-2 py-1 text-xs"
-                          >
-                            <option value="">Sin asignar</option>
-                            {drivers.map((driver) => (
-                              <option key={driver.id} value={driver.id}>
-                                {driver.name} ({driver.code})
-                              </option>
-                            ))}
-                          </select>
-                          {driver && <span className="text-xs text-gray-500">Activo: {driver.active ? 'Si' : 'No'}</span>}
-                        </div>
-                      )}
-                      {isEditing && (
-                        <div className="rounded border bg-gray-50 p-3">
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <label className="text-xs text-gray-500">
-                              Cliente
-                              <input
-                                type="text"
-                                value={editDraft.clientName}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, clientName: event.target.value }))}
+                        {!isEditing && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="text-xs text-gray-500">Conductor:</label>
+                            <select
+                              value={job.driverId ?? ''}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => handleAssignJob(job, event.target.value)}
+                              className="rounded border px-2 py-1 text-xs"
+                            >
+                              <option value="">Sin asignar</option>
+                              {drivers.map((driver) => (
+                                <option key={driver.id} value={driver.id}>
+                                  {driver.name} ({driver.code})
+                                </option>
+                              ))}
+                            </select>
+                            {driver && <span className="text-xs text-gray-500">Activo: {driver.active ? 'Si' : 'No'}</span>}
+                          </div>
+                        )}
+                        {isEditing && (
+                          <div className="rounded border bg-gray-50 p-3" onClick={(event) => event.stopPropagation()}>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <label className="text-xs text-gray-500">
+                                Cliente
+                                <input
+                                  type="text"
+                                  value={editDraft.clientName}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, clientName: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                />
+                              </label>
+                              <label className="text-xs text-gray-500">
+                                Fecha
+                                <input
+                                  type="date"
+                                  value={editDraft.scheduledDate}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledDate: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                />
+                              </label>
+                              <label className="text-xs text-gray-500">
+                                Hora
+                                <input
+                                  type="time"
+                                  value={editDraft.scheduledTime}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledTime: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                />
+                              </label>
+                              <label className="text-xs text-gray-500">
+                                Duracion estimada (horas)
+                                <input
+                                  type="number"
+                                  min="0.5"
+                                  step="0.5"
+                                  value={editDraft.estimatedDurationHours}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, estimatedDurationHours: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                />
+                              </label>
+                              <label className="text-xs text-gray-500">
+                                Ayudantes
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={editDraft.helpersCount}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, helpersCount: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                />
+                              </label>
+                              <label className="text-xs text-gray-500">
+                                Conductor
+                                <select
+                                  value={editDraft.driverId}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, driverId: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                >
+                                  <option value="">Sin asignar</option>
+                                  {drivers.map((driver) => (
+                                    <option key={driver.id} value={driver.id}>
+                                      {driver.name} ({driver.code})
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <label className="mt-2 block text-xs text-gray-500">
+                              Descripcion
+                              <textarea
+                                value={editDraft.description}
+                                onChange={(event) => setEditDraft((prev) => ({ ...prev, description: event.target.value }))}
+                                rows={2}
                                 className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
                               />
                             </label>
-                            <label className="text-xs text-gray-500">
-                              Fecha
-                              <input
-                                type="date"
-                                value={editDraft.scheduledDate}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledDate: event.target.value }))}
-                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                              />
-                            </label>
-                            <label className="text-xs text-gray-500">
-                              Hora
-                              <input
-                                type="time"
-                                value={editDraft.scheduledTime}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledTime: event.target.value }))}
-                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                              />
-                            </label>
-                            <label className="text-xs text-gray-500">
-                              Duracion estimada (horas)
-                              <input
-                                type="number"
-                                min="0.5"
-                                step="0.5"
-                                value={editDraft.estimatedDurationHours}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, estimatedDurationHours: event.target.value }))}
-                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                              />
-                            </label>
-                            <label className="text-xs text-gray-500">
-                              Ayudantes
-                              <input
-                                type="number"
-                                min="0"
-                                step="1"
-                                value={editDraft.helpersCount}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, helpersCount: event.target.value }))}
-                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                              />
-                            </label>
-                            <label className="text-xs text-gray-500">
-                              Conductor
-                              <select
-                                value={editDraft.driverId}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, driverId: event.target.value }))}
-                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditJob(job)}
+                                disabled={savingEditId === job.id}
+                                className="rounded border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                <option value="">Sin asignar</option>
-                                {drivers.map((driver) => (
-                                  <option key={driver.id} value={driver.id}>
-                                    {driver.name} ({driver.code})
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
+                                {savingEditId === job.id ? 'Guardando...' : 'Guardar cambios'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditJob}
+                                className="rounded border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
                           </div>
-                          <label className="mt-2 block text-xs text-gray-500">
-                            Descripcion
-                            <textarea
-                              value={editDraft.description}
-                              onChange={(event) => setEditDraft((prev) => ({ ...prev, description: event.target.value }))}
-                              rows={2}
-                              className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                            />
-                          </label>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEditJob(job)}
-                              disabled={savingEditId === job.id}
-                              className="rounded border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {savingEditId === job.id ? 'Guardando...' : 'Guardar cambios'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={cancelEditJob}
-                              className="rounded border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="relative min-h-[70vh] rounded-2xl border bg-white shadow-sm">
+                <div className="absolute left-4 right-4 top-4 z-10">
+                  <div className="rounded-xl bg-white/95 p-3 shadow">
+                    <AddressAutocomplete
+                      label="Buscar direccion"
+                      placeholder="Buscar direccion"
+                      onSelect={setMapSearchLocation}
+                      selected={mapSearchLocation}
+                    />
+                  </div>
+                </div>
+                {selectedMapJob ? (
+                  <JobRoutePreviewMap
+                    job={selectedMapJob}
+                    focusLocation={mapSearchLocation}
+                    className="h-full min-h-[70vh]"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-sm text-gray-500">
+                    No hay fletes para mostrar.
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -25,9 +25,10 @@ const buildRouteUrl = (points: RoutePoint[]) => {
 interface JobRoutePreviewMapProps {
   job: Job | null;
   className?: string;
+  focusLocation?: LocationData | null;
 }
 
-export default function JobRoutePreviewMap({ job, className }: JobRoutePreviewMapProps) {
+export default function JobRoutePreviewMap({ job, className, focusLocation }: JobRoutePreviewMapProps) {
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -48,6 +49,7 @@ export default function JobRoutePreviewMap({ job, className }: JobRoutePreviewMa
   );
   const pickupValid = isValidLocation(pickup);
   const dropoffValid = isValidLocation(dropoff);
+  const focusValid = focusLocation ? isValidLocation(focusLocation) : false;
 
   const routePoints = useMemo<RoutePoint[]>(() => {
     const points: RoutePoint[] = [];
@@ -118,16 +120,23 @@ export default function JobRoutePreviewMap({ job, className }: JobRoutePreviewMa
     map.fitBounds(bounds, { padding: 80, duration: 500 });
   }, [mapReady, routePoints]);
 
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    if (!focusValid || !focusLocation) return;
+    const map = mapRef.current.getMap();
+    map.easeTo({ center: [focusLocation.lng, focusLocation.lat], zoom: 13.5, duration: 450 });
+  }, [mapReady, focusValid, focusLocation?.lat, focusLocation?.lng]);
+
   if (!job) {
     return (
-      <div className={cn("h-[360px] w-full rounded-xl border bg-gray-100 flex items-center justify-center text-sm text-gray-600", className)}>
+      <div className={cn("min-h-[360px] w-full rounded-xl border bg-gray-100 flex items-center justify-center text-sm text-gray-600", className)}>
         Cargando mapa...
       </div>
     );
   }
 
   return (
-    <div className={cn("h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
+    <div className={cn("min-h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
       <Map
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
@@ -175,6 +184,11 @@ export default function JobRoutePreviewMap({ job, className }: JobRoutePreviewMa
         {dropoffValid && (
           <Marker latitude={dropoff.lat} longitude={dropoff.lng}>
             <div className="h-3 w-3 rounded-full bg-red-600 shadow" />
+          </Marker>
+        )}
+        {focusValid && focusLocation && (
+          <Marker latitude={focusLocation.lat} longitude={focusLocation.lng}>
+            <div className="h-3.5 w-3.5 rounded-full border-2 border-white bg-blue-600 shadow" />
           </Marker>
         )}
       </Map>
