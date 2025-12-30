@@ -5,6 +5,7 @@ import AddressAutocomplete from '../components/AddressAutocomplete';
 import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
+import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
 import type { Driver, DriverLocation, Job, LocationData } from '../lib/types';
 import {
   createDriver,
@@ -220,6 +221,7 @@ export default function AdminJobs() {
   const [driverPhone, setDriverPhone] = useState('');
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState('');
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
@@ -802,7 +804,7 @@ export default function AdminJobs() {
   const hasFilters = assignedFilter !== 'all' || statusFilter !== 'all' || dateFilter !== '' || driverFilter !== '';
   const selectedDriver = selectedDriverId ? driversById.get(selectedDriverId) : null;
   const selectedLocation = selectedDriverId ? driverLocationsById.get(selectedDriverId) ?? null : null;
-  const selectedJob = useMemo(() => {
+  const selectedDriverJob = useMemo(() => {
     if (!selectedDriverId) return null;
     if (selectedLocation?.jobId) {
       return jobs.find((job) => job.id === selectedLocation.jobId) ?? null;
@@ -819,7 +821,29 @@ export default function AdminJobs() {
         return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       })[0] ?? null;
   }, [jobs, selectedDriverId, selectedLocation?.jobId]);
+  const selectedJobDetail = useMemo(() => {
+    if (!selectedJobId) return null;
+    return jobs.find((job) => job.id === selectedJobId) ?? null;
+  }, [jobs, selectedJobId]);
+  const selectedJobDriver = selectedJobDetail?.driverId ? driversById.get(selectedJobDetail.driverId) : null;
   const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
+  const selectedJobDurations = useMemo(() => {
+    if (!selectedJobDetail) return null;
+    const tripStart = selectedJobDetail.timestamps.startTripAt ?? selectedJobDetail.timestamps.endLoadingAt;
+    const tripEnd = selectedJobDetail.timestamps.endTripAt ?? selectedJobDetail.timestamps.startUnloadingAt;
+    return {
+      loading: formatDuration(selectedJobDetail.timestamps.startLoadingAt, selectedJobDetail.timestamps.endLoadingAt),
+      trip: formatDuration(tripStart, tripEnd),
+      unloading: formatDuration(selectedJobDetail.timestamps.startUnloadingAt, selectedJobDetail.timestamps.endUnloadingAt),
+      total: formatDuration(selectedJobDetail.timestamps.startLoadingAt, selectedJobDetail.timestamps.endUnloadingAt),
+    };
+  }, [selectedJobDetail]);
+  const selectedJobEstimateLabel = selectedJobDetail && Number.isFinite(selectedJobDetail.estimatedDurationMinutes)
+    ? formatDurationMs((selectedJobDetail.estimatedDurationMinutes as number) * 60000)
+    : 'N/D';
+  const selectedJobChargedLabel = selectedJobDetail?.chargedAmount != null
+    ? currencyFormatter.format(selectedJobDetail.chargedAmount)
+    : 'Sin cargar';
   const scheduledJobs = useMemo(() => {
     return jobs
       .filter((job) => job.status !== 'DONE')
@@ -1237,6 +1261,13 @@ export default function AdminJobs() {
                           <p className="text-xs text-gray-600">Carga: {loading} | Viaje: {trip} | Descarga: {unloading} | Total: {total}</p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedJobId(job.id)}
+                            className="text-gray-600 text-sm"
+                          >
+                            Detalle
+                          </button>
                           <button
                             type="button"
                             onClick={() => (isEditing ? cancelEditJob() : startEditJob(job))}
@@ -2087,6 +2118,111 @@ export default function AdminJobs() {
         </section>
       </div>
 
+      {selectedJobId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-5xl space-y-4 rounded-2xl bg-white p-4 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-blue-500">Detalle del flete</p>
+                <h2 className="text-lg font-semibold text-gray-900">{selectedJobDetail?.clientName ?? 'Flete'}</h2>
+                {selectedJobDetail && (
+                  <p className="text-xs text-gray-500">Estado: {selectedJobDetail.status}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedJobId(null)}
+                className="rounded border px-3 py-1 text-xs text-gray-600"
+              >
+                Cerrar
+              </button>
+            </div>
+            {!selectedJobDetail && (
+              <p className="text-sm text-gray-500">No se encontro el flete.</p>
+            )}
+            {selectedJobDetail && (
+              <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+                <JobRoutePreviewMap job={selectedJobDetail} />
+                <div className="space-y-3">
+                  <div className="rounded-xl border bg-gray-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Resumen</p>
+                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                      <p>
+                        <span className="font-medium text-gray-900">Programado:</span>{' '}
+                        {selectedJobDetail.scheduledDate || 'Sin fecha'} | {selectedJobDetail.scheduledTime || 'Sin hora'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Conductor:</span>{' '}
+                        {selectedJobDriver ? `${selectedJobDriver.name} (${selectedJobDriver.code})` : 'Sin asignar'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Ayudantes:</span> {selectedJobDetail.helpersCount ?? 0}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Duracion estimada:</span> {selectedJobEstimateLabel}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Cobrado:</span> {selectedJobChargedLabel}
+                      </p>
+                      {selectedJobDetail.clientPhone && (
+                        <p>
+                          <span className="font-medium text-gray-900">Contacto:</span> {selectedJobDetail.clientPhone}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border bg-white p-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Direcciones</p>
+                    <div className="mt-2 space-y-2 text-sm text-gray-700">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-400">Origen</p>
+                        <p>{selectedJobDetail.pickup.address}</p>
+                      </div>
+                      {selectedJobDetail.extraStops && selectedJobDetail.extraStops.length > 0 && (
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-gray-400">Paradas extra</p>
+                          <ul className="mt-1 space-y-1">
+                            {selectedJobDetail.extraStops.map((stop, index) => (
+                              <li key={`${stop.lat}-${stop.lng}-${index}`} className="text-sm text-gray-700">
+                                {stop.address}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-400">Destino</p>
+                        <p>{selectedJobDetail.dropoff.address}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border bg-white p-3">
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Tiempos</p>
+                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                      <p>Carga: {selectedJobDurations?.loading ?? 'N/A'}</p>
+                      <p>Viaje: {selectedJobDurations?.trip ?? 'N/A'}</p>
+                      <p>Descarga: {selectedJobDurations?.unloading ?? 'N/A'}</p>
+                      <p>Total: {selectedJobDurations?.total ?? 'N/A'}</p>
+                    </div>
+                  </div>
+                  {(selectedJobDetail.description || selectedJobDetail.notes) && (
+                    <div className="rounded-xl border bg-white p-3">
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Detalles</p>
+                      {selectedJobDetail.description && (
+                        <p className="mt-2 text-sm text-gray-700">Descripcion: {selectedJobDetail.description}</p>
+                      )}
+                      {selectedJobDetail.notes && (
+                        <p className="mt-2 text-sm text-gray-700">Notas: {selectedJobDetail.notes}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {selectedDriverId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-4xl space-y-3 rounded-2xl bg-white p-4 shadow-xl">
@@ -2110,7 +2246,7 @@ export default function AdminJobs() {
               <p className="text-sm text-gray-500">No hay ubicacion reportada por este conductor.</p>
             )}
             {selectedLocation && (
-              <DriverRouteMap location={selectedLocation} job={selectedJob} />
+              <DriverRouteMap location={selectedLocation} job={selectedDriverJob} />
             )}
           </div>
         </div>
