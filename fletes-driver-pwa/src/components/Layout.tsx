@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { Truck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { APP_VERSION } from '../lib/appVersion';
+import { AdminLayout } from './AdminLayout';
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
   const navClass = (p: string) => cn("flex flex-col items-center w-full text-xs", loc.pathname === p ? "text-blue-600" : "text-gray-500");
@@ -18,6 +19,18 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
   const mainStyle = {
     paddingBottom: isJobRoute ? jobBottomPadding : showDriverNav ? 'calc(4rem + env(safe-area-inset-bottom))' : 'env(safe-area-inset-bottom)'
   } as const;
+  if (isAdminRoute) {
+    return (
+      <div className="min-h-screen bg-slate-100">
+        <div className="fixed top-2 right-3 z-50 text-[10px] text-gray-400">
+          build {APP_VERSION}
+        </div>
+        <AdminLayout>{children}</AdminLayout>
+        <Toaster />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col min-h-screen h-[100dvh] bg-gray-50">
       <div className="fixed top-2 right-3 z-50 text-[10px] text-gray-400">

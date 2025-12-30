@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import AddressAutocomplete from '../components/AddressAutocomplete';
@@ -204,6 +205,7 @@ export default function AdminJobs() {
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [searchParams, setSearchParams] = useSearchParams();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
@@ -274,6 +276,20 @@ export default function AdminJobs() {
     const id = window.setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  const tabParam = searchParams.get('tab');
+  const normalizedTab = tabParam === 'drivers' || tabParam === 'calendar' || tabParam === 'analytics' ? tabParam : tabParam === 'jobs' ? 'jobs' : null;
+
+  useEffect(() => {
+    if (normalizedTab && normalizedTab !== tab) setTab(normalizedTab);
+  }, [normalizedTab, tab]);
+
+  const handleTabChange = (nextTab: 'jobs' | 'drivers' | 'calendar' | 'analytics') => {
+    setTab(nextTab);
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', nextTab);
+    setSearchParams(next, { replace: true });
+  };
 
   const loadDriverLocations = async () => {
     try {
@@ -964,7 +980,7 @@ export default function AdminJobs() {
           <div className="flex flex-wrap gap-2 lg:flex-col">
             <button
               type="button"
-              onClick={() => setTab('jobs')}
+              onClick={() => handleTabChange('jobs')}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs font-semibold",
                 tab === 'jobs' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
@@ -974,7 +990,7 @@ export default function AdminJobs() {
             </button>
             <button
               type="button"
-              onClick={() => setTab('drivers')}
+              onClick={() => handleTabChange('drivers')}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs font-semibold",
                 tab === 'drivers' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
@@ -984,7 +1000,7 @@ export default function AdminJobs() {
             </button>
             <button
               type="button"
-              onClick={() => setTab('calendar')}
+              onClick={() => handleTabChange('calendar')}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs font-semibold",
                 tab === 'calendar' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
@@ -994,7 +1010,7 @@ export default function AdminJobs() {
             </button>
             <button
               type="button"
-              onClick={() => setTab('analytics')}
+              onClick={() => handleTabChange('analytics')}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs font-semibold",
                 tab === 'analytics' ? "border-blue-600 bg-blue-600 text-white" : "bg-white text-gray-600"
