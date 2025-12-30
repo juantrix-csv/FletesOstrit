@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import type { DriverLocation, Job, LocationData } from '../lib/types';
-import { MAP_STYLE, applyHighContrastMap } from '../lib/mapStyle';
+import { MAP_STYLE } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -138,11 +138,7 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
         mapStyle={MAP_STYLE}
-        onLoad={() => {
-          setMapReady(true);
-          const map = mapRef.current?.getMap();
-          if (map) applyHighContrastMap(map);
-        }}
+        onLoad={() => setMapReady(true)}
         maxBounds={[
           [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
           [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],

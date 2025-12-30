@@ -4,7 +4,7 @@ import maplibregl from 'maplibre-gl';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import { calculateDistance, cn } from '../lib/utils';
 import type { Job, LocationData } from '../lib/types';
-import { MAP_STYLE, applyHighContrastMap } from '../lib/mapStyle';
+import { MAP_STYLE } from '../lib/mapStyle';
 
 const EMPTY_STOPS: LocationData[] = [];
 
@@ -409,11 +409,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
         ref={mapRef}
         initialViewState={{ latitude: center[0], longitude: center[1], zoom: 13 }}
         mapStyle={MAP_STYLE}
-        onLoad={() => {
-          setMapReady(true);
-          const map = mapRef.current?.getMap();
-          if (map) applyHighContrastMap(map);
-        }}
+        onLoad={() => setMapReady(true)}
         reuseMaps
         attributionControl={false}
         interactive={false}
