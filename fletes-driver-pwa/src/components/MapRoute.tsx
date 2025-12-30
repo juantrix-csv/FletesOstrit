@@ -4,8 +4,8 @@ import maplibregl from 'maplibre-gl';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import { calculateDistance, cn } from '../lib/utils';
 import type { Job, LocationData } from '../lib/types';
+import { MAP_STYLE } from '../lib/mapStyle';
 
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 const EMPTY_STOPS: LocationData[] = [];
 
 export interface MapRouteHandle {

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import MapGL, { Marker, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import type { Driver, DriverLocation } from '../lib/types';
+import { MAP_STYLE } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
 
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
 const fallbackCenter = { lat: -34.9214, lng: -57.9544 };
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' } as const;

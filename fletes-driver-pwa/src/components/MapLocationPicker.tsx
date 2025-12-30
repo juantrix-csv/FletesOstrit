@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre';
 import type { LocationData } from '../lib/types';
 import { reverseGeocodeLocation } from '../lib/geocode';
+import { MAP_STYLE } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
 
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
 const fallbackLocation: LocationData = { address: 'La Plata', lat: -34.9214, lng: -57.9544 };
 
