@@ -203,6 +203,7 @@ export default function AdminJobs() {
   const [tab, setTab] = useState<'jobs' | 'drivers' | 'calendar' | 'analytics'>('jobs');
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
@@ -268,6 +269,11 @@ export default function AdminJobs() {
       setLoadingDrivers(false);
     }
   };
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const loadDriverLocations = async () => {
     try {
@@ -910,6 +916,13 @@ export default function AdminJobs() {
   });
   const dayFreeHours = calendarHours.filter((hour) => !dayBlockedHours.has(hour));
   const calendarGridHeight = calendarHours.length * calendarHourHeight;
+  const nowDate = new Date(nowTick);
+  const nowMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+  const calendarStartMinutes = calendarStartHour * 60;
+  const calendarEndMinutes = calendarEndHour * 60;
+  const nowWithinCalendar = nowMinutes >= calendarStartMinutes && nowMinutes <= calendarEndMinutes;
+  const nowTop = nowWithinCalendar ? ((nowMinutes - calendarStartMinutes) / 60) * calendarHourHeight : null;
+  const nowTimeLabel = timeFormatter.format(nowDate);
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6">
@@ -1495,6 +1508,17 @@ export default function AdminJobs() {
                               <div key={hour} className="border-t border-gray-100" />
                             ))}
                           </div>
+                          {isSameDay(calendarDate, calendarToday) && nowTop != null && (
+                            <div className="absolute left-0 right-0 z-20" style={{ top: nowTop }}>
+                              <div className="relative">
+                                <div className="h-0.5 bg-rose-500" />
+                                <div className="absolute -left-1 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-rose-500" />
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white px-1.5 text-[10px] font-semibold text-rose-500 shadow">
+                                  {nowTimeLabel}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
                             if (!style) return null;
@@ -1587,6 +1611,11 @@ export default function AdminJobs() {
                                     <div key={hour} className="border-t border-gray-100" />
                                   ))}
                                 </div>
+                                {isToday && nowTop != null && (
+                                  <div className="absolute left-0 right-0 z-20" style={{ top: nowTop }}>
+                                    <div className="h-0.5 bg-rose-500" />
+                                  </div>
+                                )}
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
                                   if (!style) return null;
