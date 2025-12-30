@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import MapGL, { Marker, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
 import type { Driver, DriverLocation } from '../lib/types';
-import { MAP_STYLE } from '../lib/mapStyle';
+import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -60,7 +60,11 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
         ref={mapRef}
         initialViewState={initialViewState}
         mapStyle={MAP_STYLE}
-        onLoad={() => setMapReady(true)}
+        onLoad={() => {
+          setMapReady(true);
+          const map = mapRef.current?.getMap();
+          if (map) applyMapPalette(map);
+        }}
         maxBounds={MAX_BOUNDS}
         reuseMaps
         attributionControl={false}
