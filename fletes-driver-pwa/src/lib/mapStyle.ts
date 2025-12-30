@@ -5,8 +5,8 @@ export const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/styl
 const palette = {
   background: '#F4F4F4',
   land: '#EDEDED',
-  urban: '#E6E6E6',
-  industrial: '#DCDCDC',
+  urban: '#EDEDED',
+  industrial: '#EDEDED',
   park: '#D8D8D8',
   forest: '#CECECE',
   desert: '#E2E2E2',
@@ -75,9 +75,9 @@ export const applyMapPalette = (map: maplibregl.Map) => {
           'forest', palette.forest,
           'wood', palette.forest,
           'nature_reserve', palette.forest,
-          'industrial', palette.industrial,
-          'commercial', palette.industrial,
-          'residential', palette.urban,
+          'industrial', palette.land,
+          'commercial', palette.land,
+          'residential', palette.land,
           'sand', palette.desert,
           'beach', palette.desert,
           palette.land,
@@ -136,11 +136,11 @@ export const applyMapPalette = (map: maplibregl.Map) => {
         return;
       }
       if (isLayerIdMatch(id, INDUSTRIAL_MATCH)) {
-        map.setPaintProperty(layer.id, 'fill-color', palette.industrial);
+        map.setPaintProperty(layer.id, 'fill-color', palette.land);
         return;
       }
       if (isLayerIdMatch(id, URBAN_MATCH)) {
-        map.setPaintProperty(layer.id, 'fill-color', palette.urban);
+        map.setPaintProperty(layer.id, 'fill-color', palette.land);
         return;
       }
       if (isLayerIdMatch(id, LAND_MATCH)) {
