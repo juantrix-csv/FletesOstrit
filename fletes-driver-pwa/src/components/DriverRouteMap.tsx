@@ -159,12 +159,12 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
             <Layer
               id="driver-route-outline"
               type="line"
-              paint={{ 'line-color': '#93c5fd', 'line-width': 8, 'line-opacity': 0.5 }}
+              paint={{ 'line-color': '#FFFFFF', 'line-width': 8, 'line-opacity': 0.7 }}
             />
             <Layer
               id="driver-route-line"
               type="line"
-              paint={{ 'line-color': '#2563eb', 'line-width': 5, 'line-opacity': 0.9 }}
+              paint={{ 'line-color': '#1A73E8', 'line-width': 5, 'line-opacity': 0.9 }}
             />
           </Source>
         )}
