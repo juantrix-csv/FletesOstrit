@@ -288,6 +288,7 @@ export default function AdminJobs() {
   const [driverName, setDriverName] = useState('');
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
+  const [driverModalOpen, setDriverModalOpen] = useState(false);
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -617,6 +618,7 @@ export default function AdminJobs() {
       setDriverName('');
       setDriverCode('');
       setDriverPhone('');
+      setDriverModalOpen(false);
       toast.success('Conductor creado');
     } catch {
       toast.error('No se pudo crear el conductor');
@@ -1975,97 +1977,173 @@ export default function AdminJobs() {
           )}
 
           {tab === 'drivers' && (
-            <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-              <form onSubmit={handleCreateDriver} className="space-y-2 rounded bg-white p-4 shadow">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <input
-                    value={driverName}
-                    onChange={(e) => setDriverName(e.target.value)}
-                    placeholder="Nombre del conductor"
-                    className="w-full border p-2"
-                    required
-                  />
-                  <div className="flex gap-2">
-                    <input
-                      value={driverCode}
-                      onChange={(e) => setDriverCode(e.target.value.toUpperCase())}
-                      placeholder="Codigo"
-                      className="w-full border p-2"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setDriverCode(buildDriverCode())}
-                      className="rounded border px-3 text-xs"
-                    >
-                      Generar
-                    </button>
-                  </div>
-                  <input
-                    value={driverPhone}
-                    onChange={(e) => setDriverPhone(e.target.value)}
-                    placeholder="Telefono (opcional)"
-                    className="w-full border p-2 sm:col-span-2"
-                  />
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Conductores</p>
+                  <h2 className="text-lg font-semibold text-gray-900">Gestion de conductores</h2>
                 </div>
-                <button className="w-full rounded bg-green-600 p-2 text-white">Guardar conductor</button>
-              </form>
-              <div className="space-y-3">
-                <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-gray-900">Mapa general</p>
-                    <span className="text-xs text-gray-400">Actualiza cada 12s</span>
-                  </div>
-                  <div className="relative">
-                    <DriversOverviewMap locations={driverLocations} drivers={drivers} />
-                    {loadingLocations && (
-                      <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/70 text-xs text-gray-500">
-                        Cargando ubicaciones...
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {loadingDrivers && <p className="text-sm text-gray-500">Cargando conductores...</p>}
-                {!loadingDrivers && drivers.length === 0 && <p className="text-sm text-gray-500">No hay conductores registrados.</p>}
-                {!loadingDrivers && drivers.map((driver) => (
-                  <div key={driver.id} className="flex flex-wrap items-center justify-between gap-3 rounded border bg-white p-3 shadow-sm">
-                    <div>
-                      <p className="font-semibold text-gray-900">{driver.name}</p>
-                      <p className="text-xs text-gray-500">Codigo: <span className="font-mono">{driver.code}</span></p>
-                      <p className="text-xs text-gray-500">{driver.phone || 'Sin telefono'}</p>
-                      <p className="text-xs text-gray-400">
-                        Ubicacion: {driverLocationsById.has(driver.id) ? 'Disponible' : 'Sin datos'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleSelectDriverMap(driver.id)}
-                        className="rounded border px-2 py-1 text-xs text-blue-600"
-                      >
-                        Ver mapa
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleDriver(driver)}
-                        className={cn(
-                          "rounded border px-2 py-1 text-xs",
-                          driver.active ? "border-emerald-500 text-emerald-600" : "border-gray-300 text-gray-500"
-                        )}
-                      >
-                        {driver.active ? 'Activo' : 'Inactivo'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteDriver(driver.id)}
-                        className="rounded border border-red-200 px-2 py-1 text-xs text-red-500"
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => setDriverModalOpen(true)}
+                  className="rounded-full bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700"
+                >
+                  Agregar Conductor
+                </button>
               </div>
+
+              <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-gray-900">Mapa general</p>
+                  <span className="text-xs text-gray-400">Actualiza cada 12s</span>
+                </div>
+                <div className="relative">
+                  <DriversOverviewMap locations={driverLocations} drivers={drivers} />
+                  {loadingLocations && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/70 text-xs text-gray-500">
+                      Cargando ubicaciones...
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {loadingDrivers && <p className="text-sm text-gray-500">Cargando conductores...</p>}
+              {!loadingDrivers && drivers.length === 0 && <p className="text-sm text-gray-500">No hay conductores registrados.</p>}
+              {!loadingDrivers && drivers.length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {drivers.map((driver) => {
+                    const isActive = driver.active;
+                    return (
+                      <div key={driver.id} className="flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-base font-semibold text-gray-900">{driver.name}</p>
+                            <p className="text-sm font-semibold text-gray-800">
+                              Codigo: <span className="font-mono">{driver.code}</span>
+                            </p>
+                            <p className="text-xs text-gray-500">{driver.phone || 'Sin telefono'}</p>
+                            <p className="text-xs text-gray-400">
+                              Ubicacion: {driverLocationsById.has(driver.id) ? 'Disponible' : 'Sin datos'}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={isActive}
+                              onClick={() => handleToggleDriver(driver)}
+                              className={cn(
+                                "relative inline-flex h-6 w-11 items-center rounded-full transition",
+                                isActive ? "bg-emerald-500" : "bg-gray-300"
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "inline-block h-5 w-5 transform rounded-full bg-white shadow transition",
+                                  isActive ? "translate-x-5" : "translate-x-1"
+                                )}
+                              />
+                            </button>
+                            <span className={cn("text-[11px] font-semibold", isActive ? "text-emerald-600" : "text-gray-500")}>
+                              {isActive ? 'Activo' : 'Inactivo'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectDriverMap(driver.id)}
+                            className="rounded border px-2 py-1 text-xs font-semibold text-blue-600"
+                          >
+                            Ver mapa
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDriver(driver.id)}
+                            className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-500"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {driverModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                  <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-xl">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-blue-500">Nuevo conductor</p>
+                        <h3 className="text-lg font-semibold text-gray-900">Agregar Conductor</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDriverModalOpen(false)}
+                        className="rounded border px-3 py-1 text-xs text-gray-600"
+                      >
+                        Cerrar
+                      </button>
+                    </div>
+                    <form onSubmit={handleCreateDriver} className="mt-4 space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="sm:col-span-2">
+                          <label className="text-xs text-gray-500">Nombre</label>
+                          <input
+                            value={driverName}
+                            onChange={(e) => setDriverName(e.target.value)}
+                            placeholder="Nombre del conductor"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="text-xs text-gray-500">Codigo</label>
+                          <div className="mt-1 flex gap-2">
+                            <input
+                              value={driverCode}
+                              onChange={(e) => setDriverCode(e.target.value.toUpperCase())}
+                              placeholder="Codigo"
+                              className="w-full rounded border px-3 py-2 text-sm"
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setDriverCode(buildDriverCode())}
+                              className="rounded border px-3 text-xs"
+                            >
+                              Generar
+                            </button>
+                          </div>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="text-xs text-gray-500">Telefono (opcional)</label>
+                          <input
+                            value={driverPhone}
+                            onChange={(e) => setDriverPhone(e.target.value)}
+                            placeholder="Telefono (opcional)"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setDriverModalOpen(false)}
+                          className="rounded border px-3 py-2 text-xs text-gray-600"
+                        >
+                          Cancelar
+                        </button>
+                        <button className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white">
+                          Guardar conductor
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
