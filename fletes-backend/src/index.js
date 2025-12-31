@@ -52,6 +52,12 @@ const parseTimestampMs = (value) => {
   return Number.isNaN(ms) ? null : ms;
 };
 
+const parseSettingNumber = (value) => {
+  if (value == null || value === '') return null;
+  if (!isFiniteNumber(value) || value < 0) return NaN;
+  return value;
+};
+
 const getJobStartMs = (job) =>
   parseTimestampMs(job.timestamps?.startJobAt)
   ?? parseTimestampMs(job.timestamps?.startLoadingAt)
@@ -267,6 +273,56 @@ app.put(`${API_PREFIX}/settings/helper-hourly-rate`, (req, res) => {
   const saved = setSetting('helperHourlyRate', body.hourlyRate);
   const hourlyRate = typeof saved === 'number' && Number.isFinite(saved) ? saved : null;
   res.json({ hourlyRate });
+});
+
+const sendSettingValue = (res, stored) => {
+  const value = typeof stored === 'number' && Number.isFinite(stored) ? stored : null;
+  res.json({ value });
+};
+
+app.get(`${API_PREFIX}/settings/fixed-monthly-cost`, (_req, res) => {
+  sendSettingValue(res, getSetting('fixedMonthlyCost'));
+});
+
+app.put(`${API_PREFIX}/settings/fixed-monthly-cost`, (req, res) => {
+  const body = req.body ?? {};
+  const parsed = parseSettingNumber(body.value);
+  if (Number.isNaN(parsed)) {
+    res.status(400).json({ error: 'Invalid value' });
+    return;
+  }
+  const saved = setSetting('fixedMonthlyCost', parsed);
+  sendSettingValue(res, saved);
+});
+
+app.get(`${API_PREFIX}/settings/trip-cost-per-hour`, (_req, res) => {
+  sendSettingValue(res, getSetting('tripCostPerHour'));
+});
+
+app.put(`${API_PREFIX}/settings/trip-cost-per-hour`, (req, res) => {
+  const body = req.body ?? {};
+  const parsed = parseSettingNumber(body.value);
+  if (Number.isNaN(parsed)) {
+    res.status(400).json({ error: 'Invalid value' });
+    return;
+  }
+  const saved = setSetting('tripCostPerHour', parsed);
+  sendSettingValue(res, saved);
+});
+
+app.get(`${API_PREFIX}/settings/trip-cost-per-km`, (_req, res) => {
+  sendSettingValue(res, getSetting('tripCostPerKm'));
+});
+
+app.put(`${API_PREFIX}/settings/trip-cost-per-km`, (req, res) => {
+  const body = req.body ?? {};
+  const parsed = parseSettingNumber(body.value);
+  if (Number.isNaN(parsed)) {
+    res.status(400).json({ error: 'Invalid value' });
+    return;
+  }
+  const saved = setSetting('tripCostPerKm', parsed);
+  sendSettingValue(res, saved);
 });
 
 app.post(`${API_PREFIX}/jobs`, (req, res) => {

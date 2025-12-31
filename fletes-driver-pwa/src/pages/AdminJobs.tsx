@@ -16,17 +16,23 @@ import {
   deleteDriver,
   deleteJob,
   downloadJobsHistory,
+  getFixedMonthlyCost,
   getHelperHourlyRate,
   getHourlyRate,
+  getTripCostPerHour,
+  getTripCostPerKm,
   listDriverLocations,
   listDrivers,
   listJobs,
+  setFixedMonthlyCost,
   setHelperHourlyRate,
   setHourlyRate,
+  setTripCostPerHour,
+  setTripCostPerKm,
   updateDriver,
   updateJob,
 } from '../lib/api';
-import { cn, formatDuration, getScheduledAtMs } from '../lib/utils';
+import { calculateDistance, cn, formatDuration, getScheduledAtMs } from '../lib/utils';
 import { reorderList } from '../lib/reorder';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -36,6 +42,8 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
+const percentFormatter = new Intl.NumberFormat('es-AR', { style: 'percent', minimumFractionDigits: 0, maximumFractionDigits: 1 });
+const decimalFormatter = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 const monthFormatter = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' });
 const monthShortFormatter = new Intl.DateTimeFormat('es-AR', { month: 'short' });
 const dayFormatter = new Intl.DateTimeFormat('es-AR', { weekday: 'short', day: '2-digit', month: 'short' });
@@ -228,6 +236,20 @@ const formatDurationHours = (minutes?: number | null) => {
   return hours.toFixed(2).replace(/\.?0+$/, '');
 };
 
+const isValidLocation = (loc?: LocationData | null) =>
+  !!loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
+
+const getJobDistanceKm = (job: Job) => {
+  const points = [job.pickup, ...(job.extraStops ?? []), job.dropoff].filter(isValidLocation);
+  if (points.length < 2) return null;
+  let meters = 0;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    meters += calculateDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+  }
+  if (!Number.isFinite(meters)) return null;
+  return meters / 1000;
+};
+
 const getStatusBadge = (status: JobStatus) => {
   if (status === 'DONE') {
     return { label: 'Completado', className: 'bg-emerald-100 text-emerald-700' };
@@ -272,8 +294,14 @@ export default function AdminJobs() {
   const [mapSearchLocation, setMapSearchLocation] = useState<LocationData | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState('');
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
+  const [fixedMonthlyCostInput, setFixedMonthlyCostInput] = useState('');
+  const [tripCostPerHourInput, setTripCostPerHourInput] = useState('');
+  const [tripCostPerKmInput, setTripCostPerKmInput] = useState('');
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
+  const [savingFixedMonthlyCost, setSavingFixedMonthlyCost] = useState(false);
+  const [savingTripCostPerHour, setSavingTripCostPerHour] = useState(false);
+  const [savingTripCostPerKm, setSavingTripCostPerKm] = useState(false);
   const [chargedAmountDrafts, setChargedAmountDrafts] = useState<Record<string, string>>({});
   const [savingChargedAmountId, setSavingChargedAmountId] = useState<string | null>(null);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
@@ -292,6 +320,9 @@ export default function AdminJobs() {
   }, [drivers]);
   const hourlyRateValue = useMemo(() => parseHourlyRate(hourlyRateInput), [hourlyRateInput]);
   const helperHourlyRateValue = useMemo(() => parseHourlyRate(helperHourlyRateInput), [helperHourlyRateInput]);
+  const fixedMonthlyCostValue = useMemo(() => parseHourlyRate(fixedMonthlyCostInput), [fixedMonthlyCostInput]);
+  const tripCostPerHourValue = useMemo(() => parseHourlyRate(tripCostPerHourInput), [tripCostPerHourInput]);
+  const tripCostPerKmValue = useMemo(() => parseHourlyRate(tripCostPerKmInput), [tripCostPerKmInput]);
 
   const loadJobs = async () => {
     try {
@@ -372,6 +403,33 @@ export default function AdminJobs() {
     }
   };
 
+  const loadFixedMonthlyCost = async () => {
+    try {
+      const data = await getFixedMonthlyCost();
+      setFixedMonthlyCostInput(data.value != null ? String(data.value) : '');
+    } catch {
+      toast.error('No se pudo cargar el costo fijo mensual');
+    }
+  };
+
+  const loadTripCostPerHour = async () => {
+    try {
+      const data = await getTripCostPerHour();
+      setTripCostPerHourInput(data.value != null ? String(data.value) : '');
+    } catch {
+      toast.error('No se pudo cargar el costo por hora');
+    }
+  };
+
+  const loadTripCostPerKm = async () => {
+    try {
+      const data = await getTripCostPerKm();
+      setTripCostPerKmInput(data.value != null ? String(data.value) : '');
+    } catch {
+      toast.error('No se pudo cargar el costo por km');
+    }
+  };
+
   const addExtraStop = (location: LocationData | null) => {
     if (!location) return;
     setExtraStops((prev) => [...prev, location]);
@@ -395,6 +453,9 @@ export default function AdminJobs() {
     loadDriverLocations();
     loadHourlyRate();
     loadHelperHourlyRate();
+    loadFixedMonthlyCost();
+    loadTripCostPerHour();
+    loadTripCostPerKm();
     const id = window.setInterval(loadDriverLocations, 12000);
     return () => clearInterval(id);
   }, []);
@@ -623,6 +684,60 @@ export default function AdminJobs() {
     }
   };
 
+  const handleSaveFixedMonthlyCost = async () => {
+    const parsed = parseHourlyRate(fixedMonthlyCostInput);
+    if (fixedMonthlyCostInput.trim() && parsed == null) {
+      toast.error('Costo fijo mensual invalido');
+      return;
+    }
+    try {
+      setSavingFixedMonthlyCost(true);
+      const saved = await setFixedMonthlyCost(parsed);
+      setFixedMonthlyCostInput(saved.value != null ? String(saved.value) : '');
+      toast.success('Costo fijo mensual actualizado');
+    } catch {
+      toast.error('No se pudo guardar el costo fijo');
+    } finally {
+      setSavingFixedMonthlyCost(false);
+    }
+  };
+
+  const handleSaveTripCostPerHour = async () => {
+    const parsed = parseHourlyRate(tripCostPerHourInput);
+    if (tripCostPerHourInput.trim() && parsed == null) {
+      toast.error('Costo por hora invalido');
+      return;
+    }
+    try {
+      setSavingTripCostPerHour(true);
+      const saved = await setTripCostPerHour(parsed);
+      setTripCostPerHourInput(saved.value != null ? String(saved.value) : '');
+      toast.success('Costo por hora actualizado');
+    } catch {
+      toast.error('No se pudo guardar el costo por hora');
+    } finally {
+      setSavingTripCostPerHour(false);
+    }
+  };
+
+  const handleSaveTripCostPerKm = async () => {
+    const parsed = parseHourlyRate(tripCostPerKmInput);
+    if (tripCostPerKmInput.trim() && parsed == null) {
+      toast.error('Costo por km invalido');
+      return;
+    }
+    try {
+      setSavingTripCostPerKm(true);
+      const saved = await setTripCostPerKm(parsed);
+      setTripCostPerKmInput(saved.value != null ? String(saved.value) : '');
+      toast.success('Costo por km actualizado');
+    } catch {
+      toast.error('No se pudo guardar el costo por km');
+    } finally {
+      setSavingTripCostPerKm(false);
+    }
+  };
+
   const handleSaveChargedAmount = async (job: Job) => {
     const raw = chargedAmountDrafts[job.id] ?? (job.chargedAmount != null ? String(job.chargedAmount) : '');
     const parsed = parseMoneyInput(raw);
@@ -685,11 +800,6 @@ export default function AdminJobs() {
     }
   };
 
-  const totalJobs = jobs.length;
-  const activeDrivers = drivers.filter((driver) => driver.active).length;
-  const assignedJobs = jobs.filter((job) => job.driverId).length;
-  const activeJobs = jobs.filter((job) => job.status !== 'DONE').length;
-  const unassignedJobs = totalJobs - assignedJobs;
   const completedHistory = useMemo(() => {
     const entries = jobs
       .filter((job) => job.status === 'DONE')
@@ -701,6 +811,16 @@ export default function AdminJobs() {
       });
     entries.sort((a, b) => (b.endMs ?? 0) - (a.endMs ?? 0));
     return entries;
+  }, [jobs]);
+  const jobDistanceKmById = useMemo(() => {
+    const map = new Map<string, number>();
+    jobs.forEach((job) => {
+      const km = getJobDistanceKm(job);
+      if (km != null && Number.isFinite(km)) {
+        map.set(job.id, km);
+      }
+    });
+    return map;
   }, [jobs]);
   const hasChargeOverrides = useMemo(
     () => completedHistory.some((entry) => entry.job.chargedAmount != null),
@@ -717,16 +837,110 @@ export default function AdminJobs() {
       : 0;
     return billedHours * hourlyRateValue + helpersValue;
   };
-  const averageDurationMs = useMemo(() => {
-    const durations = completedHistory.map((entry) => entry.durationMs).filter((value): value is number => value != null);
-    if (durations.length === 0) return null;
-    const total = durations.reduce((sum, value) => sum + value, 0);
-    return total / durations.length;
-  }, [completedHistory]);
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
-  const averageDurationLabel = averageDurationMs != null ? formatDurationMs(averageDurationMs) : 'N/D';
-  const currentMonthLabel = monthFormatter.format(new Date());
+  const now = new Date();
+  const currentMonthLabel = monthFormatter.format(now);
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const daysElapsedInMonth = Math.max(1, now.getDate());
+  const completedThisMonth = useMemo(() => (
+    completedHistory.filter((entry) => {
+      if (entry.endMs == null) return false;
+      const endDate = new Date(entry.endMs);
+      return endDate.getMonth() === currentMonth && endDate.getFullYear() === currentYear;
+    })
+  ), [completedHistory, currentMonth, currentYear]);
+  const tripsToday = useMemo(() => {
+    const today = startOfDay(now);
+    return completedHistory.filter((entry) => entry.endMs != null && isSameDay(new Date(entry.endMs), today)).length;
+  }, [completedHistory, now]);
+  const tripsPerDayAvg = completedThisMonth.length / daysElapsedInMonth;
+  const fixedCostPerTrip = fixedMonthlyCostValue != null && completedThisMonth.length > 0
+    ? fixedMonthlyCostValue / completedThisMonth.length
+    : 0;
+  const realHourlyStats = useMemo(() => {
+    let revenueTotal = 0;
+    let hoursTotal = 0;
+    let trips = 0;
+    completedHistory.forEach((entry) => {
+      const revenue = getEntryTotal(entry);
+      if (revenue == null || entry.durationMs == null) return;
+      const hours = entry.durationMs / 3600000;
+      if (!Number.isFinite(hours) || hours <= 0) return;
+      revenueTotal += revenue;
+      hoursTotal += hours;
+      trips += 1;
+    });
+    const value = hoursTotal > 0 ? revenueTotal / hoursTotal : null;
+    return { value, hoursTotal, trips };
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  const netMarginStats = useMemo(() => {
+    let total = 0;
+    let count = 0;
+    completedThisMonth.forEach((entry) => {
+      const revenue = getEntryTotal(entry);
+      if (revenue == null) return;
+      const durationHours = entry.durationMs != null
+        ? entry.durationMs / 3600000
+        : Number.isFinite(entry.job.estimatedDurationMinutes)
+          ? (entry.job.estimatedDurationMinutes as number) / 60
+          : null;
+      const distanceKm = jobDistanceKmById.get(entry.job.id) ?? null;
+      let variableCost = 0;
+      if (tripCostPerHourValue != null) {
+        if (durationHours == null || !Number.isFinite(durationHours)) return;
+        variableCost += durationHours * tripCostPerHourValue;
+      }
+      if (tripCostPerKmValue != null) {
+        if (distanceKm == null || !Number.isFinite(distanceKm)) return;
+        variableCost += distanceKm * tripCostPerKmValue;
+      }
+      const net = revenue - variableCost - fixedCostPerTrip;
+      total += net;
+      count += 1;
+    });
+    return { average: count > 0 ? total / count : null, count };
+  }, [completedThisMonth, fixedCostPerTrip, jobDistanceKmById, tripCostPerHourValue, tripCostPerKmValue, hourlyRateValue, helperHourlyRateValue]);
+  const recurringClientStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    completedHistory.forEach((entry) => {
+      const rawPhone = entry.job.clientPhone?.trim();
+      if (!rawPhone) return;
+      const normalized = rawPhone.replace(/\D/g, '');
+      const key = normalized || rawPhone;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    const total = counts.size;
+    let recurring = 0;
+    counts.forEach((count) => {
+      if (count > 1) recurring += 1;
+    });
+    const percent = total > 0 ? recurring / total : null;
+    return { percent, total, recurring };
+  }, [completedHistory]);
+  const realHourlyLabel = realHourlyStats.value != null ? `${currencyFormatter.format(realHourlyStats.value)}/h` : 'N/D';
+  const netMarginLabel = netMarginStats.average != null ? currencyFormatter.format(netMarginStats.average) : 'N/D';
+  const tripsPerDayLabel = Number.isFinite(tripsPerDayAvg) ? decimalFormatter.format(tripsPerDayAvg) : 'N/D';
+  const recurringPercentLabel = recurringClientStats.percent != null
+    ? percentFormatter.format(recurringClientStats.percent)
+    : 'N/D';
+  const fixedMonthlyCostLabel = fixedMonthlyCostValue != null
+    ? currencyFormatter.format(fixedMonthlyCostValue)
+    : 'Sin configurar';
+  const costPerHourLabel = tripCostPerHourValue != null ? `${currencyFormatter.format(tripCostPerHourValue)}/h` : null;
+  const costPerKmLabel = tripCostPerKmValue != null ? `${currencyFormatter.format(tripCostPerKmValue)}/km` : null;
+  const variableCostLabel = [costPerHourLabel, costPerKmLabel].filter(Boolean).join(' + ');
+  const realHourlyMeta = realHourlyStats.trips > 0
+    ? `Basado en ${realHourlyStats.trips} viajes y ${decimalFormatter.format(realHourlyStats.hoursTotal)} h.`
+    : 'Sin tiempos suficientes.';
+  const netMarginMeta = netMarginStats.count > 0
+    ? `Promedio ${currentMonthLabel}, ${netMarginStats.count} viajes.`
+    : 'Sin datos para calcular margen.';
+  const tripsPerDayMeta = `Promedio ${currentMonthLabel}. Hoy: ${tripsToday}.`;
+  const recurringMeta = recurringClientStats.total > 0
+    ? `${recurringClientStats.recurring} de ${recurringClientStats.total} con telefono.`
+    : 'Sin telefonos cargados.';
   const monthlyGrossTotal = useMemo(() => {
     if (hourlyRateValue == null && !hasChargeOverrides) return null;
     const now = new Date();
@@ -1023,6 +1237,71 @@ export default function AdminJobs() {
           >
             {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
           </button>
+        </div>
+        <div className="border-t border-slate-900/60 pt-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Costos fijos</p>
+          <p className="mt-1 text-base font-semibold text-white">
+            {fixedMonthlyCostValue != null ? currencyFormatter.format(fixedMonthlyCostValue) : '--'}
+          </p>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            placeholder="Ej: 450000"
+            value={fixedMonthlyCostInput}
+            onChange={(event) => setFixedMonthlyCostInput(event.target.value)}
+            className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+          />
+          <button
+            type="button"
+            onClick={handleSaveFixedMonthlyCost}
+            disabled={savingFixedMonthlyCost}
+            className="mt-2 w-full rounded-lg border border-sky-500/30 bg-sky-600/10 px-2 py-1.5 text-xs font-semibold text-sky-200 transition hover:bg-sky-600/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {savingFixedMonthlyCost ? 'Guardando...' : 'Guardar costo fijo'}
+          </button>
+          <div className="mt-3 space-y-2 border-t border-slate-900/60 pt-3">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">Costo por viaje</p>
+            <label className="block text-[11px] text-slate-500">Por hora</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              placeholder="Ej: 9000"
+              value={tripCostPerHourInput}
+              onChange={(event) => setTripCostPerHourInput(event.target.value)}
+              className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+            />
+            <button
+              type="button"
+              onClick={handleSaveTripCostPerHour}
+              disabled={savingTripCostPerHour}
+              className="w-full rounded-lg border border-violet-500/30 bg-violet-600/10 px-2 py-1.5 text-[11px] font-semibold text-violet-200 transition hover:bg-violet-600/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingTripCostPerHour ? 'Guardando...' : 'Guardar costo hora'}
+            </button>
+            <label className="block text-[11px] text-slate-500">Por km</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              placeholder="Ej: 120"
+              value={tripCostPerKmInput}
+              onChange={(event) => setTripCostPerKmInput(event.target.value)}
+              className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+            />
+            <button
+              type="button"
+              onClick={handleSaveTripCostPerKm}
+              disabled={savingTripCostPerKm}
+              className="w-full rounded-lg border border-amber-500/30 bg-amber-600/10 px-2 py-1.5 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-600/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingTripCostPerKm ? 'Guardando...' : 'Guardar costo km'}
+            </button>
+          </div>
         </div>
       </div>,
       sidebarConfigRoot,
@@ -1911,33 +2190,34 @@ export default function AdminJobs() {
 
           {tab === 'analytics' && (
             <div className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Total fletes</p>
-                  <p className="text-2xl font-semibold text-gray-900">{totalJobs}</p>
-                  <p className="text-xs text-gray-500">Incluye activos y completados.</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Ingreso por hora real</p>
+                  <p className="text-2xl font-semibold text-gray-900">{realHourlyLabel}</p>
+                  <p className="text-xs text-gray-500">{realHourlyMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Conductores activos</p>
-                  <p className="text-2xl font-semibold text-gray-900">{activeDrivers}</p>
-                  <p className="text-xs text-gray-500">Disponibilidad actual.</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Margen neto por viaje</p>
+                  <p className="text-2xl font-semibold text-gray-900">{netMarginLabel}</p>
+                  <p className="text-xs text-gray-500">{netMarginMeta}</p>
+                  {variableCostLabel && (
+                    <p className="text-[11px] text-gray-400">Costos: {variableCostLabel}</p>
+                  )}
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Tiempo promedio</p>
-                  <p className="text-2xl font-semibold text-gray-900">{averageDurationLabel}</p>
-                  <p className="text-xs text-gray-500">
-                    {completedHistory.length === 0 ? 'Aun no hay historicos.' : `Sobre ${completedHistory.length} completados.`}
-                  </p>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Viajes por dia</p>
+                  <p className="text-2xl font-semibold text-gray-900">{tripsPerDayLabel}</p>
+                  <p className="text-xs text-gray-500">{tripsPerDayMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Fletes activos</p>
-                  <p className="text-2xl font-semibold text-gray-900">{activeJobs}</p>
-                  <p className="text-xs text-gray-500">En curso y pendientes.</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Clientes recurrentes</p>
+                  <p className="text-2xl font-semibold text-gray-900">{recurringPercentLabel}</p>
+                  <p className="text-xs text-gray-500">{recurringMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Sin asignar</p>
-                  <p className="text-2xl font-semibold text-gray-900">{unassignedJobs}</p>
-                  <p className="text-xs text-gray-500">Pendientes de conductor.</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Costo fijo mensual</p>
+                  <p className="text-2xl font-semibold text-gray-900">{fixedMonthlyCostLabel}</p>
+                  <p className="text-xs text-gray-500">Se prorratea en el margen.</p>
                 </div>
               </div>
 

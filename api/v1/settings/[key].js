@@ -12,7 +12,7 @@ const parseBody = (req) => {
   return req.body;
 };
 
-const parseHourlyRate = (value) => {
+const parseNumber = (value) => {
   if (value == null || value === '') return null;
   if (!Number.isFinite(value) || value < 0) return NaN;
   return value;
@@ -21,7 +21,25 @@ const parseHourlyRate = (value) => {
 const resolveSettingKey = (raw) => {
   if (raw === 'hourly-rate') return 'hourlyRate';
   if (raw === 'helper-hourly-rate') return 'helperHourlyRate';
+  if (raw === 'fixed-monthly-cost') return 'fixedMonthlyCost';
+  if (raw === 'trip-cost-per-hour') return 'tripCostPerHour';
+  if (raw === 'trip-cost-per-km') return 'tripCostPerKm';
   return null;
+};
+
+const resolveBodyValue = (body) => {
+  if (body && Object.prototype.hasOwnProperty.call(body, 'value')) return body.value;
+  if (body && Object.prototype.hasOwnProperty.call(body, 'hourlyRate')) return body.hourlyRate;
+  return undefined;
+};
+
+const respondSetting = (res, key, stored) => {
+  const value = typeof stored === 'number' && Number.isFinite(stored) ? stored : null;
+  if (key === 'hourlyRate' || key === 'helperHourlyRate') {
+    res.status(200).json({ hourlyRate: value });
+    return;
+  }
+  res.status(200).json({ value });
 };
 
 export default async function handler(req, res) {
@@ -33,21 +51,19 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     const stored = await getSetting(key);
-    const hourlyRate = typeof stored === 'number' && Number.isFinite(stored) ? stored : null;
-    res.status(200).json({ hourlyRate });
+    respondSetting(res, key, stored);
     return;
   }
 
   if (req.method === 'PUT') {
     const body = parseBody(req);
-    const parsed = parseHourlyRate(body.hourlyRate);
+    const parsed = parseNumber(resolveBodyValue(body));
     if (Number.isNaN(parsed)) {
-      res.status(400).json({ error: 'Invalid hourlyRate' });
+      res.status(400).json({ error: 'Invalid value' });
       return;
     }
     const saved = await setSetting(key, parsed);
-    const hourlyRate = typeof saved === 'number' && Number.isFinite(saved) ? saved : null;
-    res.status(200).json({ hourlyRate });
+    respondSetting(res, key, saved);
     return;
   }
 

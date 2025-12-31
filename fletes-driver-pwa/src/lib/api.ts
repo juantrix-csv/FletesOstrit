@@ -74,6 +74,27 @@ export const setHelperHourlyRate = (hourlyRate: number | null) =>
     body: JSON.stringify({ hourlyRate }),
   });
 
+export const getFixedMonthlyCost = () => fetchJson<{ value: number | null }>('/settings/fixed-monthly-cost');
+export const setFixedMonthlyCost = (value: number | null) =>
+  fetchJson<{ value: number | null }>('/settings/fixed-monthly-cost', {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
+export const getTripCostPerHour = () => fetchJson<{ value: number | null }>('/settings/trip-cost-per-hour');
+export const setTripCostPerHour = (value: number | null) =>
+  fetchJson<{ value: number | null }>('/settings/trip-cost-per-hour', {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
+export const getTripCostPerKm = () => fetchJson<{ value: number | null }>('/settings/trip-cost-per-km');
+export const setTripCostPerKm = (value: number | null) =>
+  fetchJson<{ value: number | null }>('/settings/trip-cost-per-km', {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
 export const downloadJobsHistory = async () => {
   const res = await fetch(`${API_BASE}/jobs/history/export`);
   if (!res.ok) {
