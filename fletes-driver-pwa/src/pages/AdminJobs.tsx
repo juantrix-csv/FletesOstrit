@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
@@ -246,6 +247,7 @@ export default function AdminJobs() {
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [sidebarConfigRoot, setSidebarConfigRoot] = useState<HTMLElement | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
@@ -318,6 +320,10 @@ export default function AdminJobs() {
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    setSidebarConfigRoot(document.getElementById('admin-sidebar-config'));
   }, []);
 
   useEffect(() => {
@@ -717,30 +723,9 @@ export default function AdminJobs() {
     const total = durations.reduce((sum, value) => sum + value, 0);
     return total / durations.length;
   }, [completedHistory]);
-  const totalRevenue = useMemo(() => {
-    if (hourlyRateValue == null && !hasChargeOverrides) return null;
-    return completedHistory.reduce((sum, entry) => {
-      const total = getEntryTotal(entry);
-      return total != null ? sum + total : sum;
-    }, 0);
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, hasChargeOverrides]);
-  const totalHelperCost = useMemo(() => {
-    if (helperHourlyRateValue == null) return null;
-    return completedHistory.reduce((sum, entry) => {
-      if (entry.durationMs == null) return sum;
-      const helpersCount = entry.job.helpersCount ?? 0;
-      if (helpersCount <= 0) return sum;
-      const billedHours = getBilledHours(entry.durationMs);
-      if (billedHours == null) return sum;
-      return sum + billedHours * helperHourlyRateValue * helpersCount;
-    }, 0);
-  }, [completedHistory, helperHourlyRateValue]);
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
   const averageDurationLabel = averageDurationMs != null ? formatDurationMs(averageDurationMs) : 'N/D';
-  const totalRevenueLabel = totalRevenue != null ? currencyFormatter.format(totalRevenue) : 'Configura el precio';
-  const totalRevenueCaption = hasChargeOverrides ? 'Total cobrado' : 'Total estimado';
-  const totalHelperCostLabel = totalHelperCost != null ? currencyFormatter.format(totalHelperCost) : 'Configura el precio';
   const currentMonthLabel = monthFormatter.format(new Date());
   const monthlyGrossTotal = useMemo(() => {
     if (hourlyRateValue == null && !hasChargeOverrides) return null;
@@ -992,8 +977,61 @@ export default function AdminJobs() {
   const nowTop = nowWithinCalendar ? ((nowMinutes - calendarStartMinutes) / 60) * calendarHourHeight : null;
   const nowTimeLabel = timeFormatter.format(nowDate);
 
+  const sidebarConfig = sidebarConfigRoot
+    ? createPortal(
+      <div className="space-y-4">
+        <div>
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Precio hora</p>
+          <p className="mt-1 text-base font-semibold text-white">{hourlyRateLabel}</p>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            placeholder="Ej: 15000"
+            value={hourlyRateInput}
+            onChange={(event) => setHourlyRateInput(event.target.value)}
+            className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+          />
+          <button
+            type="button"
+            onClick={handleSaveHourlyRate}
+            disabled={savingHourlyRate}
+            className="mt-2 w-full rounded-lg border border-blue-500/30 bg-blue-600/10 px-2 py-1.5 text-xs font-semibold text-blue-200 transition hover:bg-blue-600/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {savingHourlyRate ? 'Guardando...' : 'Guardar precio hora'}
+          </button>
+        </div>
+        <div className="border-t border-slate-900/60 pt-3">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Precio ayudante</p>
+          <p className="mt-1 text-base font-semibold text-white">{helperHourlyRateLabel}</p>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            placeholder="Ej: 8000"
+            value={helperHourlyRateInput}
+            onChange={(event) => setHelperHourlyRateInput(event.target.value)}
+            className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+          />
+          <button
+            type="button"
+            onClick={handleSaveHelperHourlyRate}
+            disabled={savingHelperHourlyRate}
+            className="mt-2 w-full rounded-lg border border-emerald-500/30 bg-emerald-600/10 px-2 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
+          </button>
+        </div>
+      </div>,
+      sidebarConfigRoot,
+    )
+    : null;
+
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
+      {sidebarConfig}
       <section className="space-y-4">
           {tab === 'jobs' && (
             <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
@@ -1890,52 +1928,6 @@ export default function AdminJobs() {
                   <p className="text-xs text-gray-500">
                     {completedHistory.length === 0 ? 'Aun no hay historicos.' : `Sobre ${completedHistory.length} completados.`}
                   </p>
-                </div>
-                <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Precio hora actual</p>
-                  <p className="text-2xl font-semibold text-gray-900">{hourlyRateLabel}</p>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    placeholder="Ej: 15000"
-                    value={hourlyRateInput}
-                    onChange={(event) => setHourlyRateInput(event.target.value)}
-                    className="mt-2 w-full rounded border px-2 py-1 text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSaveHourlyRate}
-                    disabled={savingHourlyRate}
-                    className="mt-2 w-full rounded border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {savingHourlyRate ? 'Guardando...' : 'Guardar precio hora'}
-                  </button>
-                  <p className="mt-2 text-xs text-gray-500">{totalRevenueCaption}: {totalRevenueLabel}</p>
-                  <div className="mt-4 border-t pt-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Precio hora ayudante</p>
-                    <p className="text-lg font-semibold text-gray-900">{helperHourlyRateLabel}</p>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      placeholder="Ej: 8000"
-                      value={helperHourlyRateInput}
-                      onChange={(event) => setHelperHourlyRateInput(event.target.value)}
-                      className="mt-2 w-full rounded border px-2 py-1 text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleSaveHelperHourlyRate}
-                      disabled={savingHelperHourlyRate}
-                      className="mt-2 w-full rounded border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
-                    </button>
-                    <p className="mt-2 text-xs text-gray-500">Total ayudantes estimado: {totalHelperCostLabel}</p>
-                  </div>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-wide text-gray-400">Fletes activos</p>
