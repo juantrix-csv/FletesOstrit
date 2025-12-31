@@ -23,7 +23,7 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const activeTab = resolveActiveTab(loc.pathname, loc.search);
 
   return (
-    <div className="flex min-h-screen bg-slate-100">
+    <div className="flex h-[100dvh] min-h-screen bg-slate-100">
       <aside className="fixed left-0 top-0 h-full w-72 border-r border-slate-900/40 bg-slate-950 text-slate-100">
         <div className="flex items-center gap-3 px-5 py-6">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow">
