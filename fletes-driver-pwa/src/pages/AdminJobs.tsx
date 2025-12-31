@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
@@ -177,7 +176,7 @@ type CalendarJob = {
   durationMinutes: number;
 };
 
-type AdminTab = 'jobs' | 'drivers' | 'calendar' | 'analytics';
+type AdminTab = 'jobs' | 'drivers' | 'calendar' | 'analytics' | 'settings';
 
 const resolveAdminTab = (value?: string | null): AdminTab | null => {
   if (!value) return null;
@@ -198,6 +197,10 @@ const resolveAdminTab = (value?: string | null): AdminTab | null => {
     case 'analiticas':
     case 'analitica':
       return 'analytics';
+    case 'settings':
+    case 'config':
+    case 'configuracion':
+      return 'settings';
     default:
       return null;
   }
@@ -269,7 +272,6 @@ export default function AdminJobs() {
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [sidebarConfigRoot, setSidebarConfigRoot] = useState<HTMLElement | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
@@ -353,9 +355,6 @@ export default function AdminJobs() {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    setSidebarConfigRoot(document.getElementById('admin-sidebar-config'));
-  }, []);
 
   useEffect(() => {
     if (!openJobMenuId) return;
@@ -1191,126 +1190,8 @@ export default function AdminJobs() {
   const nowTop = nowWithinCalendar ? ((nowMinutes - calendarStartMinutes) / 60) * calendarHourHeight : null;
   const nowTimeLabel = timeFormatter.format(nowDate);
 
-  const sidebarConfig = sidebarConfigRoot
-    ? createPortal(
-      <div className="space-y-4">
-        <div>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Precio hora</p>
-          <p className="mt-1 text-base font-semibold text-white">{hourlyRateLabel}</p>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="0.01"
-            placeholder="Ej: 15000"
-            value={hourlyRateInput}
-            onChange={(event) => setHourlyRateInput(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-          />
-          <button
-            type="button"
-            onClick={handleSaveHourlyRate}
-            disabled={savingHourlyRate}
-            className="mt-2 w-full rounded-lg border border-blue-500/30 bg-blue-600/10 px-2 py-1.5 text-xs font-semibold text-blue-200 transition hover:bg-blue-600/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {savingHourlyRate ? 'Guardando...' : 'Guardar precio hora'}
-          </button>
-        </div>
-        <div className="border-t border-slate-900/60 pt-3">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Precio ayudante</p>
-          <p className="mt-1 text-base font-semibold text-white">{helperHourlyRateLabel}</p>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="0.01"
-            placeholder="Ej: 8000"
-            value={helperHourlyRateInput}
-            onChange={(event) => setHelperHourlyRateInput(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-          />
-          <button
-            type="button"
-            onClick={handleSaveHelperHourlyRate}
-            disabled={savingHelperHourlyRate}
-            className="mt-2 w-full rounded-lg border border-emerald-500/30 bg-emerald-600/10 px-2 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
-          </button>
-        </div>
-        <div className="border-t border-slate-900/60 pt-3">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Costos fijos</p>
-          <p className="mt-1 text-base font-semibold text-white">
-            {fixedMonthlyCostValue != null ? currencyFormatter.format(fixedMonthlyCostValue) : '--'}
-          </p>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="0.01"
-            placeholder="Ej: 450000"
-            value={fixedMonthlyCostInput}
-            onChange={(event) => setFixedMonthlyCostInput(event.target.value)}
-            className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/30"
-          />
-          <button
-            type="button"
-            onClick={handleSaveFixedMonthlyCost}
-            disabled={savingFixedMonthlyCost}
-            className="mt-2 w-full rounded-lg border border-sky-500/30 bg-sky-600/10 px-2 py-1.5 text-xs font-semibold text-sky-200 transition hover:bg-sky-600/20 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {savingFixedMonthlyCost ? 'Guardando...' : 'Guardar costo fijo'}
-          </button>
-          <div className="mt-3 space-y-2 border-t border-slate-900/60 pt-3">
-            <p className="text-[11px] uppercase tracking-wide text-slate-400">Costo por viaje</p>
-            <label className="block text-[11px] text-slate-500">Por hora</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              placeholder="Ej: 9000"
-              value={tripCostPerHourInput}
-              onChange={(event) => setTripCostPerHourInput(event.target.value)}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-            />
-            <button
-              type="button"
-              onClick={handleSaveTripCostPerHour}
-              disabled={savingTripCostPerHour}
-              className="w-full rounded-lg border border-violet-500/30 bg-violet-600/10 px-2 py-1.5 text-[11px] font-semibold text-violet-200 transition hover:bg-violet-600/20 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {savingTripCostPerHour ? 'Guardando...' : 'Guardar costo hora'}
-            </button>
-            <label className="block text-[11px] text-slate-500">Por km</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              placeholder="Ej: 120"
-              value={tripCostPerKmInput}
-              onChange={(event) => setTripCostPerKmInput(event.target.value)}
-              className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-            />
-            <button
-              type="button"
-              onClick={handleSaveTripCostPerKm}
-              disabled={savingTripCostPerKm}
-              className="w-full rounded-lg border border-amber-500/30 bg-amber-600/10 px-2 py-1.5 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-600/20 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {savingTripCostPerKm ? 'Guardando...' : 'Guardar costo km'}
-            </button>
-          </div>
-        </div>
-      </div>,
-      sidebarConfigRoot,
-    )
-    : null;
-
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
-      {sidebarConfig}
       <section className="space-y-4">
           {tab === 'jobs' && (
             <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
@@ -2496,6 +2377,142 @@ export default function AdminJobs() {
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+          {tab === 'settings' && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Configuracion</p>
+                  <h2 className="text-lg font-semibold text-gray-900">Parametros del sistema</h2>
+                  <p className="text-xs text-gray-500">Precios y costos que impactan en analiticas.</p>
+                </div>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Tarifas</p>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Precio hora</p>
+                      <p className="text-xs text-gray-500">Actual: {hourlyRateLabel}</p>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        placeholder="Ej: 15000"
+                        value={hourlyRateInput}
+                        onChange={(event) => setHourlyRateInput(event.target.value)}
+                        className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveHourlyRate}
+                        disabled={savingHourlyRate}
+                        className="mt-2 w-full rounded border border-blue-200 px-2 py-1 text-xs font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingHourlyRate ? 'Guardando...' : 'Guardar precio hora'}
+                      </button>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Precio ayudante</p>
+                      <p className="text-xs text-gray-500">Actual: {helperHourlyRateLabel}</p>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        placeholder="Ej: 8000"
+                        value={helperHourlyRateInput}
+                        onChange={(event) => setHelperHourlyRateInput(event.target.value)}
+                        className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveHelperHourlyRate}
+                        disabled={savingHelperHourlyRate}
+                        className="mt-2 w-full rounded border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Costos</p>
+                  <div className="mt-3 space-y-4">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Costo fijo mensual</p>
+                      <p className="text-xs text-gray-500">Actual: {fixedMonthlyCostLabel}</p>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        placeholder="Ej: 450000"
+                        value={fixedMonthlyCostInput}
+                        onChange={(event) => setFixedMonthlyCostInput(event.target.value)}
+                        className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveFixedMonthlyCost}
+                        disabled={savingFixedMonthlyCost}
+                        className="mt-2 w-full rounded border border-sky-200 px-2 py-1 text-xs font-semibold text-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingFixedMonthlyCost ? 'Guardando...' : 'Guardar costo fijo'}
+                      </button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Costo por hora</p>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          placeholder="Ej: 9000"
+                          value={tripCostPerHourInput}
+                          onChange={(event) => setTripCostPerHourInput(event.target.value)}
+                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveTripCostPerHour}
+                          disabled={savingTripCostPerHour}
+                          className="mt-2 w-full rounded border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingTripCostPerHour ? 'Guardando...' : 'Guardar costo hora'}
+                        </button>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Costo por km</p>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          placeholder="Ej: 120"
+                          value={tripCostPerKmInput}
+                          onChange={(event) => setTripCostPerKmInput(event.target.value)}
+                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveTripCostPerKm}
+                          disabled={savingTripCostPerKm}
+                          className="mt-2 w-full rounded border border-amber-200 px-2 py-1 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingTripCostPerKm ? 'Guardando...' : 'Guardar costo km'}
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Estos costos se usan para calcular el margen neto por viaje.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}

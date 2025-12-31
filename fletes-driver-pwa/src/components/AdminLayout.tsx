@@ -8,13 +8,14 @@ const navItems = [
   { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers', Icon: Users },
   { key: 'calendar', label: 'Calendario', to: '/admin?tab=calendar', Icon: CalendarDays },
   { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics', Icon: BarChart3 },
+  { key: 'settings', label: 'Configuracion', to: '/admin?tab=settings', Icon: Settings },
 ];
 
 const resolveActiveTab = (loc: string, search: string) => {
   const param = new URLSearchParams(search).get('tab');
-  if (param === 'jobs' || param === 'drivers' || param === 'calendar' || param === 'analytics') return param;
+  if (param === 'jobs' || param === 'drivers' || param === 'calendar' || param === 'analytics' || param === 'settings') return param;
   const pathTab = loc.split('/')[2];
-  if (pathTab === 'jobs' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics') return pathTab;
+  if (pathTab === 'jobs' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics' || pathTab === 'settings') return pathTab;
   return 'jobs';
 };
 
@@ -61,14 +62,6 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
             );
           })}
         </nav>
-        <div className="border-t border-slate-900/60 px-4 pb-5 pt-4">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
-            <Settings size={14} />
-            Configuracion
-          </div>
-          <div id="admin-sidebar-config" className="mt-3 space-y-3" />
-          <p className="mt-3 text-[11px] text-slate-500">Mas opciones en camino.</p>
-        </div>
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col pl-72">
