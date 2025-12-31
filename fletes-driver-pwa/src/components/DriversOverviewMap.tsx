@@ -55,7 +55,7 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
   }, [mapReady, locations]);
 
   return (
-    <div className={cn("h-[280px] w-full overflow-hidden rounded-xl border bg-white", className)}>
+    <div className={cn("h-[320px] w-full overflow-hidden rounded-xl border bg-white md:h-[360px]", className)}>
       <MapGL
         ref={mapRef}
         initialViewState={initialViewState}
