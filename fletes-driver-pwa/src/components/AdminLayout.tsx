@@ -8,6 +8,9 @@ const navItems = [
   { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers', Icon: Users },
   { key: 'calendar', label: 'Calendario', to: '/admin?tab=calendar', Icon: CalendarDays },
   { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics', Icon: BarChart3 },
+];
+
+const bottomItems = [
   { key: 'settings', label: 'Configuracion', to: '/admin?tab=settings', Icon: Settings },
 ];
 
@@ -37,6 +40,33 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
         </div>
         <nav className="mt-3 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
           {navItems.map((item) => {
+            const isActive = activeTab === item.key;
+            const Icon = item.Icon;
+            return (
+              <Link
+                key={item.key}
+                to={item.to}
+                aria-current={isActive ? 'page' : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium transition",
+                  isActive
+                    ? "bg-slate-900 text-white shadow-sm"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
+                )}
+              >
+                <span className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-lg border",
+                  isActive ? "border-blue-500/40 bg-blue-500/15 text-blue-300" : "border-slate-800 bg-slate-900 text-slate-400"
+                )}>
+                  <Icon size={18} />
+                </span>
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+        <nav className="space-y-1 border-t border-slate-900/60 px-3 py-4">
+          {bottomItems.map((item) => {
             const isActive = activeTab === item.key;
             const Icon = item.Icon;
             return (
