@@ -1,72 +1,73 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { BarChart3, CalendarDays, Package, Truck, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const navItems = [
-  { key: 'jobs', label: 'Fletes', to: '/admin?tab=jobs' },
-  { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers' },
-  { key: 'calendar', label: 'Calendario', to: '/admin?tab=calendar' },
-  { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics' },
+  { key: 'jobs', label: 'Fletes', to: '/admin?tab=jobs', Icon: Package },
+  { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers', Icon: Users },
+  { key: 'calendar', label: 'Calendario', to: '/admin?tab=calendar', Icon: CalendarDays },
+  { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics', Icon: BarChart3 },
 ];
 
-const kpis = [
-  { label: 'Total Fletes', value: '0' },
-  { label: 'Asignados', value: '0' },
-  { label: 'Sin Asignar', value: '0' },
-  { label: 'Conductores Activos', value: '0' },
-];
+const resolveActiveTab = (loc: string, search: string) => {
+  const param = new URLSearchParams(search).get('tab');
+  if (param === 'jobs' || param === 'drivers' || param === 'calendar' || param === 'analytics') return param;
+  const pathTab = loc.split('/')[2];
+  if (pathTab === 'jobs' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics') return pathTab;
+  return 'jobs';
+};
 
 export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
-  const activeTab = new URLSearchParams(loc.search).get('tab') ?? 'jobs';
+  const activeTab = resolveActiveTab(loc.pathname, loc.search);
 
   return (
-    <div className="flex h-[100dvh] min-h-screen bg-slate-100">
-      <aside className="fixed left-0 top-0 h-full w-64 bg-slate-950 text-slate-100">
-        <div className="px-5 py-6 text-sm font-semibold tracking-wide text-slate-200">
-          Panel Admin
+    <div className="flex min-h-screen bg-slate-100">
+      <aside className="fixed left-0 top-0 h-full w-72 border-r border-slate-900/40 bg-slate-950 text-slate-100">
+        <div className="flex items-center gap-3 px-5 py-6">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow">
+            <Truck size={20} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold tracking-wide text-slate-100">Fletes Ostrit</p>
+            <p className="text-xs text-slate-400">Panel Admin</p>
+          </div>
         </div>
-        <nav className="mt-2 space-y-1 px-3">
+        <nav className="mt-3 space-y-1 px-3">
           {navItems.map((item) => {
             const isActive = activeTab === item.key;
+            const Icon = item.Icon;
             return (
               <Link
                 key={item.key}
                 to={item.to}
                 aria-current={isActive ? 'page' : undefined}
                 className={cn(
-                  "flex items-center rounded-lg border-l-4 px-3 py-2 text-sm font-medium transition",
+                  "flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm font-medium transition",
                   isActive
-                    ? "border-blue-500 bg-slate-800 text-white"
-                    : "border-transparent text-slate-300 hover:bg-slate-900 hover:text-white"
+                    ? "bg-slate-900 text-white shadow-sm"
+                    : "text-slate-300 hover:bg-slate-900 hover:text-white"
                 )}
               >
-                {item.label}
+                <span className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-lg border",
+                  isActive ? "border-blue-500/40 bg-blue-500/15 text-blue-300" : "border-slate-800 bg-slate-900 text-slate-400"
+                )}>
+                  <Icon size={18} />
+                </span>
+                <span>{item.label}</span>
               </Link>
             );
           })}
         </nav>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col pl-64">
-        <header className="px-6 pt-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {kpis.map((kpi) => (
-              <div
-                key={kpi.label}
-                className="rounded-2xl bg-white p-4 shadow-sm"
-              >
-                <p className="text-2xl font-semibold text-gray-900">{kpi.value}</p>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
-                  {kpi.label}
-                </p>
-              </div>
-            ))}
+      <div className="flex min-h-screen flex-1 flex-col pl-72">
+        <main className="flex-1 min-h-0 overflow-y-auto px-8 py-8">
+          <div className="mx-auto w-full max-w-[1500px]">
+            {children}
           </div>
-        </header>
-
-        <main className="flex-1 min-h-0 overflow-y-auto px-6 py-6">
-          {children}
         </main>
       </div>
     </div>

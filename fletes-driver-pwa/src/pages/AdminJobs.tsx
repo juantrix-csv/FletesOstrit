@@ -993,39 +993,7 @@ export default function AdminJobs() {
   const nowTimeLabel = timeFormatter.format(nowDate);
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6">
-      <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-blue-500">Panel Admin</p>
-          <h1 className="text-2xl font-bold text-gray-900">Gestion de fletes</h1>
-          <p className="text-sm text-gray-500">Asignaciones, conductores, calendario y analiticas.</p>
-        </div>
-        <div className="hidden lg:flex gap-2">
-          <span className="rounded-full border px-3 py-1 text-xs text-gray-600">Fletes activos: {activeJobs}</span>
-          <span className="rounded-full border px-3 py-1 text-xs text-gray-600">Sin asignar: {unassignedJobs}</span>
-          <span className="rounded-full border px-3 py-1 text-xs text-gray-600">Conductores: {activeDrivers}</span>
-        </div>
-      </header>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Total fletes</p>
-          <p className="text-2xl font-semibold text-gray-900">{totalJobs}</p>
-        </div>
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Asignados</p>
-          <p className="text-2xl font-semibold text-gray-900">{assignedJobs}</p>
-        </div>
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Sin asignar</p>
-          <p className="text-2xl font-semibold text-gray-900">{unassignedJobs}</p>
-        </div>
-        <div className="rounded-2xl border bg-white p-4 shadow-sm">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Conductores activos</p>
-          <p className="text-2xl font-semibold text-gray-900">{activeDrivers}</p>
-        </div>
-      </div>
-
+    <div className="mx-auto w-full max-w-[1400px] space-y-6">
       <section className="space-y-4">
           {tab === 'jobs' && (
             <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
