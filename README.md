@@ -60,6 +60,8 @@ Incluye frontend para driver/admin y dos opciones de backend:
 - `fletes-driver-pwa/`: frontend PWA (React + Vite + Tailwind + PWA).
 - `fletes-backend/`: backend local (Express + SQLite).
 - `fletes-ia/`: modulo IA (WhatsApp con whatsmeow + OpenAI).
+- `lib/ai/`: planner, writer, state y tools client para la secretaria virtual.
+- `lib/ai/handler.js`: entrada interna para procesar mensajes (sin API publica).
 - `api/`: funciones serverless para Vercel (Postgres) + proxy de geocoding.
 - `tests/`: tests de funciones serverless (node --test).
 
@@ -97,6 +99,34 @@ Frontend:
 
 ## Servicios externos
 - Nominatim (geocoding) y OSRM (ruteo). Para produccion, usar servicios propios o con API key y respetar politicas de uso.
+
+## IA (Sofia)
+Modulo interno (sin endpoint publico).
+
+Uso interno (ejemplo):
+```js
+import { handleIncomingMessage } from './lib/ai/handler.js';
+
+const { reply_text, actions } = await handleIncomingMessage({
+  contact_id: 'wa:+5492211234567',
+  message: 'Hola, necesito mover un sillon',
+});
+```
+
+Env vars:
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL` (default `gpt-4o-mini`)
+- `OPENAI_BASE_URL` (default `https://api.openai.com/v1`)
+- `OPENAI_TIMEOUT_SECONDS` (default `30`)
+- `MAIN_API_BASE_URL`
+- `MAIN_API_KEY` (opcional)
+- `AVAILABILITY_PATH`
+- `SCHEDULE_JOB_PATH`
+- `ESTIMATE_PATH` (opcional)
+- `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (opcional)
+- `STATE_TTL_SECONDS` (opcional)
+- `AI_PLANNER_MODE` (opcional, `openai` o `rules`)
+- `AI_WRITER_MODE` (opcional, `openai` o `templates`)
 
 ## Tests
 - `npm run test:api`
