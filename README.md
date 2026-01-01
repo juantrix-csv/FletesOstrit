@@ -59,6 +59,7 @@ Incluye frontend para driver/admin y dos opciones de backend:
 ## Estructura del repo
 - `fletes-driver-pwa/`: frontend PWA (React + Vite + Tailwind + PWA).
 - `fletes-backend/`: backend local (Express + SQLite).
+- `fletes-ia/`: modulo IA (WhatsApp con whatsmeow + OpenAI).
 - `api/`: funciones serverless para Vercel (Postgres) + proxy de geocoding.
 - `tests/`: tests de funciones serverless (node --test).
 
