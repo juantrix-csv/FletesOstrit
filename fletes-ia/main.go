@@ -34,6 +34,9 @@ type Config struct {
 	OpenAITimeout  time.Duration
 	SystemPrompt   string
 	WhatsAppDBPath string
+	PromptFile     string
+	OpenAIReferrer string
+	OpenAITitle    string
 }
 
 type OpenAIClient struct {
@@ -42,6 +45,8 @@ type OpenAIClient struct {
 	model        string
 	httpClient   *http.Client
 	systemPrompt string
+	referrer     string
+	title        string
 }
 
 type chatMessage struct {
@@ -183,6 +188,8 @@ func NewOpenAIClient(cfg Config) *OpenAIClient {
 		model:        cfg.OpenAIModel,
 		httpClient:   &http.Client{Timeout: cfg.OpenAITimeout},
 		systemPrompt: cfg.SystemPrompt,
+		referrer:     cfg.OpenAIReferrer,
+		title:        cfg.OpenAITitle,
 	}
 }
 
@@ -208,6 +215,12 @@ func (c *OpenAIClient) Reply(ctx context.Context, userText string) (string, erro
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
+	if c.referrer != "" {
+		req.Header.Set("HTTP-Referer", c.referrer)
+	}
+	if c.title != "" {
+		req.Header.Set("X-Title", c.title)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -247,13 +260,26 @@ func loadConfig() (Config, error) {
 		return Config{}, err
 	}
 
+	promptFile := strings.TrimSpace(getEnv("AI_SYSTEM_PROMPT_FILE", "context.txt"))
+	systemPrompt := strings.TrimSpace(getEnv("AI_SYSTEM_PROMPT", "Sos un asistente para Fletes Ostrit. Responde en espanol de forma breve y clara."))
+	if promptFile != "" {
+		if filePrompt, err := readPromptFile(promptFile); err != nil {
+			return Config{}, err
+		} else if filePrompt != "" {
+			systemPrompt = filePrompt
+		}
+	}
+
 	cfg := Config{
 		OpenAIKey:      strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
 		OpenAIModel:    strings.TrimSpace(getEnv("OPENAI_MODEL", "gpt-4o-mini")),
-		OpenAIBaseURL:  strings.TrimSpace(getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1")),
+		OpenAIBaseURL:  strings.TrimSpace(getEnv("OPENAI_BASE_URL", "https://openrouter.ai/api/v1")),
 		OpenAITimeout:  timeout,
-		SystemPrompt:   strings.TrimSpace(getEnv("AI_SYSTEM_PROMPT", "Sos un asistente para Fletes Ostrit. Responde en espanol de forma breve y clara.")),
+		SystemPrompt:   systemPrompt,
 		WhatsAppDBPath: strings.TrimSpace(getEnv("WHATSAPP_DB_PATH", "data/whatsmeow.db")),
+		PromptFile:     promptFile,
+		OpenAIReferrer: strings.TrimSpace(os.Getenv("OPENAI_REFERRER")),
+		OpenAITitle:    strings.TrimSpace(os.Getenv("OPENAI_TITLE")),
 	}
 
 	if cfg.OpenAIKey == "" {
@@ -283,6 +309,17 @@ func parseTimeoutSeconds(key string, fallback time.Duration) (time.Duration, err
 	}
 
 	return time.Duration(seconds) * time.Second, nil
+}
+
+func readPromptFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
 }
 
 func loadDotEnv(path string) error {
