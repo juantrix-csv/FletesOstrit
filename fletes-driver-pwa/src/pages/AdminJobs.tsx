@@ -243,6 +243,8 @@ const isValidLocation = (loc?: LocationData | null) =>
   !!loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
 
 const getJobDistanceKm = (job: Job) => {
+  if (Number.isFinite(job.distanceKm)) return job.distanceKm as number;
+  if (Number.isFinite(job.distanceMeters)) return (job.distanceMeters as number) / 1000;
   const points = [job.pickup, ...(job.extraStops ?? []), job.dropoff].filter(isValidLocation);
   if (points.length < 2) return null;
   let meters = 0;
@@ -852,6 +854,22 @@ export default function AdminJobs() {
       return endDate.getMonth() === currentMonth && endDate.getFullYear() === currentYear;
     })
   ), [completedHistory, currentMonth, currentYear]);
+  const distanceStats = useMemo(() => {
+    let total = 0;
+    let count = 0;
+    let realCount = 0;
+    completedThisMonth.forEach((entry) => {
+      const km = jobDistanceKmById.get(entry.job.id);
+      if (km == null || !Number.isFinite(km)) return;
+      total += km;
+      count += 1;
+      if (Number.isFinite(entry.job.distanceKm) || Number.isFinite(entry.job.distanceMeters)) {
+        realCount += 1;
+      }
+    });
+    const average = count > 0 ? total / count : null;
+    return { total: count > 0 ? total : null, average, count, realCount };
+  }, [completedThisMonth, jobDistanceKmById]);
   const tripsToday = useMemo(() => {
     const today = startOfDay(now);
     return completedHistory.filter((entry) => entry.endMs != null && isSameDay(new Date(entry.endMs), today)).length;
@@ -923,6 +941,8 @@ export default function AdminJobs() {
   const realHourlyLabel = realHourlyStats.value != null ? `${currencyFormatter.format(realHourlyStats.value)}/h` : 'N/D';
   const netMarginLabel = netMarginStats.average != null ? currencyFormatter.format(netMarginStats.average) : 'N/D';
   const tripsPerDayLabel = Number.isFinite(tripsPerDayAvg) ? decimalFormatter.format(tripsPerDayAvg) : 'N/D';
+  const distanceTotalLabel = distanceStats.total != null ? `${decimalFormatter.format(distanceStats.total)} km` : 'N/D';
+  const distanceAvgLabel = distanceStats.average != null ? `${decimalFormatter.format(distanceStats.average)} km/viaje` : 'N/D';
   const recurringPercentLabel = recurringClientStats.percent != null
     ? percentFormatter.format(recurringClientStats.percent)
     : 'N/D';
@@ -939,6 +959,9 @@ export default function AdminJobs() {
     ? `Promedio ${currentMonthLabel}, ${netMarginStats.count} viajes.`
     : 'Sin datos para calcular margen.';
   const tripsPerDayMeta = `Promedio ${currentMonthLabel}. Hoy: ${tripsToday}.`;
+  const distanceMeta = distanceStats.count > 0 && distanceStats.average != null
+    ? `Promedio ${currentMonthLabel}: ${distanceAvgLabel}${distanceStats.realCount < distanceStats.count ? ` (${distanceStats.realCount} con GPS)` : ''}`
+    : `Sin datos de distancia ${currentMonthLabel}.`;
   const recurringMeta = recurringClientStats.total > 0
     ? `${recurringClientStats.recurring} de ${recurringClientStats.total} con telefono.`
     : 'Sin telefonos cargados.';
@@ -1439,6 +1462,9 @@ export default function AdminJobs() {
                     const estimatedLabel = Number.isFinite(job.estimatedDurationMinutes)
                       ? formatDurationMs((job.estimatedDurationMinutes as number) * 60000)
                       : 'N/D';
+                    const distanceKm = getJobDistanceKm(job);
+                    const hasRealDistance = Number.isFinite(job.distanceKm) || Number.isFinite(job.distanceMeters);
+                    const distanceLabel = distanceKm != null ? `${decimalFormatter.format(distanceKm)} km` : 'N/D';
                     const driver = job.driverId ? driversById.get(job.driverId) : null;
                     const isEditing = editingJobId === job.id;
                     const statusBadge = getStatusBadge(job.status);
@@ -1479,6 +1505,9 @@ export default function AdminJobs() {
                               <span>Ayudantes: {job.helpersCount ?? 0}</span>
                               {job.extraStops && job.extraStops.length > 0 && (
                                 <span>Paradas: {job.extraStops.length}</span>
+                              )}
+                              {distanceKm != null && (
+                                <span>{hasRealDistance ? 'Km reales' : 'Km estimados'}: {distanceLabel}</span>
                               )}
                               <span>Carga: {loading}</span>
                               <span>Viaje: {trip}</span>
@@ -2167,6 +2196,11 @@ export default function AdminJobs() {
                   <p className="text-xs uppercase tracking-wide text-gray-400">Viajes por dia</p>
                   <p className="text-2xl font-semibold text-gray-900">{tripsPerDayLabel}</p>
                   <p className="text-xs text-gray-500">{tripsPerDayMeta}</p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-gray-400">Km reales del mes</p>
+                  <p className="text-2xl font-semibold text-gray-900">{distanceTotalLabel}</p>
+                  <p className="text-xs text-gray-500">{distanceMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
                   <p className="text-xs uppercase tracking-wide text-gray-400">Clientes recurrentes</p>
