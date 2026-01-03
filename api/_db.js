@@ -9,6 +9,22 @@ const defaultFlags = {
   arrivedDropoffSent: false,
 };
 
+const ACTIVE_JOB_STATUSES = new Set(['TO_PICKUP', 'LOADING', 'TO_DROPOFF', 'UNLOADING']);
+const MAX_TRACK_ACCURACY_METERS = 60;
+const MIN_TRACK_DISTANCE_METERS = 6;
+const MAX_TRACK_SPEED_MPS = 45;
+const MAX_TRACK_INTERVAL_MS = 5 * 60 * 1000;
+
+const toRadians = (value) => (value * Math.PI) / 180;
+const calculateDistanceMeters = (lat1, lng1, lat2, lng2) => {
+  const R = 6371e3;
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+};
+
 const toJson = (value, fallback) => {
   if (typeof value === 'string') {
     try {
@@ -37,6 +53,10 @@ export const ensureSchema = async () => {
       dropoff JSONB NOT NULL,
       extra_stops JSONB,
       stop_index INTEGER,
+      distance_meters DOUBLE PRECISION,
+      last_track_lat DOUBLE PRECISION,
+      last_track_lng DOUBLE PRECISION,
+      last_track_at BIGINT,
       notes TEXT,
       driver_id TEXT,
       helpers_count INTEGER,
@@ -55,6 +75,10 @@ export const ensureSchema = async () => {
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stop_index INTEGER;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS distance_meters DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_track_lat DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_track_lng DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_track_at BIGINT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS description TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helpers_count INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_duration_minutes INTEGER;`;
@@ -102,29 +126,34 @@ export const computeScheduledAt = (date, time) => {
   return Number.isNaN(scheduledAt.getTime()) ? null : scheduledAt.getTime();
 };
 
-const normalizeRow = (row) => ({
-  id: row.id,
-  clientName: row.client_name,
-  clientPhone: row.client_phone ?? undefined,
-  description: row.description ?? undefined,
-  pickup: row.pickup,
-  dropoff: row.dropoff,
-  extraStops: Array.isArray(row.extra_stops) ? row.extra_stops : [],
-  stopIndex: row.stop_index != null ? Number(row.stop_index) : undefined,
-  notes: row.notes ?? undefined,
-  driverId: row.driver_id ?? undefined,
-  helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
-  estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
-  chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : undefined,
-  status: row.status,
-  flags: row.flags ?? defaultFlags,
-  timestamps: row.timestamps ?? {},
-  scheduledDate: row.scheduled_date ?? undefined,
-  scheduledTime: row.scheduled_time ?? undefined,
-  scheduledAt: row.scheduled_at != null ? Number(row.scheduled_at) : undefined,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+const normalizeRow = (row) => {
+  const distanceMeters = row.distance_meters != null ? Number(row.distance_meters) : undefined;
+  return {
+    id: row.id,
+    clientName: row.client_name,
+    clientPhone: row.client_phone ?? undefined,
+    description: row.description ?? undefined,
+    pickup: row.pickup,
+    dropoff: row.dropoff,
+    extraStops: Array.isArray(row.extra_stops) ? row.extra_stops : [],
+    stopIndex: row.stop_index != null ? Number(row.stop_index) : undefined,
+    distanceMeters,
+    distanceKm: distanceMeters != null ? distanceMeters / 1000 : undefined,
+    notes: row.notes ?? undefined,
+    driverId: row.driver_id ?? undefined,
+    helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
+    estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
+    chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : undefined,
+    status: row.status,
+    flags: row.flags ?? defaultFlags,
+    timestamps: row.timestamps ?? {},
+    scheduledDate: row.scheduled_date ?? undefined,
+    scheduledTime: row.scheduled_time ?? undefined,
+    scheduledAt: row.scheduled_at != null ? Number(row.scheduled_at) : undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
 
 export const listJobs = async (opts = {}) => {
   await ensureSchema();
@@ -159,6 +188,7 @@ export const createJob = async (job) => {
   const flags = job.flags ?? defaultFlags;
   const timestamps = job.timestamps ?? {};
   const stopIndex = Number.isInteger(job.stopIndex) && job.stopIndex >= 0 ? job.stopIndex : 0;
+  const distanceMeters = Number.isFinite(job.distanceMeters) ? job.distanceMeters : 0;
   const pickupJson = toJson(job.pickup, {});
   const dropoffJson = toJson(job.dropoff, {});
   const extraStopsJson = toJson(Array.isArray(job.extraStops) ? job.extraStops : [], []);
@@ -167,7 +197,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, status,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -179,6 +209,10 @@ export const createJob = async (job) => {
       ${dropoffJson}::jsonb,
       ${extraStopsJson}::jsonb,
       ${stopIndex},
+      ${distanceMeters},
+      ${null},
+      ${null},
+      ${null},
       ${job.notes ?? null},
       ${job.driverId ?? null},
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
@@ -308,6 +342,64 @@ export const listDriverLocations = async () => {
   return rows.map(normalizeLocationRow);
 };
 
+export const recordJobLocation = async ({ jobId, lat, lng, accuracy, recordedAt }) => {
+  await ensureSchema();
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const { rows } = await sql`
+    SELECT status, distance_meters, last_track_lat, last_track_lng, last_track_at
+    FROM jobs
+    WHERE id = ${jobId}
+  `;
+  if (rows.length === 0) return null;
+  const job = rows[0];
+  if (!ACTIVE_JOB_STATUSES.has(job.status)) return null;
+
+  const nowMs = Number.isFinite(recordedAt) ? Number(recordedAt) : Date.now();
+  const lastAtValue = Number(job.last_track_at);
+  const lastLatValue = Number(job.last_track_lat);
+  const lastLngValue = Number(job.last_track_lng);
+  const distanceValue = Number(job.distance_meters);
+  const lastAt = Number.isFinite(lastAtValue) ? lastAtValue : null;
+  const lastLat = Number.isFinite(lastLatValue) ? lastLatValue : null;
+  const lastLng = Number.isFinite(lastLngValue) ? lastLngValue : null;
+  const distanceMeters = Number.isFinite(distanceValue) ? distanceValue : 0;
+  const accuracyValue = Number.isFinite(accuracy) ? accuracy : null;
+  const accuracyOk = accuracyValue == null || accuracyValue <= MAX_TRACK_ACCURACY_METERS;
+
+  if (lastAt == null || lastLat == null || lastLng == null || nowMs - lastAt > MAX_TRACK_INTERVAL_MS) {
+    await sql`
+      UPDATE jobs
+      SET last_track_lat = ${lat}, last_track_lng = ${lng}, last_track_at = ${nowMs}
+      WHERE id = ${jobId}
+    `;
+    return { distanceMeters };
+  }
+
+  const elapsedMs = nowMs - lastAt;
+  if (elapsedMs <= 0 || !accuracyOk) return { distanceMeters };
+
+  const distance = calculateDistanceMeters(lastLat, lastLng, lat, lng);
+  if (distance < MIN_TRACK_DISTANCE_METERS) {
+    await sql`
+      UPDATE jobs
+      SET last_track_lat = ${lat}, last_track_lng = ${lng}, last_track_at = ${nowMs}
+      WHERE id = ${jobId}
+    `;
+    return { distanceMeters };
+  }
+
+  const speed = distance / (elapsedMs / 1000);
+  if (speed > MAX_TRACK_SPEED_MPS) return { distanceMeters };
+
+  const nextDistance = distanceMeters + distance;
+  await sql`
+    UPDATE jobs
+    SET distance_meters = ${nextDistance}, last_track_lat = ${lat}, last_track_lng = ${lng}, last_track_at = ${nowMs}
+    WHERE id = ${jobId}
+  `;
+  return { distanceMeters: nextDistance };
+};
+
 export const upsertDriverLocation = async (location) => {
   await ensureSchema();
   const updatedAt = location.updatedAt ?? new Date().toISOString();
@@ -333,6 +425,14 @@ export const upsertDriverLocation = async (location) => {
       job_id = EXCLUDED.job_id,
       updated_at = EXCLUDED.updated_at;
   `;
+  if (location.jobId) {
+    await recordJobLocation({
+      jobId: location.jobId,
+      lat: location.lat,
+      lng: location.lng,
+      accuracy: location.accuracy,
+    });
+  }
   const { rows } = await sql`SELECT * FROM driver_locations WHERE driver_id = ${location.driverId}`;
   if (rows.length === 0) return null;
   return normalizeLocationRow(rows[0]);

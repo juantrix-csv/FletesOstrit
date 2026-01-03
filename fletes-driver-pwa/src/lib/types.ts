@@ -24,6 +24,8 @@ export interface Job {
   notes?: string; helpersCount?: number; estimatedDurationMinutes?: number | null; status: JobStatus; driverId?: string | null;
   chargedAmount?: number | null;
   stopIndex?: number | null;
+  distanceMeters?: number | null;
+  distanceKm?: number | null;
   scheduledDate?: string; scheduledTime?: string; scheduledAt?: number;
   flags: { nearPickupSent: boolean; arrivedPickupSent: boolean; nearDropoffSent: boolean; arrivedDropoffSent: boolean; };
   timestamps: { startJobAt?: string; startLoadingAt?: string; endLoadingAt?: string; startTripAt?: string; endTripAt?: string; startUnloadingAt?: string; endUnloadingAt?: string; };
