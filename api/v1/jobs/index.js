@@ -75,6 +75,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid extraStops' });
       return;
     }
+    if (body.stopIndex != null && !isNonNegativeInteger(body.stopIndex)) {
+      res.status(400).json({ error: 'Invalid stopIndex' });
+      return;
+    }
     if (!ALLOWED_STATUSES.has(body.status)) {
       res.status(400).json({ error: 'Invalid status' });
       return;

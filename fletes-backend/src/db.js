@@ -20,6 +20,7 @@ db.exec(`
     pickup TEXT NOT NULL,
     dropoff TEXT NOT NULL,
     extraStops TEXT,
+    stopIndex INTEGER,
     notes TEXT,
     driverId TEXT,
     helpersCount INTEGER,
@@ -50,6 +51,9 @@ const ensureJobsColumns = () => {
   }
   if (!columns.includes('extraStops')) {
     db.exec('ALTER TABLE jobs ADD COLUMN extraStops TEXT;');
+  }
+  if (!columns.includes('stopIndex')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN stopIndex INTEGER;');
   }
   if (!columns.includes('description')) {
     db.exec('ALTER TABLE jobs ADD COLUMN description TEXT;');
@@ -157,6 +161,7 @@ const toRow = (job) => ({
   pickup: JSON.stringify(job.pickup),
   dropoff: JSON.stringify(job.dropoff),
   extraStops: JSON.stringify(normalizeExtraStops(job.extraStops)),
+  stopIndex: Number.isInteger(job.stopIndex) && job.stopIndex >= 0 ? job.stopIndex : 0,
   notes: job.notes ?? null,
   driverId: job.driverId ?? null,
   helpersCount: Number.isFinite(job.helpersCount) ? job.helpersCount : null,
@@ -180,6 +185,7 @@ const fromRow = (row) => ({
   pickup: parseJson(row.pickup, null),
   dropoff: parseJson(row.dropoff, null),
   extraStops: parseJson(row.extraStops, []),
+  stopIndex: Number.isInteger(row.stopIndex) ? row.stopIndex : undefined,
   notes: row.notes ?? undefined,
   driverId: row.driverId ?? undefined,
   helpersCount: Number.isFinite(row.helpersCount) ? row.helpersCount : undefined,
@@ -197,11 +203,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, description, pickup, dropoff, extraStops, notes, driverId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, notes, driverId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @notes, @driverId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @notes, @driverId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -215,6 +221,7 @@ const updateStmt = db.prepare(`
     pickup = @pickup,
     dropoff = @dropoff,
     extraStops = @extraStops,
+    stopIndex = @stopIndex,
     notes = @notes,
     driverId = @driverId,
     helpersCount = @helpersCount,

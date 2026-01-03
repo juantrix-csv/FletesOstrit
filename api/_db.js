@@ -9,6 +9,23 @@ const defaultFlags = {
   arrivedDropoffSent: false,
 };
 
+const toJson = (value, fallback) => {
+  if (typeof value === 'string') {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      return JSON.stringify(fallback);
+    }
+  }
+  const source = value ?? fallback;
+  try {
+    return JSON.stringify(source);
+  } catch {
+    return JSON.stringify(fallback);
+  }
+};
+
 export const ensureSchema = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -19,6 +36,7 @@ export const ensureSchema = async () => {
       pickup JSONB NOT NULL,
       dropoff JSONB NOT NULL,
       extra_stops JSONB,
+      stop_index INTEGER,
       notes TEXT,
       driver_id TEXT,
       helpers_count INTEGER,
@@ -36,6 +54,7 @@ export const ensureSchema = async () => {
   `;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stop_index INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS description TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helpers_count INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_duration_minutes INTEGER;`;
@@ -91,6 +110,7 @@ const normalizeRow = (row) => ({
   pickup: row.pickup,
   dropoff: row.dropoff,
   extraStops: Array.isArray(row.extra_stops) ? row.extra_stops : [],
+  stopIndex: row.stop_index != null ? Number(row.stop_index) : undefined,
   notes: row.notes ?? undefined,
   driverId: row.driver_id ?? undefined,
   helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
@@ -138,10 +158,16 @@ export const createJob = async (job) => {
   const updatedAt = job.updatedAt ?? createdAt;
   const flags = job.flags ?? defaultFlags;
   const timestamps = job.timestamps ?? {};
+  const stopIndex = Number.isInteger(job.stopIndex) && job.stopIndex >= 0 ? job.stopIndex : 0;
+  const pickupJson = toJson(job.pickup, {});
+  const dropoffJson = toJson(job.dropoff, {});
+  const extraStopsJson = toJson(Array.isArray(job.extraStops) ? job.extraStops : [], []);
+  const flagsJson = toJson(flags, defaultFlags);
+  const timestampsJson = toJson(timestamps, {});
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, status,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -149,17 +175,18 @@ export const createJob = async (job) => {
       ${job.clientName},
       ${job.clientPhone ?? null},
       ${job.description ?? null},
-      ${job.pickup},
-      ${job.dropoff},
-      ${Array.isArray(job.extraStops) ? job.extraStops : []},
+      ${pickupJson}::jsonb,
+      ${dropoffJson}::jsonb,
+      ${extraStopsJson}::jsonb,
+      ${stopIndex},
       ${job.notes ?? null},
       ${job.driverId ?? null},
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
       ${Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null},
       ${Number.isFinite(job.chargedAmount) ? job.chargedAmount : null},
       ${job.status},
-      ${flags},
-      ${timestamps},
+      ${flagsJson}::jsonb,
+      ${timestampsJson}::jsonb,
       ${job.scheduledDate ?? null},
       ${job.scheduledTime ?? null},
       ${scheduledAt ?? null},
@@ -181,6 +208,8 @@ export const updateJob = async (id, patch) => {
   if ((patch.scheduledDate || patch.scheduledTime) && !Number.isFinite(patch.scheduledAt)) {
     scheduledAt = computeScheduledAt(scheduledDate, scheduledTime);
   }
+  const baseStopIndex = Number.isInteger(current.stopIndex) && current.stopIndex >= 0 ? current.stopIndex : 0;
+  const requestedStopIndex = Number.isInteger(patch.stopIndex) && patch.stopIndex >= 0 ? patch.stopIndex : baseStopIndex;
 
   const next = {
     ...current,
@@ -188,27 +217,34 @@ export const updateJob = async (id, patch) => {
     scheduledDate,
     scheduledTime,
     scheduledAt,
+    stopIndex: requestedStopIndex,
     flags: patch.flags ? { ...current.flags, ...patch.flags } : current.flags,
     timestamps: patch.timestamps ? { ...current.timestamps, ...patch.timestamps } : current.timestamps,
     updatedAt: new Date().toISOString(),
   };
+  const pickupJson = toJson(next.pickup, {});
+  const dropoffJson = toJson(next.dropoff, {});
+  const extraStopsJson = toJson(Array.isArray(next.extraStops) ? next.extraStops : [], []);
+  const flagsJson = toJson(next.flags ?? defaultFlags, defaultFlags);
+  const timestampsJson = toJson(next.timestamps ?? {}, {});
 
   await sql`
     UPDATE jobs SET
       client_name = ${next.clientName},
       client_phone = ${next.clientPhone ?? null},
       description = ${next.description ?? null},
-      pickup = ${next.pickup},
-      dropoff = ${next.dropoff},
-      extra_stops = ${Array.isArray(next.extraStops) ? next.extraStops : []},
+      pickup = ${pickupJson}::jsonb,
+      dropoff = ${dropoffJson}::jsonb,
+      extra_stops = ${extraStopsJson}::jsonb,
+      stop_index = ${Number.isInteger(next.stopIndex) && next.stopIndex >= 0 ? next.stopIndex : 0},
       notes = ${next.notes ?? null},
       driver_id = ${next.driverId ?? null},
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
       charged_amount = ${Number.isFinite(next.chargedAmount) ? next.chargedAmount : null},
       status = ${next.status},
-      flags = ${next.flags ?? defaultFlags},
-      timestamps = ${next.timestamps ?? {}},
+      flags = ${flagsJson}::jsonb,
+      timestamps = ${timestampsJson}::jsonb,
       scheduled_date = ${next.scheduledDate ?? null},
       scheduled_time = ${next.scheduledTime ?? null},
       scheduled_at = ${next.scheduledAt ?? null},

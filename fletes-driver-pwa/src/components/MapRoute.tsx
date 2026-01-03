@@ -77,7 +77,9 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const extraStops = job?.extraStops ?? EMPTY_STOPS;
   const status = job?.status ?? 'PENDING';
   const isDriving = mode ? mode === 'driving' : status === 'TO_PICKUP' || status === 'TO_DROPOFF';
-  const target = status.includes('PICKUP') ? pickup : dropoff;
+  const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
+    ? job.stopIndex
+    : 0;
   const driverLat = coords?.lat;
   const driverLng = coords?.lng;
   const driverHeading = coords?.heading ?? 0;
@@ -95,6 +97,20 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     () => extraStops.filter((stop) => isValidLocation(stop)),
     [extraStops]
   );
+  const clampedStopIndex = Math.min(rawStopIndex, extraStopsValid.length);
+  const hasPendingStops = status === 'TO_DROPOFF' && clampedStopIndex < extraStopsValid.length;
+  const activeStop = hasPendingStops ? extraStopsValid[clampedStopIndex] : null;
+  const pendingStops = useMemo(
+    () => (status === 'TO_DROPOFF' ? extraStopsValid.slice(clampedStopIndex) : extraStopsValid),
+    [status, extraStopsValid, clampedStopIndex]
+  );
+  const remainingStops = useMemo(
+    () => (hasPendingStops ? extraStopsValid.slice(clampedStopIndex + 1) : []),
+    [hasPendingStops, extraStopsValid, clampedStopIndex]
+  );
+  const target = status === 'PENDING' || status === 'TO_PICKUP' || status === 'LOADING'
+    ? pickup
+    : (activeStop ?? dropoff);
   const pickupValid = isValidLocation(pickup);
   const dropoffValid = isValidLocation(dropoff);
   const targetValid = isValidLocation(target);
@@ -177,10 +193,10 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
 
   const routePoints = useMemo<RoutePoint[]>(() => {
     if (isDriving && driverLat != null && driverLng != null) {
-      if (status === 'TO_DROPOFF' && extraStopsValid.length > 0) {
+      if (status === 'TO_DROPOFF' && pendingStops.length > 0) {
         return [
           { lat: driverLat, lng: driverLng },
-          ...extraStopsValid.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+          ...pendingStops.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
           { lat: dropoff.lat, lng: dropoff.lng },
         ];
       }
@@ -194,7 +210,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       ...extraStopsValid.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
       { lat: dropoff.lat, lng: dropoff.lng },
     ];
-  }, [isDriving, driverLat, driverLng, target.lat, target.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, extraStopsValid, status]);
+  }, [isDriving, driverLat, driverLng, target.lat, target.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pendingStops, extraStopsValid, status]);
 
   useEffect(() => {
     if (!job) {
@@ -211,7 +227,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       setRouteGeoJson(null);
       return;
     }
-    const targetKey = `${targetPoint.lat},${targetPoint.lng},${isDriving ? 'drive' : 'preview'}`;
+    const targetKey = `${targetPoint.lat},${targetPoint.lng},${isDriving ? 'drive' : 'preview'},${status === 'TO_DROPOFF' ? clampedStopIndex : 'base'}`;
     const now = Date.now();
     const last = lastRouteRef.current;
     if (last && last.targetKey === targetKey && now - last.at < 10000) {
@@ -343,9 +359,11 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
         points.push({ lat: coords.lat, lng: coords.lng });
       }
       if (status === 'TO_DROPOFF') {
-        extraStopsValid.forEach((stop) => points.push({ lat: stop.lat, lng: stop.lng }));
-      }
-      if (targetValid) {
+        pendingStops.forEach((stop) => points.push({ lat: stop.lat, lng: stop.lng }));
+        if (dropoffValid) {
+          points.push({ lat: dropoff.lat, lng: dropoff.lng });
+        }
+      } else if (targetValid) {
         points.push({ lat: target.lat, lng: target.lng });
       }
     } else {
@@ -393,7 +411,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   useImperativeHandle(ref, () => ({
     centerOnUser,
     fitRoute,
-  }), [mapReady, coords, pickupValid, dropoffValid, displayHeading, status, targetValid, extraStopsValid]);
+  }), [mapReady, coords, pickupValid, dropoffValid, displayHeading, status, targetValid, pendingStops, extraStopsValid]);
 
   if (!job) {
     return (
@@ -461,7 +479,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
         )}
         {isDriving && (
           <>
-            {status === 'TO_DROPOFF' && extraStopsValid.map((stop, index) => (
+            {status === 'TO_DROPOFF' && remainingStops.map((stop, index) => (
               <Marker key={`${stop.lat}-${stop.lng}-${index}`} latitude={stop.lat} longitude={stop.lng}>
                 <div className="h-2.5 w-2.5 rounded-full bg-amber-500 shadow" />
               </Marker>

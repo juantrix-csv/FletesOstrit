@@ -343,6 +343,10 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
     res.status(400).json({ error: 'Invalid extraStops' });
     return;
   }
+  if (body.stopIndex != null && !isNonNegativeInteger(body.stopIndex)) {
+    res.status(400).json({ error: 'Invalid stopIndex' });
+    return;
+  }
   if (!ALLOWED_STATUSES.has(body.status)) {
     res.status(400).json({ error: 'Invalid status' });
     return;
@@ -390,6 +394,10 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
   }
   if (body.extraStops != null && !isLocationArray(body.extraStops)) {
     res.status(400).json({ error: 'Invalid extraStops' });
+    return;
+  }
+  if (body.stopIndex != null && !isNonNegativeInteger(body.stopIndex)) {
+    res.status(400).json({ error: 'Invalid stopIndex' });
     return;
   }
   if (body.description != null && typeof body.description !== 'string') {

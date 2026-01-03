@@ -33,13 +33,9 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
 
-  const target = useMemo(() => {
-    if (!job) return null;
-    if (job.status.includes('PICKUP')) return job.pickup;
-    if (job.status === 'PENDING') return job.pickup;
-    return job.dropoff;
-  }, [job]);
   const status = job?.status ?? 'PENDING';
+  const pickup = job?.pickup ?? fallbackLocation;
+  const dropoff = job?.dropoff ?? fallbackLocation;
   const extraStops = job?.extraStops ?? EMPTY_STOPS;
   const isValidLocation = (loc: { lat: number; lng: number }) =>
     Number.isFinite(loc.lat) &&
@@ -52,26 +48,46 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
     () => extraStops.filter((stop) => isValidLocation(stop)),
     [extraStops]
   );
+  const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
+    ? job.stopIndex
+    : 0;
+  const clampedStopIndex = Math.min(rawStopIndex, extraStopsValid.length);
+  const hasPendingStops = status === 'TO_DROPOFF' && clampedStopIndex < extraStopsValid.length;
+  const activeStop = hasPendingStops ? extraStopsValid[clampedStopIndex] : null;
+  const pendingStops = useMemo(
+    () => (status === 'TO_DROPOFF' ? extraStopsValid.slice(clampedStopIndex) : extraStopsValid),
+    [status, extraStopsValid, clampedStopIndex]
+  );
+  const remainingStops = useMemo(
+    () => (hasPendingStops ? extraStopsValid.slice(clampedStopIndex + 1) : []),
+    [hasPendingStops, extraStopsValid, clampedStopIndex]
+  );
+  const target = useMemo(() => {
+    if (!job) return null;
+    if (job.status === 'PENDING' || job.status === 'TO_PICKUP' || job.status === 'LOADING') return pickup;
+    if (job.status === 'TO_DROPOFF' && activeStop) return activeStop;
+    return dropoff;
+  }, [job, activeStop, pickup, dropoff]);
   const routePoints = useMemo<RoutePoint[]>(() => {
     if (!location || !target) return [];
-    if (status.includes('PICKUP') || status === 'PENDING') {
+    if (status === 'PENDING' || status === 'TO_PICKUP' || status === 'LOADING') {
       return [
         { lat: location.lat, lng: location.lng },
         { lat: target.lat, lng: target.lng },
       ];
     }
-    if (extraStopsValid.length > 0) {
+    if (status === 'TO_DROPOFF' && pendingStops.length > 0) {
       return [
         { lat: location.lat, lng: location.lng },
-        ...extraStopsValid.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
-        { lat: target.lat, lng: target.lng },
+        ...pendingStops.map((stop) => ({ lat: stop.lat, lng: stop.lng })),
+        { lat: dropoff.lat, lng: dropoff.lng },
       ];
     }
     return [
       { lat: location.lat, lng: location.lng },
       { lat: target.lat, lng: target.lng },
     ];
-  }, [location?.lat, location?.lng, target?.lat, target?.lng, status, extraStopsValid]);
+  }, [location?.lat, location?.lng, target?.lat, target?.lng, status, pendingStops, dropoff.lat, dropoff.lng]);
 
   useEffect(() => {
     if (routePoints.length < 2) {
@@ -124,13 +140,13 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
     }
     if (location && target) {
       const points: Array<[number, number]> = [[location.lng, location.lat]];
-      extraStopsValid.forEach((stop) => points.push([stop.lng, stop.lat]));
+      pendingStops.forEach((stop) => points.push([stop.lng, stop.lat]));
       points.push([target.lng, target.lat]);
       const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
       points.slice(1).forEach((point) => bounds.extend(point));
       map.fitBounds(bounds, { padding: 80, duration: 500 });
     }
-  }, [mapReady, location?.lat, location?.lng, target?.lat, target?.lng, extraStopsValid]);
+  }, [mapReady, location?.lat, location?.lng, target?.lat, target?.lng, pendingStops]);
 
   return (
     <div className={cn("h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
@@ -173,14 +189,17 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
             <div className="h-3 w-3 rounded-full bg-blue-600 shadow" />
           </Marker>
         )}
-        {extraStopsValid.map((stop, index) => (
+        {(status === 'TO_DROPOFF' ? remainingStops : extraStopsValid).map((stop, index) => (
           <Marker key={`${stop.lat}-${stop.lng}-${index}`} latitude={stop.lat} longitude={stop.lng}>
             <div className="h-2.5 w-2.5 rounded-full bg-amber-500 shadow" />
           </Marker>
         ))}
         {target && (
           <Marker latitude={target.lat} longitude={target.lng}>
-            <div className={cn("h-3 w-3 rounded-full shadow", job?.status?.includes('PICKUP') ? "bg-green-600" : "bg-red-600")} />
+            <div className={cn(
+              "h-3 w-3 rounded-full shadow",
+              status === 'PENDING' || status === 'TO_PICKUP' || status === 'LOADING' ? "bg-green-600" : "bg-red-600"
+            )} />
           </Marker>
         )}
       </Map>

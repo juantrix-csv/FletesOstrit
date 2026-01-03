@@ -17,6 +17,9 @@ const formatAddress = (address: string, maxParts = 3) => {
   return parts.slice(0, maxParts).join(', ');
 };
 
+const isValidLocation = (value?: { lat: number; lng: number } | null) =>
+  !!value && Number.isFinite(value.lat) && Number.isFinite(value.lng);
+
 export default function JobWorkflow() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -26,6 +29,20 @@ export default function JobWorkflow() {
   const { coords } = useGeoLocation();
   const [dist, setDist] = useState<number|null>(null);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
+  const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
+    ? job.stopIndex
+    : 0;
+  const stopIndex = Math.min(rawStopIndex, extraStopsValid.length);
+  const hasPendingStops = job?.status === 'TO_DROPOFF' && stopIndex < extraStopsValid.length;
+  const activeStop = hasPendingStops ? extraStopsValid[stopIndex] : null;
+  const target = !job
+    ? null
+    : job.status === 'PENDING' || job.status === 'TO_PICKUP' || job.status === 'LOADING'
+      ? job.pickup
+      : job.status === 'TO_DROPOFF' && activeStop
+        ? activeStop
+        : job.dropoff;
 
   useEffect(() => {
     let active = true;
@@ -53,11 +70,14 @@ export default function JobWorkflow() {
 
   useEffect(() => {
     if (!job || !coords || job.status === 'DONE') return;
-    const target = job.status.includes('PICKUP') ? job.pickup : job.dropoff;
+    if (!target || !isValidLocation(target)) {
+      setDist(null);
+      return;
+    }
     const d = calculateDistance(coords.lat, coords.lng, target.lat, target.lng);
     setDist(d);
     if (d < 100) toast.success("Estas en el punto", { id: 'at-point' });
-  }, [coords, job]);
+  }, [coords, job?.id, job?.status, target?.lat, target?.lng]);
 
   useEffect(() => {
     if (!job) return;
@@ -98,7 +118,6 @@ export default function JobWorkflow() {
   useDriverLocationSync({ session: getDriverSession(), jobId: job?.id ?? null, coords });
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
-  const target = job.status.includes('PICKUP') ? job.pickup : job.dropoff;
   const distanceKm = dist != null ? (dist / 1000) : null;
   const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
   const speedMps = coords?.speed ?? null;
@@ -122,7 +141,7 @@ export default function JobWorkflow() {
     return `${hours}:${minutes}:${seconds}`;
   };
   const elapsedLabel = elapsedMs != null ? formatElapsed(elapsedMs) : null;
-  const displayAddress = formatAddress(target.address);
+  const displayAddress = target ? formatAddress(target.address) : 'Direccion no disponible';
 
   const next = async (st: JobStatus) => {
     const now = new Date().toISOString();
@@ -145,6 +164,9 @@ export default function JobWorkflow() {
       timestampsPatch.endUnloadingAt = job.timestamps.endUnloadingAt ?? now;
     }
     const patch: Partial<Job> = { status: st, updatedAt: now };
+    if (st === 'TO_DROPOFF' && !Number.isInteger(job.stopIndex)) {
+      patch.stopIndex = 0;
+    }
     if (Object.keys(timestampsPatch).length > 0) {
       patch.timestamps = timestampsPatch;
     }
@@ -154,6 +176,17 @@ export default function JobWorkflow() {
       if (st === 'DONE') navigate('/driver');
     } catch {
       toast.error('No se pudo actualizar el flete');
+    }
+  };
+
+  const advanceStop = async () => {
+    if (!job || !hasPendingStops) return;
+    const nextIndex = Math.min(stopIndex + 1, extraStopsValid.length);
+    try {
+      const updated = await updateJob(job.id, { stopIndex: nextIndex });
+      setJob(updated);
+    } catch {
+      toast.error('No se pudo actualizar la parada');
     }
   };
 
@@ -239,7 +272,15 @@ export default function JobWorkflow() {
       )}
       {job.status === 'TO_PICKUP' && <SlideToConfirm label="Desliza para cargar" onConfirm={() => next('LOADING')} />}
       {job.status === 'LOADING' && <SlideToConfirm label="Desliza para salir" onConfirm={() => next('TO_DROPOFF')} />}
-      {job.status === 'TO_DROPOFF' && <SlideToConfirm label="Desliza para descargar" onConfirm={() => next('UNLOADING')} />}
+      {job.status === 'TO_DROPOFF' && hasPendingStops && (
+        <SlideToConfirm
+          label={`Desliza para continuar (Parada ${stopIndex + 1}/${extraStopsValid.length})`}
+          onConfirm={advanceStop}
+        />
+      )}
+      {job.status === 'TO_DROPOFF' && !hasPendingStops && (
+        <SlideToConfirm label="Desliza para descargar" onConfirm={() => next('UNLOADING')} />
+      )}
       {job.status === 'UNLOADING' && <SlideToConfirm label="Desliza para finalizar" onConfirm={() => next('DONE')} />}
     </div>
   );
