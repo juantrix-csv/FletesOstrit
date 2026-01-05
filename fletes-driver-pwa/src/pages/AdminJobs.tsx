@@ -1882,7 +1882,7 @@ export default function AdminJobs() {
                               <div
                                 key={item.job.id}
                                 onClick={() => openJobDetail(item.job.id)}
-                                className="absolute left-2 right-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 pl-2 pr-12 py-1 text-[11px] text-blue-800 shadow-sm hover:bg-blue-100 relative"
+                                className="absolute left-2 right-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 pl-2 pr-12 py-1 text-[11px] text-blue-800 shadow-sm hover:bg-blue-100"
                                 style={{ top: style.top, height: style.height }}
                               >
                                 {estimateLabel && (
@@ -1987,7 +1987,7 @@ export default function AdminJobs() {
                                     <div
                                       key={item.job.id}
                                       onClick={() => openJobDetail(item.job.id)}
-                                      className="absolute left-1 right-1 cursor-pointer rounded-md border border-blue-200 bg-blue-50 pl-1.5 pr-11 py-1 text-[10px] text-blue-800 shadow-sm hover:bg-blue-100 relative"
+                                      className="absolute left-1 right-1 cursor-pointer rounded-md border border-blue-200 bg-blue-50 pl-1.5 pr-11 py-1 text-[10px] text-blue-800 shadow-sm hover:bg-blue-100"
                                       style={{ top: style.top, height: style.height }}
                                     >
                                       {estimateLabel && (
