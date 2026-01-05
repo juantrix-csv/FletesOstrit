@@ -840,6 +840,27 @@ export default function AdminJobs() {
       : 0;
     return billedHours * hourlyRateValue + helpersValue;
   };
+  const getEntryBilledHours = (entry: { job: Job; durationMs: number | null }) => {
+    if (entry.durationMs != null) return getBilledHours(entry.durationMs);
+    if (Number.isFinite(entry.job.estimatedDurationMinutes)) {
+      return getBilledHours((entry.job.estimatedDurationMinutes as number) * 60000);
+    }
+    return null;
+  };
+  const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
+    const revenue = getEntryTotal(entry);
+    if (revenue == null) return null;
+    const billedHours = getEntryBilledHours(entry);
+    const helpersCount = entry.job.helpersCount ?? 0;
+    const helpersCost = helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
+      ? billedHours * helperHourlyRateValue * helpersCount
+      : 0;
+    const distanceKm = jobDistanceKmById.get(entry.job.id) ?? null;
+    const fuelCost = tripCostPerKmValue != null && distanceKm != null
+      ? distanceKm * tripCostPerKmValue
+      : 0;
+    return revenue - helpersCost - fuelCost;
+  };
   const getJobEstimatedTotal = (job: Job) => {
     if (job.chargedAmount != null) return job.chargedAmount;
     if (hourlyRateValue == null) return null;
@@ -1000,7 +1021,7 @@ export default function AdminJobs() {
     const series = Array.from({ length: daysInMonth }, (_, index) => {
       const day = index + 1;
       const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      return { key, day, total: 0 };
+      return { key, day, total: 0, net: 0 };
     });
     const byKey = new Map(series.map((item) => [item.key, item]));
     completedHistory.forEach((entry) => {
@@ -1013,15 +1034,21 @@ export default function AdminJobs() {
       const total = getEntryTotal(entry);
       if (total == null) return;
       target.total += total;
+      const net = getEntryNetTotal(entry);
+      if (net != null) {
+        target.net += net;
+      }
     });
     let runningTotal = 0;
+    let runningNet = 0;
     return series.map((item) => {
       runningTotal += item.total;
-      return { ...item, total: runningTotal };
+      runningNet += item.net;
+      return { ...item, total: runningTotal, net: runningNet };
     });
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById]);
   const dailyRevenueMaxValue = useMemo(() => {
-    const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => item.total));
+    const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => Math.max(item.total, item.net)));
     return maxValue;
   }, [dailyRevenueSeries]);
   const dailyTotalLabel = dailyRevenueSeries.length > 0
@@ -1042,7 +1069,7 @@ export default function AdminJobs() {
       const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const label = `${monthShortFormatter.format(date)} ${String(date.getFullYear()).slice(-2)}`;
-      return { key, label, total: 0 };
+      return { key, label, total: 0, net: 0 };
     });
     const byKey = new Map(months.map((item) => [item.key, item]));
     completedHistory.forEach((entry) => {
@@ -1054,11 +1081,15 @@ export default function AdminJobs() {
       const total = getEntryTotal(entry);
       if (total == null) return;
       target.total += total;
+      const net = getEntryNetTotal(entry);
+      if (net != null) {
+        target.net += net;
+      }
     });
     return months;
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById]);
   const monthlyRevenueMaxValue = useMemo(() => {
-    const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => item.total));
+    const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => Math.max(item.total, item.net)));
     return maxValue;
   }, [monthlyRevenueSeries]);
   const yearlyTotalLabel = monthlyRevenueSeries.length > 0
@@ -2298,9 +2329,21 @@ export default function AdminJobs() {
                     <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos diarios acumulados</p>
                     <p className="text-lg font-semibold text-gray-900">Progreso del mes: {currentMonthLabel}</p>
                   </div>
-                  {!hasMonthlyPricing && (
-                    <span className="text-xs text-amber-600">Configura precios para ver montos</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {!hasMonthlyPricing && (
+                      <span className="text-xs text-amber-600">Configura precios para ver montos</span>
+                    )}
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-sky-600" />
+                        Bruto
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-orange-500" />
+                        Neto
+                      </span>
+                    </div>
+                  </div>
                 </div>
                 <div className="mt-3 text-3xl font-semibold text-emerald-600">
                   {dailyTotalLabel}
@@ -2349,6 +2392,19 @@ export default function AdminJobs() {
                         return `${x},${y}`;
                       }).join(' ')}
                     />
+                    <polyline
+                      fill="none"
+                      stroke="#f97316"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={dailyRevenueSeries.map((item, index) => {
+                        const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                        const netValue = Math.max(0, item.net);
+                        const y = 20 + (150 * (1 - netValue / dailyRevenueScaleMax));
+                        return `${x},${y}`;
+                      }).join(' ')}
+                    />
                     {dailyRevenueSeries.map((item, index) => {
                       const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                       const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
@@ -2364,6 +2420,14 @@ export default function AdminJobs() {
                         </g>
                       );
                     })}
+                    {dailyRevenueSeries.map((item, index) => {
+                      const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                      const netValue = Math.max(0, item.net);
+                      const y = 20 + (150 * (1 - netValue / dailyRevenueScaleMax));
+                      return (
+                        <circle key={`${item.key}-net`} cx={x} cy={y} r="2.5" fill="#f97316" />
+                      );
+                    })}
                   </svg>
                 </div>
               </div>
@@ -2374,9 +2438,21 @@ export default function AdminJobs() {
                     <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos por mes</p>
                     <p className="text-lg font-semibold text-gray-900">Progreso de los ultimos 12 meses</p>
                   </div>
-                  {!hasMonthlyPricing && (
-                    <span className="text-xs text-amber-600">Configura precios para ver montos</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {!hasMonthlyPricing && (
+                      <span className="text-xs text-amber-600">Configura precios para ver montos</span>
+                    )}
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-emerald-600" />
+                        Bruto
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-orange-500" />
+                        Neto
+                      </span>
+                    </div>
+                  </div>
                 </div>
                 <div className="mt-3 text-3xl font-semibold text-emerald-600">
                   {yearlyTotalLabel}
@@ -2425,6 +2501,19 @@ export default function AdminJobs() {
                         return `${x},${y}`;
                       }).join(' ')}
                     />
+                    <polyline
+                      fill="none"
+                      stroke="#f97316"
+                      strokeWidth="2.5"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={monthlyRevenueSeries.map((item, index) => {
+                        const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                        const netValue = Math.max(0, item.net);
+                        const y = 20 + (140 * (1 - netValue / monthlyRevenueScaleMax));
+                        return `${x},${y}`;
+                      }).join(' ')}
+                    />
                     {monthlyRevenueSeries.map((item, index) => {
                       const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                       const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
@@ -2435,6 +2524,14 @@ export default function AdminJobs() {
                             {item.label}
                           </text>
                         </g>
+                      );
+                    })}
+                    {monthlyRevenueSeries.map((item, index) => {
+                      const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                      const netValue = Math.max(0, item.net);
+                      const y = 20 + (140 * (1 - netValue / monthlyRevenueScaleMax));
+                      return (
+                        <circle key={`${item.key}-net`} cx={x} cy={y} r="3" fill="#f97316" />
                       );
                     })}
                   </svg>
