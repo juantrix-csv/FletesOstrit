@@ -840,6 +840,17 @@ export default function AdminJobs() {
       : 0;
     return billedHours * hourlyRateValue + helpersValue;
   };
+  const getJobEstimatedTotal = (job: Job) => {
+    if (job.chargedAmount != null) return job.chargedAmount;
+    if (hourlyRateValue == null) return null;
+    const billedHours = getBilledHours(getEstimatedDurationMinutes(job) * 60000);
+    if (billedHours == null) return null;
+    const helpersCount = job.helpersCount ?? 0;
+    const helpersValue = helperHourlyRateValue != null && helpersCount > 0
+      ? billedHours * helperHourlyRateValue * helpersCount
+      : 0;
+    return billedHours * hourlyRateValue + helpersValue;
+  };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
   const now = new Date();
@@ -1187,6 +1198,34 @@ export default function AdminJobs() {
     : calendarView === 'week'
       ? `${dayFormatter.format(weekDays[0])} - ${dayFormatter.format(weekDays[6])}`
       : monthFormatter.format(calendarDate);
+  const calendarEstimateSummary = useMemo(() => {
+    const rangeStart = calendarView === 'day'
+      ? startOfDay(calendarDate)
+      : calendarView === 'week'
+        ? startOfWeek(calendarDate)
+        : startOfMonth(calendarDate);
+    const rangeEnd = calendarView === 'day'
+      ? addDays(rangeStart, 1)
+      : calendarView === 'week'
+        ? addDays(rangeStart, 7)
+        : new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 1, 1);
+    const startMs = rangeStart.getTime();
+    const endMs = rangeEnd.getTime();
+    let total = 0;
+    let missing = 0;
+    let count = 0;
+    scheduledJobs.forEach((item) => {
+      if (item.scheduledAt < startMs || item.scheduledAt >= endMs) return;
+      count += 1;
+      const estimate = getJobEstimatedTotal(item.job);
+      if (estimate == null) {
+        missing += 1;
+        return;
+      }
+      total += estimate;
+    });
+    return { total, missing, count };
+  }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue]);
   const handleCalendarToday = () => setCalendarDate(new Date());
   const moveCalendar = (direction: -1 | 1) => {
     setCalendarDate((prev) => {
@@ -1214,6 +1253,14 @@ export default function AdminJobs() {
   const nowWithinCalendar = nowMinutes >= calendarStartMinutes && nowMinutes <= calendarEndMinutes;
   const nowTop = nowWithinCalendar ? ((nowMinutes - calendarStartMinutes) / 60) * calendarHourHeight : null;
   const nowTimeLabel = timeFormatter.format(nowDate);
+  const calendarEstimateLabel = calendarEstimateSummary.count === 0
+    ? currencyFormatter.format(0)
+    : calendarEstimateSummary.missing > 0
+      ? 'Configura precios'
+      : currencyFormatter.format(calendarEstimateSummary.total);
+  const calendarEstimateTone = calendarEstimateSummary.missing > 0
+    ? 'border-amber-200 bg-amber-50 text-amber-700'
+    : 'border-emerald-200 bg-emerald-50 text-emerald-700';
 
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
@@ -1748,7 +1795,15 @@ export default function AdminJobs() {
                 </div>
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-gray-700">{calendarRangeLabel}</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className="text-sm font-semibold text-gray-700">{calendarRangeLabel}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Total estimado</span>
+                      <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarEstimateTone)}>
+                        {calendarEstimateLabel}
+                      </span>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1820,14 +1875,21 @@ export default function AdminJobs() {
                           )}
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
+                            const estimateValue = getJobEstimatedTotal(item.job);
+                            const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
                             if (!style) return null;
                             return (
                               <div
                                 key={item.job.id}
                                 onClick={() => openJobDetail(item.job.id)}
-                                className="absolute left-2 right-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800 shadow-sm hover:bg-blue-100"
+                                className="absolute left-2 right-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 pl-2 pr-12 py-1 text-[11px] text-blue-800 shadow-sm hover:bg-blue-100 relative"
                                 style={{ top: style.top, height: style.height }}
                               >
+                                {estimateLabel && (
+                                  <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                                    {estimateLabel}
+                                  </span>
+                                )}
                                 <div className="font-semibold truncate">{item.job.clientName}</div>
                                 <div className="text-[10px] text-blue-600">
                                   {formatJobRangeForDay(item.start, item.end, calendarDate)}
@@ -1918,14 +1980,21 @@ export default function AdminJobs() {
                                 )}
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
+                                  const estimateValue = getJobEstimatedTotal(item.job);
+                                  const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
                                   if (!style) return null;
                                   return (
                                     <div
                                       key={item.job.id}
                                       onClick={() => openJobDetail(item.job.id)}
-                                      className="absolute left-1 right-1 cursor-pointer rounded-md border border-blue-200 bg-blue-50 px-1.5 py-1 text-[10px] text-blue-800 shadow-sm hover:bg-blue-100"
+                                      className="absolute left-1 right-1 cursor-pointer rounded-md border border-blue-200 bg-blue-50 pl-1.5 pr-11 py-1 text-[10px] text-blue-800 shadow-sm hover:bg-blue-100 relative"
                                       style={{ top: style.top, height: style.height }}
                                     >
+                                      {estimateLabel && (
+                                        <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
+                                          {estimateLabel}
+                                        </span>
+                                      )}
                                       <div className="font-semibold truncate">{item.job.clientName}</div>
                                       <div className="text-[9px] text-blue-600">
                                         {formatJobRangeForDay(item.start, item.end, day)}
@@ -1977,15 +2046,24 @@ export default function AdminJobs() {
                               )}
                             </div>
                             <div className="mt-2 space-y-1">
-                              {items.slice(0, 3).map((item) => (
-                                <div
-                                  key={item.job.id}
-                                  onClick={() => openJobDetail(item.job.id)}
-                                  className="truncate rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-700 cursor-pointer hover:bg-gray-200"
-                                >
-                                  {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
-                                </div>
-                              ))}
+                              {items.slice(0, 3).map((item) => {
+                                const estimateValue = getJobEstimatedTotal(item.job);
+                                const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                return (
+                                  <div
+                                    key={item.job.id}
+                                    onClick={() => openJobDetail(item.job.id)}
+                                    className="relative truncate rounded bg-gray-100 pl-2 pr-12 py-1 text-[10px] text-gray-700 cursor-pointer hover:bg-gray-200"
+                                  >
+                                    {estimateLabel && (
+                                      <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
+                                        {estimateLabel}
+                                      </span>
+                                    )}
+                                    {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                  </div>
+                                );
+                              })}
                               {items.length > 3 && (
                                 <p className="text-[10px] text-gray-400">+{items.length - 3} mas</p>
                               )}
