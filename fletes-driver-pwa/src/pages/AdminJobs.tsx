@@ -864,13 +864,13 @@ export default function AdminJobs() {
   const getJobEstimatedTotal = (job: Job) => {
     if (job.chargedAmount != null) return job.chargedAmount;
     if (hourlyRateValue == null) return null;
-    const billedHours = getBilledHours(getEstimatedDurationMinutes(job) * 60000);
-    if (billedHours == null) return null;
+    const estimatedHours = getEstimatedDurationMinutes(job) / 60;
+    if (!Number.isFinite(estimatedHours) || estimatedHours <= 0) return null;
     const helpersCount = job.helpersCount ?? 0;
     const helpersValue = helperHourlyRateValue != null && helpersCount > 0
-      ? billedHours * helperHourlyRateValue * helpersCount
+      ? estimatedHours * helperHourlyRateValue * helpersCount
       : 0;
-    return billedHours * hourlyRateValue + helpersValue;
+    return estimatedHours * hourlyRateValue + helpersValue;
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
