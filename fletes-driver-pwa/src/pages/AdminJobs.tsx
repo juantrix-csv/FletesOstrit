@@ -2307,67 +2307,67 @@ export default function AdminJobs() {
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Ingreso por hora real</p>
-                  <p className="text-2xl font-semibold text-gray-900">{realHourlyLabel}</p>
-                  <p className="text-xs text-gray-500">{realHourlyMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Ingreso por hora real</p>
+                  <p className="text-3xl font-semibold text-gray-900">{realHourlyLabel}</p>
+                  <p className="text-sm text-gray-500">{realHourlyMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Margen neto por viaje</p>
-                  <p className="text-2xl font-semibold text-gray-900">{netMarginLabel}</p>
-                  <p className="text-xs text-gray-500">{netMarginMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Margen neto por viaje</p>
+                  <p className="text-3xl font-semibold text-gray-900">{netMarginLabel}</p>
+                  <p className="text-sm text-gray-500">{netMarginMeta}</p>
                   {variableCostLabel && (
-                    <p className="text-[11px] text-gray-400">Costos: {variableCostLabel}</p>
+                    <p className="text-sm text-gray-400">Costos: {variableCostLabel}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Viajes por dia</p>
-                  <p className="text-2xl font-semibold text-gray-900">{tripsPerDayLabel}</p>
-                  <p className="text-xs text-gray-500">{tripsPerDayMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Viajes por dia</p>
+                  <p className="text-3xl font-semibold text-gray-900">{tripsPerDayLabel}</p>
+                  <p className="text-sm text-gray-500">{tripsPerDayMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Km reales del mes</p>
-                  <p className="text-2xl font-semibold text-gray-900">{distanceTotalLabel}</p>
-                  <p className="text-xs text-gray-500">{distanceMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Km reales del mes</p>
+                  <p className="text-3xl font-semibold text-gray-900">{distanceTotalLabel}</p>
+                  <p className="text-sm text-gray-500">{distanceMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Clientes recurrentes</p>
-                  <p className="text-2xl font-semibold text-gray-900">{recurringPercentLabel}</p>
-                  <p className="text-xs text-gray-500">{recurringMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Clientes recurrentes</p>
+                  <p className="text-3xl font-semibold text-gray-900">{recurringPercentLabel}</p>
+                  <p className="text-sm text-gray-500">{recurringMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Costo fijo mensual</p>
-                  <p className="text-2xl font-semibold text-gray-900">{fixedMonthlyCostLabel}</p>
-                  <p className="text-xs text-gray-500">Se prorratea en el margen.</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Costo fijo mensual</p>
+                  <p className="text-3xl font-semibold text-gray-900">{fixedMonthlyCostLabel}</p>
+                  <p className="text-sm text-gray-500">Se prorratea en el margen.</p>
                 </div>
               </div>
 
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos diarios acumulados</p>
-                    <p className="text-lg font-semibold text-gray-900">Progreso del mes: {currentMonthLabel}</p>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Ingresos diarios acumulados</p>
+                    <p className="text-xl font-semibold text-gray-900">Progreso del mes: {currentMonthLabel}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     {!hasMonthlyPricing && (
-                      <span className="text-xs text-amber-600">Configura precios para ver montos</span>
+                      <span className="text-sm text-amber-600">Configura precios para ver montos</span>
                     )}
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
                       <span className="inline-flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-sky-600" />
+                        <span className="h-3 w-3 rounded-full bg-sky-600" />
                         Bruto
                       </span>
                       <span className="inline-flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-orange-500" />
+                        <span className="h-3 w-3 rounded-full bg-orange-500" />
                         Neto
                       </span>
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 text-3xl font-semibold text-emerald-600">
+                <div className="mt-3 text-4xl font-semibold text-emerald-600">
                   {dailyTotalLabel}
                 </div>
                 <div className="mt-4">
-                  <svg viewBox="0 0 720 240" className="h-44 w-full">
+                  <svg viewBox="0 0 720 240" className="h-56 w-full">
                     <defs>
                       <linearGradient id="daily-line" x1="0" x2="0" y1="0" y2="1">
                         <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.4" />
@@ -2379,7 +2379,7 @@ export default function AdminJobs() {
                       return (
                         <g key={tick.value}>
                           <line x1="60" y1={y} x2="700" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
-                          <text x="6" y={y + 4} fontSize="10" fill="#6b7280">
+                          <text x="6" y={y + 4} fontSize="12" fill="#6b7280">
                             {tick.label}
                           </text>
                         </g>
@@ -2429,9 +2429,9 @@ export default function AdminJobs() {
                       const showLabel = item.day === 1 || item.day % 5 === 0 || index === dailyRevenueSeries.length - 1;
                       return (
                         <g key={item.key}>
-                          <circle cx={x} cy={y} r="3.5" fill="#0284c7" />
+                          <circle cx={x} cy={y} r="4.5" fill="#0284c7" />
                           {showLabel && (
-                            <text x={x} y="208" textAnchor="middle" fontSize="9" fill="#6b7280">
+                            <text x={x} y="208" textAnchor="middle" fontSize="11" fill="#6b7280">
                               {item.day}
                             </text>
                           )}
@@ -2443,7 +2443,7 @@ export default function AdminJobs() {
                       const netValue = Math.max(0, item.net);
                       const y = 20 + (150 * (1 - netValue / dailyRevenueScaleMax));
                       return (
-                        <circle key={`${item.key}-net`} cx={x} cy={y} r="2.5" fill="#f97316" />
+                        <circle key={`${item.key}-net`} cx={x} cy={y} r="3.5" fill="#f97316" />
                       );
                     })}
                   </svg>
@@ -2453,30 +2453,30 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos por mes</p>
-                    <p className="text-lg font-semibold text-gray-900">Progreso de los ultimos 12 meses</p>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Ingresos por mes</p>
+                    <p className="text-xl font-semibold text-gray-900">Progreso de los ultimos 12 meses</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     {!hasMonthlyPricing && (
-                      <span className="text-xs text-amber-600">Configura precios para ver montos</span>
+                      <span className="text-sm text-amber-600">Configura precios para ver montos</span>
                     )}
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
                       <span className="inline-flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-emerald-600" />
+                        <span className="h-3 w-3 rounded-full bg-emerald-600" />
                         Bruto
                       </span>
                       <span className="inline-flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-orange-500" />
+                        <span className="h-3 w-3 rounded-full bg-orange-500" />
                         Neto
                       </span>
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 text-3xl font-semibold text-emerald-600">
+                <div className="mt-3 text-4xl font-semibold text-emerald-600">
                   {yearlyTotalLabel}
                 </div>
                 <div className="mt-4">
-                  <svg viewBox="0 0 600 220" className="h-44 w-full">
+                  <svg viewBox="0 0 600 220" className="h-56 w-full">
                     <defs>
                       <linearGradient id="monthly-line" x1="0" x2="0" y1="0" y2="1">
                         <stop offset="0%" stopColor="#10b981" stopOpacity="0.45" />
@@ -2488,7 +2488,7 @@ export default function AdminJobs() {
                       return (
                         <g key={tick.value}>
                           <line x1="60" y1={y} x2="590" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
-                          <text x="6" y={y + 4} fontSize="10" fill="#6b7280">
+                          <text x="6" y={y + 4} fontSize="12" fill="#6b7280">
                             {tick.label}
                           </text>
                         </g>
@@ -2537,8 +2537,8 @@ export default function AdminJobs() {
                       const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
                       return (
                         <g key={item.key}>
-                          <circle cx={x} cy={y} r="5" fill="#059669" />
-                          <text x={x} y="198" textAnchor="middle" fontSize="10" fill="#6b7280">
+                          <circle cx={x} cy={y} r="6" fill="#059669" />
+                          <text x={x} y="198" textAnchor="middle" fontSize="12" fill="#6b7280">
                             {item.label}
                           </text>
                         </g>
@@ -2549,7 +2549,7 @@ export default function AdminJobs() {
                       const netValue = Math.max(0, item.net);
                       const y = 20 + (140 * (1 - netValue / monthlyRevenueScaleMax));
                       return (
-                        <circle key={`${item.key}-net`} cx={x} cy={y} r="3" fill="#f97316" />
+                        <circle key={`${item.key}-net`} cx={x} cy={y} r="4" fill="#f97316" />
                       );
                     })}
                   </svg>
@@ -2559,16 +2559,16 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Historial</p>
-                    <p className="text-lg font-semibold text-gray-900">Fletes realizados</p>
-                    <p className="text-xs text-gray-500">Total bruto {currentMonthLabel}: {monthlyGrossLabel}</p>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Historial</p>
+                    <p className="text-xl font-semibold text-gray-900">Fletes realizados</p>
+                    <p className="text-sm text-gray-500">Total bruto {currentMonthLabel}: {monthlyGrossLabel}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">{completedHistory.length} completados</span>
+                    <span className="text-sm text-gray-500">{completedHistory.length} completados</span>
                     <button
                       type="button"
                       onClick={handleDownloadHistory}
-                      className="rounded border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700"
+                      className="rounded border border-emerald-200 px-3 py-1.5 text-sm font-semibold text-emerald-700"
                     >
                       Descargar Excel
                     </button>
@@ -2617,34 +2617,34 @@ export default function AdminJobs() {
                             <div>
                               <p className="font-semibold text-gray-900">{entry.job.clientName}</p>
                               {entry.job.description && (
-                                <p className="text-xs text-gray-500">Descripcion: {entry.job.description}</p>
+                                <p className="text-sm text-gray-500">Descripcion: {entry.job.description}</p>
                               )}
-                              <p className="text-xs text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
-                              <p className="text-xs text-gray-500">Ayudantes: {helpersCount}</p>
-                              <p className="text-xs text-gray-500">Finalizado: {endLabel}</p>
+                              <p className="text-sm text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
+                              <p className="text-sm text-gray-500">Ayudantes: {helpersCount}</p>
+                              <p className="text-sm text-gray-500">Finalizado: {endLabel}</p>
                             </div>
                             <div className="text-right">
                               <button
                                 type="button"
                                 onClick={() => openJobDetail(entry.job.id)}
-                                className="mb-1 rounded border px-2 py-1 text-[11px] font-semibold text-blue-600"
+                                className="mb-1 rounded border px-2 py-1 text-sm font-semibold text-blue-600"
                               >
                                 Detalle
                               </button>
-                              <p className="text-sm font-semibold text-gray-900">{displayTotalLabel}</p>
+                              <p className="text-base font-semibold text-gray-900">{displayTotalLabel}</p>
                               {chargedAmountLabel && (
-                                <p className="text-xs text-emerald-600">Cobrado</p>
+                                <p className="text-sm text-emerald-600">Cobrado</p>
                               )}
                               {chargedAmountLabel && totalValue != null && (
-                                <p className="text-xs text-gray-500">Estimado: {computedTotalLabel}</p>
+                                <p className="text-sm text-gray-500">Estimado: {computedTotalLabel}</p>
                               )}
-                              <p className="text-xs text-gray-500">Flete: {jobValueLabel}</p>
-                              <p className="text-xs text-gray-500">Ayudantes: {helpersValueLabel}</p>
-                              <p className="text-xs text-gray-500">Duracion: {durationLabel}</p>
+                              <p className="text-sm text-gray-500">Flete: {jobValueLabel}</p>
+                              <p className="text-sm text-gray-500">Ayudantes: {helpersValueLabel}</p>
+                              <p className="text-sm text-gray-500">Duracion: {durationLabel}</p>
                             </div>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                            <span className="text-[11px] uppercase tracking-wide text-gray-400">Cobrado</span>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                            <span className="text-xs uppercase tracking-wide text-gray-400">Cobrado</span>
                             <input
                               type="number"
                               inputMode="decimal"
@@ -2656,13 +2656,13 @@ export default function AdminJobs() {
                                 const value = event.target.value;
                                 setChargedAmountDrafts((prev) => ({ ...prev, [entry.job.id]: value }));
                               }}
-                              className="w-28 rounded border px-2 py-1 text-xs"
+                              className="w-32 rounded border px-2 py-1 text-sm"
                             />
                             <button
                               type="button"
                               onClick={() => handleSaveChargedAmount(entry.job)}
                               disabled={isSavingCharge}
-                              className="rounded border border-blue-200 px-2 py-1 text-[11px] font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="rounded border border-blue-200 px-3 py-1 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {isSavingCharge ? 'Guardando...' : 'Guardar'}
                             </button>
@@ -2671,7 +2671,7 @@ export default function AdminJobs() {
                                 type="button"
                                 onClick={() => handleClearChargedAmount(entry.job)}
                                 disabled={isSavingCharge}
-                                className="rounded border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="rounded border border-gray-200 px-3 py-1 text-sm font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 Limpiar
                               </button>
