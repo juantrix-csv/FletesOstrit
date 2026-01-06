@@ -1245,9 +1245,11 @@ export default function AdminJobs() {
     let total = 0;
     let missing = 0;
     let count = 0;
+    let totalMinutes = 0;
     scheduledJobs.forEach((item) => {
       if (item.scheduledAt < startMs || item.scheduledAt >= endMs) return;
       count += 1;
+      totalMinutes += item.durationMinutes;
       const estimate = getJobEstimatedTotal(item.job);
       if (estimate == null) {
         missing += 1;
@@ -1255,7 +1257,7 @@ export default function AdminJobs() {
       }
       total += estimate;
     });
-    return { total, missing, count };
+    return { total, missing, count, totalMinutes };
   }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue]);
   const handleCalendarToday = () => setCalendarDate(new Date());
   const moveCalendar = (direction: -1 | 1) => {
@@ -1292,6 +1294,10 @@ export default function AdminJobs() {
   const calendarEstimateTone = calendarEstimateSummary.missing > 0
     ? 'border-amber-200 bg-amber-50 text-amber-700'
     : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  const calendarJobsLabel = calendarEstimateSummary.count === 1
+    ? '1 flete'
+    : `${calendarEstimateSummary.count} fletes`;
+  const calendarTotalHoursLabel = `${decimalFormatter.format(calendarEstimateSummary.totalMinutes / 60)} h`;
 
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
@@ -1832,6 +1838,18 @@ export default function AdminJobs() {
                       <span className="text-[11px] uppercase tracking-wide text-gray-400">Total estimado</span>
                       <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarEstimateTone)}>
                         {calendarEstimateLabel}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Fletes agendados</span>
+                      <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                        {calendarJobsLabel}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Horas totales</span>
+                      <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                        {calendarTotalHoursLabel}
                       </span>
                     </div>
                   </div>
