@@ -41,6 +41,7 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
+const formatCurrencyTick = (value: number) => currencyFormatter.format(Math.round(value)).replace(/\u00A0/g, ' ');
 const percentFormatter = new Intl.NumberFormat('es-AR', { style: 'percent', minimumFractionDigits: 0, maximumFractionDigits: 1 });
 const decimalFormatter = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 const monthFormatter = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' });
@@ -1060,7 +1061,7 @@ export default function AdminJobs() {
     const maxValue = dailyRevenueMaxValue;
     return Array.from({ length: steps + 1 }, (_, index) => {
       const value = maxValue > 0 ? (maxValue * (steps - index)) / steps : 0;
-      return { value, label: currencyFormatter.format(value) };
+      return { value, label: formatCurrencyTick(value) };
     });
   }, [dailyRevenueMaxValue]);
   const monthlyRevenueSeries = useMemo(() => {
@@ -1101,7 +1102,7 @@ export default function AdminJobs() {
     const maxValue = monthlyRevenueMaxValue;
     return Array.from({ length: steps + 1 }, (_, index) => {
       const value = maxValue > 0 ? (maxValue * (steps - index)) / steps : 0;
-      return { value, label: currencyFormatter.format(value) };
+      return { value, label: formatCurrencyTick(value) };
     });
   }, [monthlyRevenueMaxValue]);
   const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null || hasChargeOverrides;
@@ -2378,8 +2379,8 @@ export default function AdminJobs() {
                       const y = 20 + (150 * index) / (dailyRevenueTicks.length - 1);
                       return (
                         <g key={tick.value}>
-                          <line x1="60" y1={y} x2="700" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
-                          <text x="6" y={y + 4} fontSize="12" fill="#6b7280">
+                          <line x1={90} y1={y} x2={700} y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
+                          <text x={78} y={y + 4} fontSize="12" textAnchor="end" fill="#6b7280">
                             {tick.label}
                           </text>
                         </g>
@@ -2389,9 +2390,9 @@ export default function AdminJobs() {
                       fill="url(#daily-line)"
                       stroke="none"
                       points={[
-                        `60,170`,
+                        `90,170`,
                         ...dailyRevenueSeries.map((item, index) => {
-                          const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                          const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                           const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
                           return `${x},${y}`;
                         }),
@@ -2405,7 +2406,7 @@ export default function AdminJobs() {
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       points={dailyRevenueSeries.map((item, index) => {
-                        const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                        const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                         const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
                         return `${x},${y}`;
                       }).join(' ')}
@@ -2417,14 +2418,14 @@ export default function AdminJobs() {
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       points={dailyRevenueSeries.map((item, index) => {
-                        const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                        const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                         const netValue = Math.max(0, item.net);
                         const y = 20 + (150 * (1 - netValue / dailyRevenueScaleMax));
                         return `${x},${y}`;
                       }).join(' ')}
                     />
                     {dailyRevenueSeries.map((item, index) => {
-                      const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                      const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                       const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
                       const showLabel = item.day === 1 || item.day % 5 === 0 || index === dailyRevenueSeries.length - 1;
                       return (
@@ -2439,7 +2440,7 @@ export default function AdminJobs() {
                       );
                     })}
                     {dailyRevenueSeries.map((item, index) => {
-                      const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                      const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                       const netValue = Math.max(0, item.net);
                       const y = 20 + (150 * (1 - netValue / dailyRevenueScaleMax));
                       return (
@@ -2487,8 +2488,8 @@ export default function AdminJobs() {
                       const y = 20 + (140 * index) / (monthlyRevenueTicks.length - 1);
                       return (
                         <g key={tick.value}>
-                          <line x1="60" y1={y} x2="590" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
-                          <text x="6" y={y + 4} fontSize="12" fill="#6b7280">
+                          <line x1={90} y1={y} x2={590} y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
+                          <text x={78} y={y + 4} fontSize="12" textAnchor="end" fill="#6b7280">
                             {tick.label}
                           </text>
                         </g>
@@ -2498,9 +2499,9 @@ export default function AdminJobs() {
                       fill="url(#monthly-line)"
                       stroke="none"
                       points={[
-                        `60,160`,
+                        `90,160`,
                         ...monthlyRevenueSeries.map((item, index) => {
-                          const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                          const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                           const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
                           return `${x},${y}`;
                         }),
@@ -2514,7 +2515,7 @@ export default function AdminJobs() {
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       points={monthlyRevenueSeries.map((item, index) => {
-                        const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                        const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                         const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
                         return `${x},${y}`;
                       }).join(' ')}
@@ -2526,14 +2527,14 @@ export default function AdminJobs() {
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       points={monthlyRevenueSeries.map((item, index) => {
-                        const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                        const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                         const netValue = Math.max(0, item.net);
                         const y = 20 + (140 * (1 - netValue / monthlyRevenueScaleMax));
                         return `${x},${y}`;
                       }).join(' ')}
                     />
                     {monthlyRevenueSeries.map((item, index) => {
-                      const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                      const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                       const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
                       return (
                         <g key={item.key}>
@@ -2545,7 +2546,7 @@ export default function AdminJobs() {
                       );
                     })}
                     {monthlyRevenueSeries.map((item, index) => {
-                      const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                      const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                       const netValue = Math.max(0, item.net);
                       const y = 20 + (140 * (1 - netValue / monthlyRevenueScaleMax));
                       return (
