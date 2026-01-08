@@ -1247,6 +1247,7 @@ export default function AdminJobs() {
     let missing = 0;
     let count = 0;
     let totalMinutes = 0;
+    let netTotal = 0;
     scheduledJobs.forEach((item) => {
       if (item.scheduledAt < startMs || item.scheduledAt >= endMs) return;
       count += 1;
@@ -1257,9 +1258,19 @@ export default function AdminJobs() {
         return;
       }
       total += estimate;
+      const estimatedHours = getEstimatedDurationMinutes(item.job) / 60;
+      const helpersCount = item.job.helpersCount ?? 0;
+      const helpersCost = helperHourlyRateValue != null && helpersCount > 0
+        ? estimatedHours * helperHourlyRateValue * helpersCount
+        : 0;
+      const distanceKm = jobDistanceKmById.get(item.job.id) ?? null;
+      const fuelCost = tripCostPerKmValue != null && distanceKm != null
+        ? distanceKm * tripCostPerKmValue
+        : 0;
+      netTotal += estimate - helpersCost - fuelCost;
     });
-    return { total, missing, count, totalMinutes };
-  }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue]);
+    return { total, netTotal, missing, count, totalMinutes };
+  }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById]);
   const handleCalendarToday = () => setCalendarDate(new Date());
   const moveCalendar = (direction: -1 | 1) => {
     setCalendarDate((prev) => {
@@ -1295,6 +1306,14 @@ export default function AdminJobs() {
   const calendarEstimateTone = calendarEstimateSummary.missing > 0
     ? 'border-amber-200 bg-amber-50 text-amber-700'
     : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  const calendarNetLabel = calendarEstimateSummary.count === 0
+    ? currencyFormatter.format(0)
+    : calendarEstimateSummary.missing > 0
+      ? 'Configura precios'
+      : currencyFormatter.format(calendarEstimateSummary.netTotal);
+  const calendarNetTone = calendarEstimateSummary.missing > 0
+    ? 'border-amber-200 bg-amber-50 text-amber-700'
+    : 'border-sky-200 bg-sky-50 text-sky-700';
   const calendarJobsLabel = calendarEstimateSummary.count === 1
     ? '1 flete'
     : `${calendarEstimateSummary.count} fletes`;
@@ -1839,6 +1858,12 @@ export default function AdminJobs() {
                       <span className="text-[11px] uppercase tracking-wide text-gray-400">Total estimado</span>
                       <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarEstimateTone)}>
                         {calendarEstimateLabel}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Neto estimado</span>
+                      <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarNetTone)}>
+                        {calendarNetLabel}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
