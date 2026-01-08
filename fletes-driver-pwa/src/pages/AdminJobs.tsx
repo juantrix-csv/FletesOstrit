@@ -472,6 +472,7 @@ export default function AdminJobs() {
     const fd = new FormData(e.currentTarget);
     const scheduledDate = String(fd.get('scheduledDate') || '');
     const scheduledTime = String(fd.get('scheduledTime') || '');
+    const clientPhone = String(fd.get('clientPhone') || '').trim();
     const description = String(fd.get('description') || '').trim();
     const estimatedDurationRaw = String(fd.get('estimatedDurationHours') || '').trim();
     const estimatedHours = parseDurationHours(estimatedDurationRaw);
@@ -492,6 +493,7 @@ export default function AdminJobs() {
       await createJob({
         id: uuidv4(),
         clientName: String(fd.get('cn') || ''),
+        clientPhone: clientPhone || undefined,
         description: description || undefined,
         estimatedDurationMinutes,
         scheduledDate,
@@ -1328,13 +1330,19 @@ export default function AdminJobs() {
                 <button onClick={() => setOpen(!open)} className="w-full rounded bg-blue-600 p-3 text-white">
                   {open ? 'Cerrar' : 'Nuevo Flete'}
                 </button>
-                {open && (
-                  <form onSubmit={addJob} className="space-y-2 rounded bg-white p-4 shadow">
-                    <input name="cn" placeholder="Cliente" className="w-full border p-2" required />
-                    <textarea
-                      name="description"
-                      placeholder="Descripcion del flete"
-                      className="w-full border p-2 text-sm"
+                  {open && (
+                    <form onSubmit={addJob} className="space-y-2 rounded bg-white p-4 shadow">
+                      <input name="cn" placeholder="Cliente" className="w-full border p-2" required />
+                      <input
+                        name="clientPhone"
+                        type="tel"
+                        placeholder="Telefono del cliente"
+                        className="w-full border p-2"
+                      />
+                      <textarea
+                        name="description"
+                        placeholder="Descripcion del flete"
+                        className="w-full border p-2 text-sm"
                       rows={2}
                     />
                     <input
