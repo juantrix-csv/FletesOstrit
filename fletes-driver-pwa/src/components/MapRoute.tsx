@@ -346,6 +346,13 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     }
   }, [isDriving, manualView, viewMode, coords?.lat, coords?.lng]);
 
+  const setManualMapView = () => {
+    if (!isDriving) return;
+    setManualView(true);
+    manualViewUntilRef.current = Date.now() + 12000;
+    setViewMode('route');
+  };
+
   const fitRoute = () => {
     if (!mapReady || !mapRef.current) return false;
     setManualView(true);
@@ -434,14 +441,19 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
         }}
         reuseMaps
         attributionControl={false}
-        interactive={false}
-        scrollZoom={false}
-        dragPan={false}
-        dragRotate={false}
-        doubleClickZoom={false}
-        touchZoomRotate={false}
-        touchPitch={false}
-        keyboard={false}
+        interactive={isDriving}
+        scrollZoom={isDriving}
+        dragPan={isDriving}
+        dragRotate={isDriving}
+        doubleClickZoom={isDriving}
+        touchZoomRotate={isDriving}
+        touchPitch={isDriving}
+        keyboard={isDriving}
+        onDragStart={setManualMapView}
+        onZoomStart={setManualMapView}
+        onRotateStart={setManualMapView}
+        onPitchStart={setManualMapView}
+        onTouchStart={setManualMapView}
         style={{ width: '100%', height: '100%' }}
       >
         {routeGeoJson && (
