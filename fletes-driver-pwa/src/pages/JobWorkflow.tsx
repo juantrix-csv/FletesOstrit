@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Job, JobStatus } from '../lib/types';
 import { getJob, updateJob } from '../lib/api';
-import { ArrowLeft, LocateFixed, MapPin, Route } from 'lucide-react';
+import { ArrowLeft, LocateFixed, MapPin, Phone, Route } from 'lucide-react';
 import { calculateDistance, getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
@@ -142,6 +142,8 @@ export default function JobWorkflow() {
   };
   const elapsedLabel = elapsedMs != null ? formatElapsed(elapsedMs) : null;
   const displayAddress = target ? formatAddress(target.address) : 'Direccion no disponible';
+  const clientPhone = job.clientPhone?.trim() ?? '';
+  const phoneHref = clientPhone ? `tel:${clientPhone.replace(/[^0-9+]/g, '')}` : '';
 
   const next = async (st: JobStatus) => {
     const now = new Date().toISOString();
@@ -202,6 +204,16 @@ export default function JobWorkflow() {
             <ArrowLeft size={14} />
             Volver
           </button>
+          {clientPhone && (
+            <a
+              href={phoneHref}
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900"
+              aria-label="Llamar al cliente"
+            >
+              <Phone size={14} />
+              Llamar
+            </a>
+          )}
         </div>
         <div className="mt-2 flex items-start justify-between gap-3">
           <div className="min-w-0">
