@@ -203,7 +203,7 @@ export default function DriverHome() {
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${status.className}`}>{status.label}</span>
                   </div>
                   <p className="mt-1 truncate text-xs text-gray-500">
-                    {job.pickup?.address || 'Sin direccion'} -> {job.dropoff?.address || 'Sin direccion'}
+                    {job.pickup?.address || 'Sin direccion'}{' -> '}{job.dropoff?.address || 'Sin direccion'}
                   </p>
                 </div>
                 <div className="pt-1 text-gray-300">
