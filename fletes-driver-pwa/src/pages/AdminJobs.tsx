@@ -1378,9 +1378,9 @@ export default function AdminJobs() {
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
       <section className="space-y-4">
-          {tab === 'jobs' && (
-            <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-              <div className="flex min-h-[70vh] flex-col gap-3">
+            {tab === 'jobs' && (
+              <div className="grid gap-4 xl:grid-cols-[420px_1fr] xl:h-[calc(100dvh-4rem)]">
+                <div className="flex min-h-[70vh] flex-col gap-3 xl:min-h-0 xl:h-full">
                 <button onClick={() => setOpen(!open)} className="w-full rounded bg-blue-600 p-3 text-white">
                   {open ? 'Cerrar' : 'Nuevo Flete'}
                 </button>
@@ -1988,7 +1988,7 @@ export default function AdminJobs() {
                 </div>
               </div>
 
-              <div className="relative min-h-[70vh] rounded-2xl border bg-white shadow-sm">
+                <div className="relative min-h-[70vh] rounded-2xl border bg-white shadow-sm xl:h-full xl:sticky xl:top-8">
                 <div className="absolute left-4 right-4 top-4 z-10">
                   <div className="rounded-xl bg-white/95 p-3 shadow">
                     <AddressAutocomplete
@@ -2000,11 +2000,11 @@ export default function AdminJobs() {
                   </div>
                 </div>
                 {selectedMapJob ? (
-                  <JobRoutePreviewMap
-                    job={selectedMapJob}
-                    focusLocation={mapSearchLocation}
-                    className="h-full min-h-[70vh]"
-                  />
+                    <JobRoutePreviewMap
+                      job={selectedMapJob}
+                      focusLocation={mapSearchLocation}
+                      className="h-full min-h-[70vh] xl:min-h-0"
+                    />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-gray-500">
                     No hay fletes para mostrar.
