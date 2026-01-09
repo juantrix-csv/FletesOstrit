@@ -209,6 +209,7 @@ const resolveAdminTab = (value?: string | null): AdminTab | null => {
 
 type EditJobDraft = {
   clientName: string;
+  clientPhone: string;
   description: string;
   scheduledDate: string;
   scheduledTime: string;
@@ -219,6 +220,7 @@ type EditJobDraft = {
 
 const emptyEditDraft: EditJobDraft = {
   clientName: '',
+  clientPhone: '',
   description: '',
   scheduledDate: '',
   scheduledTime: '',
@@ -288,6 +290,13 @@ export default function AdminJobs() {
   const [extraStopKey, setExtraStopKey] = useState(0);
   const [draggedStopIndex, setDraggedStopIndex] = useState<number | null>(null);
   const [mapTarget, setMapTarget] = useState<'pickup' | 'dropoff' | 'extra'>('pickup');
+  const [editPickup, setEditPickup] = useState<LocationData | null>(null);
+  const [editDropoff, setEditDropoff] = useState<LocationData | null>(null);
+  const [editExtraStops, setEditExtraStops] = useState<LocationData[]>([]);
+  const [editExtraStopDraft, setEditExtraStopDraft] = useState<LocationData | null>(null);
+  const [editExtraStopKey, setEditExtraStopKey] = useState(0);
+  const [editDraggedStopIndex, setEditDraggedStopIndex] = useState<number | null>(null);
+  const [editMapTarget, setEditMapTarget] = useState<'pickup' | 'dropoff' | 'extra'>('pickup');
   const [driverName, setDriverName] = useState('');
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
@@ -450,6 +459,23 @@ export default function AdminJobs() {
     setDraggedStopIndex(null);
   };
 
+  const addEditExtraStop = (location: LocationData | null) => {
+    if (!location) return;
+    setEditExtraStops((prev) => [...prev, location]);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
+  };
+
+  const removeEditExtraStop = (index: number) => {
+    setEditExtraStops((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleReorderEditStop = (targetIndex: number) => {
+    if (editDraggedStopIndex == null || editDraggedStopIndex === targetIndex) return;
+    setEditExtraStops((prev) => reorderList(prev, editDraggedStopIndex, targetIndex));
+    setEditDraggedStopIndex(null);
+  };
+
   useEffect(() => {
     loadJobs();
     loadDrivers();
@@ -547,6 +573,7 @@ export default function AdminJobs() {
     setEditingJobId(job.id);
     setEditDraft({
       clientName: job.clientName ?? '',
+      clientPhone: job.clientPhone ?? '',
       description: job.description ?? '',
       scheduledDate: job.scheduledDate ?? '',
       scheduledTime: job.scheduledTime ?? '',
@@ -554,17 +581,35 @@ export default function AdminJobs() {
       helpersCount: Number.isFinite(job.helpersCount) ? String(job.helpersCount) : '',
       driverId: job.driverId ?? '',
     });
+    setEditPickup(job.pickup ?? null);
+    setEditDropoff(job.dropoff ?? null);
+    setEditExtraStops(job.extraStops ?? []);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
+    setEditDraggedStopIndex(null);
+    setEditMapTarget('pickup');
   };
 
   const cancelEditJob = () => {
     setEditingJobId(null);
     setEditDraft(emptyEditDraft);
+    setEditPickup(null);
+    setEditDropoff(null);
+    setEditExtraStops([]);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
+    setEditDraggedStopIndex(null);
+    setEditMapTarget('pickup');
   };
 
   const handleSaveEditJob = async (job: Job) => {
     const clientName = editDraft.clientName.trim();
     if (!clientName) {
       toast.error('Nombre del cliente requerido');
+      return;
+    }
+    if (!editPickup || !editDropoff) {
+      toast.error('Selecciona origen y destino (lista o mapa)');
       return;
     }
     if (!editDraft.scheduledDate || !editDraft.scheduledTime) {
@@ -582,13 +627,18 @@ export default function AdminJobs() {
       toast.error('Cantidad de ayudantes invalida');
       return;
     }
+    const clientPhone = editDraft.clientPhone.trim();
     try {
       setSavingEditId(job.id);
       const updated = await updateJob(job.id, {
         clientName,
+        clientPhone: clientPhone || null,
         description: editDraft.description.trim() || undefined,
         scheduledDate: editDraft.scheduledDate,
         scheduledTime: editDraft.scheduledTime,
+        pickup: editPickup,
+        dropoff: editDropoff,
+        extraStops: editExtraStops.length > 0 ? editExtraStops : [],
         estimatedDurationMinutes: Math.max(1, Math.round(estimatedHours * 60)),
         helpersCount: helpersCountRaw ? helpersCount : undefined,
         driverId: editDraft.driverId ? editDraft.driverId : null,
@@ -1169,6 +1219,7 @@ export default function AdminJobs() {
   }, [jobs, selectedJobId]);
   const selectedJobDriver = selectedJobDetail?.driverId ? driversById.get(selectedJobDetail.driverId) : null;
   const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
+  const editMapTargetLabel = editMapTarget === 'pickup' ? 'origen' : editMapTarget === 'dropoff' ? 'destino' : 'parada extra';
   const selectedJobDurations = useMemo(() => {
     if (!selectedJobDetail) return null;
     const tripStart = selectedJobDetail.timestamps.startTripAt ?? selectedJobDetail.timestamps.endLoadingAt;
@@ -1699,21 +1750,30 @@ export default function AdminJobs() {
                         )}
                         {isEditing && (
                           <div className="rounded border bg-gray-50 p-3" onClick={(event) => event.stopPropagation()}>
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <label className="text-xs text-gray-500">
-                                Cliente
-                                <input
-                                  type="text"
-                                  value={editDraft.clientName}
-                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, clientName: event.target.value }))}
-                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                                />
-                              </label>
-                              <label className="text-xs text-gray-500">
-                                Fecha
-                                <input
-                                  type="date"
-                                  value={editDraft.scheduledDate}
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <label className="text-xs text-gray-500">
+                                  Cliente
+                                  <input
+                                    type="text"
+                                    value={editDraft.clientName}
+                                    onChange={(event) => setEditDraft((prev) => ({ ...prev, clientName: event.target.value }))}
+                                    className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                  />
+                                </label>
+                                <label className="text-xs text-gray-500">
+                                  Telefono
+                                  <input
+                                    type="tel"
+                                    value={editDraft.clientPhone}
+                                    onChange={(event) => setEditDraft((prev) => ({ ...prev, clientPhone: event.target.value }))}
+                                    className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                  />
+                                </label>
+                                <label className="text-xs text-gray-500">
+                                  Fecha
+                                  <input
+                                    type="date"
+                                    value={editDraft.scheduledDate}
                                   onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledDate: event.target.value }))}
                                   className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
                                 />
@@ -1765,19 +1825,145 @@ export default function AdminJobs() {
                                 </select>
                               </label>
                             </div>
-                            <label className="mt-2 block text-xs text-gray-500">
-                              Descripcion
-                              <textarea
-                                value={editDraft.description}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, description: event.target.value }))}
-                                rows={2}
-                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                              />
-                            </label>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleSaveEditJob(job)}
+                              <label className="mt-2 block text-xs text-gray-500">
+                                Descripcion
+                                <textarea
+                                  value={editDraft.description}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, description: event.target.value }))}
+                                  rows={2}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                />
+                              </label>
+                              <div className="mt-3 space-y-2">
+                                <AddressAutocomplete
+                                  label="Origen"
+                                  placeholder="Buscar origen"
+                                  onSelect={setEditPickup}
+                                  selected={editPickup}
+                                />
+                                <AddressAutocomplete
+                                  label="Destino"
+                                  placeholder="Buscar destino"
+                                  onSelect={setEditDropoff}
+                                  selected={editDropoff}
+                                />
+                                <div className="rounded border bg-white p-2 space-y-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-xs font-medium">Paradas extra</p>
+                                    <span className="text-[10px] text-gray-400">{editExtraStops.length} agregadas</span>
+                                  </div>
+                                  <AddressAutocomplete
+                                    key={editExtraStopKey}
+                                    label="Agregar parada"
+                                    placeholder="Buscar parada extra"
+                                    onSelect={setEditExtraStopDraft}
+                                    selected={editExtraStopDraft}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => addEditExtraStop(editExtraStopDraft)}
+                                    disabled={!editExtraStopDraft}
+                                    className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-1 text-[10px] font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    Agregar parada
+                                  </button>
+                                  {editExtraStops.length === 0 ? (
+                                    <p className="text-[10px] text-gray-500">Sin paradas extra.</p>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <p className="text-[10px] text-gray-400">Arrastra para reordenar.</p>
+                                      {editExtraStops.map((stop, index) => (
+                                        <div
+                                          key={`${stop.lat}-${stop.lng}-${index}`}
+                                          draggable
+                                          onDragStart={() => setEditDraggedStopIndex(index)}
+                                          onDragOver={(event) => event.preventDefault()}
+                                          onDrop={() => handleReorderEditStop(index)}
+                                          onDragEnd={() => setEditDraggedStopIndex(null)}
+                                          className={cn(
+                                            "flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-[10px] text-gray-600",
+                                            editDraggedStopIndex === index ? "opacity-60" : "cursor-grab"
+                                          )}
+                                        >
+                                          <span className="truncate">{stop.address}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeEditExtraStop(index)}
+                                            className="text-amber-600"
+                                          >
+                                            Quitar
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="rounded border bg-white p-2 space-y-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-xs font-medium">Seleccion en mapa</p>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditMapTarget('pickup')}
+                                        className={cn(
+                                          "rounded border px-2 py-1 text-[10px]",
+                                          editMapTarget === 'pickup'
+                                            ? "border-green-600 bg-green-600 text-white"
+                                            : "bg-white text-gray-600"
+                                        )}
+                                      >
+                                        Origen
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditMapTarget('dropoff')}
+                                        className={cn(
+                                          "rounded border px-2 py-1 text-[10px]",
+                                          editMapTarget === 'dropoff'
+                                            ? "border-red-600 bg-red-600 text-white"
+                                            : "bg-white text-gray-600"
+                                        )}
+                                      >
+                                        Destino
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditMapTarget('extra')}
+                                        className={cn(
+                                          "rounded border px-2 py-1 text-[10px]",
+                                          editMapTarget === 'extra'
+                                            ? "border-amber-500 bg-amber-500 text-white"
+                                            : "bg-white text-gray-600"
+                                        )}
+                                      >
+                                        Parada
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <p className="text-[10px] text-gray-500">Click en el mapa para asignar {editMapTargetLabel}.</p>
+                                  <MapLocationPicker
+                                    pickup={editPickup}
+                                    dropoff={editDropoff}
+                                    extraStops={editExtraStops}
+                                    active={editMapTarget}
+                                    onSelect={(kind, location) => {
+                                      if (kind === 'pickup') {
+                                        setEditPickup(location);
+                                      } else if (kind === 'dropoff') {
+                                        setEditDropoff(location);
+                                      } else {
+                                        setEditExtraStops((prev) => [...prev, location]);
+                                        setEditExtraStopDraft(null);
+                                        setEditExtraStopKey((prev) => prev + 1);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEditJob(job)}
                                 disabled={savingEditId === job.id}
                                 className="rounded border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
