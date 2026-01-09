@@ -1107,6 +1107,9 @@ export default function AdminJobs() {
   const dailyTotalLabel = dailyRevenueSeries.length > 0
     ? currencyFormatter.format(dailyRevenueSeries[dailyRevenueSeries.length - 1].total)
     : currencyFormatter.format(0);
+  const dailyNetLabel = dailyRevenueSeries.length > 0
+    ? currencyFormatter.format(dailyRevenueSeries[dailyRevenueSeries.length - 1].net)
+    : currencyFormatter.format(0);
   const dailyRevenueScaleMax = dailyRevenueMaxValue > 0 ? dailyRevenueMaxValue : 1;
   const dailyRevenueTicks = useMemo(() => {
     const steps = 4;
@@ -2583,9 +2586,16 @@ export default function AdminJobs() {
                     </div>
                   </div>
                 </div>
-                <div className="mt-3 text-4xl font-semibold text-emerald-600">
-                  {dailyTotalLabel}
-                </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Bruto acumulado</p>
+                      <p className="text-3xl font-semibold text-sky-600">{dailyTotalLabel}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Neto acumulado</p>
+                      <p className="text-3xl font-semibold text-orange-600">{dailyNetLabel}</p>
+                    </div>
+                  </div>
                 <div className="mt-4">
                   <svg viewBox="0 0 720 240" className="h-56 w-full">
                     <defs>
