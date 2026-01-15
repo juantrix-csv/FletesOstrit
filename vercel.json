@@ -3,10 +3,13 @@
   "buildCommand": "npm --prefix fletes-driver-pwa run build",
   "outputDirectory": "fletes-driver-pwa/dist",
   "framework": null,
-  "rewrites": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
