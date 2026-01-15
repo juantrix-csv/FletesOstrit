@@ -2,5 +2,11 @@
   "installCommand": "npm install && npm --prefix fletes-driver-pwa install",
   "buildCommand": "npm --prefix fletes-driver-pwa run build",
   "outputDirectory": "fletes-driver-pwa/dist",
-  "framework": null
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
 }
