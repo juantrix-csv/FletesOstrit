@@ -6,6 +6,7 @@ import { ArrowLeft, LocateFixed, MapPin, Phone, Route } from 'lucide-react';
 import { calculateDistance, getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
+import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
 import SlideToConfirm from '../components/SlideToConfirm';
 import toast from 'react-hot-toast';
 import { getDriverSession } from '../lib/driverSession';
@@ -25,6 +26,7 @@ export default function JobWorkflow() {
   const navigate = useNavigate();
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showExpanded, setShowExpanded] = useState(false);
   const mapRef = useRef<MapRouteHandle | null>(null);
   const { coords } = useGeoLocation();
   const [dist, setDist] = useState<number|null>(null);
@@ -67,6 +69,14 @@ export default function JobWorkflow() {
       active = false;
     };
   }, [id, navigate]);
+
+  useEffect(() => {
+    setShowExpanded(false);
+  }, [id]);
+
+  useEffect(() => {
+    if (job?.status !== 'PENDING') setShowExpanded(false);
+  }, [job?.status]);
 
   useEffect(() => {
     if (!job || !coords || job.status === 'DONE') return;
@@ -144,6 +154,26 @@ export default function JobWorkflow() {
   const displayAddress = target ? formatAddress(target.address) : 'Direccion no disponible';
   const clientPhone = job.clientPhone?.trim() ?? '';
   const phoneHref = clientPhone ? `tel:${clientPhone.replace(/[^0-9+]/g, '')}` : '';
+  const scheduledDateLabel = job.scheduledDate
+    ?? (scheduledAtMs != null
+      ? new Date(scheduledAtMs).toLocaleDateString('en-GB')
+      : 'Sin fecha');
+  const scheduledTimeLabel = job.scheduledTime
+    ? job.scheduledTime.slice(0, 5)
+    : (scheduledAtMs != null
+      ? new Date(scheduledAtMs).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+      : 'Sin hora');
+  const scheduleLabel = `${scheduledDateLabel} | ${scheduledTimeLabel}`;
+  const estimatedDurationLabel = Number.isFinite(job.estimatedDurationMinutes)
+    ? `${Math.round(job.estimatedDurationMinutes as number)} min`
+    : 'N/D';
+  const distanceValueKm = Number.isFinite(job.distanceKm)
+    ? (job.distanceKm as number)
+    : Number.isFinite(job.distanceMeters)
+      ? (job.distanceMeters as number) / 1000
+      : null;
+  const distanceLabel = distanceValueKm != null ? `${distanceValueKm.toFixed(1)} km` : 'N/D';
+  const extraStops = job.extraStops ?? [];
 
   const next = async (st: JobStatus) => {
     const now = new Date().toISOString();
@@ -191,6 +221,125 @@ export default function JobWorkflow() {
       toast.error('No se pudo actualizar la parada');
     }
   };
+
+  if (job.status === 'PENDING' && !showExpanded) {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/80 px-3.5 py-2.5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => navigate('/driver')}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900"
+            >
+              <ArrowLeft size={14} />
+              Volver
+            </button>
+            {clientPhone && (
+              <a
+                href={phoneHref}
+                className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900"
+                aria-label="Llamar al cliente"
+              >
+                <Phone size={14} />
+                Llamar
+              </a>
+            )}
+          </div>
+          <div className="mt-2">
+            <p className="text-lg font-semibold text-blue-900">{job.clientName}</p>
+            <p className="text-xs text-blue-700">Flete pendiente</p>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-blue-700">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-blue-400">Programado</p>
+              <p className="text-sm font-semibold text-blue-900">{scheduleLabel}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-wide text-blue-400">Ayudantes</p>
+              <p className="text-sm font-semibold text-blue-900">{job.helpersCount ?? 0}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pb-2">
+          <div className="rounded-2xl border bg-white p-3">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Resumen</p>
+            <div className="mt-2 grid gap-1 text-sm text-gray-700">
+              <p><span className="font-medium text-gray-900">Programado:</span> {scheduleLabel}</p>
+              <p><span className="font-medium text-gray-900">Duracion estimada:</span> {estimatedDurationLabel}</p>
+              <p><span className="font-medium text-gray-900">Distancia:</span> {distanceLabel}</p>
+              <p><span className="font-medium text-gray-900">Ayudantes:</span> {job.helpersCount ?? 0}</p>
+              {clientPhone && (
+                <p><span className="font-medium text-gray-900">Contacto:</span> {clientPhone}</p>
+              )}
+            </div>
+          </div>
+          <div className="rounded-2xl border bg-white p-3">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Direcciones</p>
+            <div className="mt-2 space-y-2 text-sm text-gray-700">
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">Origen</p>
+                <p>{job.pickup?.address || 'Sin direccion'}</p>
+              </div>
+              {extraStops.length > 0 && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-gray-400">Paradas extra</p>
+                  <ul className="mt-1 space-y-1">
+                    {extraStops.map((stop, index) => (
+                      <li key={`${stop.lat}-${stop.lng}-${index}`} className="text-sm text-gray-700">
+                        {stop.address || 'Sin direccion'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-gray-400">Destino</p>
+                <p>{job.dropoff?.address || 'Sin direccion'}</p>
+              </div>
+            </div>
+          </div>
+          {(job.description || job.notes) && (
+            <div className="rounded-2xl border bg-white p-3">
+              <p className="text-xs uppercase tracking-wide text-gray-400">Detalles</p>
+              {job.description && (
+                <p className="mt-2 text-sm text-gray-700">Descripcion: {job.description}</p>
+              )}
+              {job.notes && (
+                <p className="mt-2 text-sm text-gray-700">Notas: {job.notes}</p>
+              )}
+            </div>
+          )}
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-wide text-gray-400">Ruta</p>
+            <JobRoutePreviewMap job={job} className="min-h-[200px] rounded-2xl" />
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => next('TO_PICKUP')}
+            disabled={!startAvailable}
+            className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+          >
+            {startAvailable ? 'Iniciar viaje' : 'Programado'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowExpanded(true)}
+            className="w-full rounded border border-blue-200 bg-white px-4 py-2 text-blue-700"
+          >
+            Ver info expandida
+          </button>
+          {!startAvailable && availableAt && (
+            <p className="text-xs text-gray-600 text-center">Disponible desde {availableAt.toLocaleString()}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -279,14 +428,23 @@ export default function JobWorkflow() {
         </button>
       </div>
       
-      {job.status === 'PENDING' && (
+      {job.status === 'PENDING' && showExpanded && (
         <div className="space-y-2">
-          <SlideToConfirm
-            label="Desliza para iniciar"
+          <button
+            type="button"
+            onClick={() => next('TO_PICKUP')}
             disabled={!startAvailable}
-            disabledLabel="Programado"
-            onConfirm={() => next('TO_PICKUP')}
-          />
+            className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+          >
+            {startAvailable ? 'Iniciar viaje' : 'Programado'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowExpanded(false)}
+            className="w-full rounded border border-blue-200 bg-white px-4 py-2 text-blue-700"
+          >
+            Volver al resumen
+          </button>
           {!startAvailable && availableAt && (
             <p className="text-xs text-gray-600 text-center">Disponible desde {availableAt.toLocaleString()}</p>
           )}
