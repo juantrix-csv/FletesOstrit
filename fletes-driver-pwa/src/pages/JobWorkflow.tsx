@@ -6,7 +6,6 @@ import { ArrowLeft, LocateFixed, MapPin, Phone, Route } from 'lucide-react';
 import { calculateDistance, getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
-import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
 import SlideToConfirm from '../components/SlideToConfirm';
 import toast from 'react-hot-toast';
 import { getDriverSession } from '../lib/driverSession';
@@ -311,10 +310,6 @@ export default function JobWorkflow() {
               )}
             </div>
           )}
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Ruta</p>
-            <JobRoutePreviewMap job={job} className="min-h-[200px] rounded-2xl" />
-          </div>
         </div>
 
         <div className="space-y-2">
