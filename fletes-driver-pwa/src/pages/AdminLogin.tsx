@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getAdminSession, setAdminSession, type AdminRole } from '../lib/adminSession';
@@ -14,17 +14,12 @@ const getRoleCode = (role: AdminRole) => {
   return normalizeCode(cleaned || fallback);
 };
 
-const roleMeta = [
-  { role: 'owner' as const, label: 'Dueno', detail: 'Ve analiticas y montos.' },
-  { role: 'assistant' as const, label: 'Asistente', detail: 'Agenda, drivers y creacion de fletes.' },
-];
-
 export default function AdminLogin() {
   const navigate = useNavigate();
-  const [role, setRole] = useState<AdminRole>('owner');
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
-  const expectedCode = useMemo(() => getRoleCode(role), [role]);
+  const ownerCode = getRoleCode('owner');
+  const assistantCode = getRoleCode('assistant');
 
   useEffect(() => {
     const existing = getAdminSession();
@@ -40,7 +35,10 @@ export default function AdminLogin() {
       toast.error('Ingresa el codigo');
       return;
     }
-    if (trimmed !== expectedCode) {
+    let role: AdminRole | null = null;
+    if (trimmed === ownerCode) role = 'owner';
+    if (!role && trimmed === assistantCode) role = 'assistant';
+    if (!role) {
       toast.error('Codigo invalido');
       return;
     }
@@ -55,26 +53,7 @@ export default function AdminLogin() {
       <form onSubmit={submit} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Ingreso admin</h1>
-          <p className="text-sm text-gray-500">Elige el rol y valida el codigo de acceso.</p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {roleMeta.map((item) => {
-            const isActive = role === item.role;
-            return (
-              <button
-                key={item.role}
-                type="button"
-                onClick={() => setRole(item.role)}
-                className={[
-                  "rounded-xl border px-3 py-2 text-left transition",
-                  isActive ? "border-blue-600 bg-blue-50" : "border-gray-200 bg-white hover:border-blue-200",
-                ].join(' ')}
-              >
-                <p className="text-sm font-semibold text-gray-900">{item.label}</p>
-                <p className="text-xs text-gray-500">{item.detail}</p>
-              </button>
-            );
-          })}
+          <p className="text-sm text-gray-500">Ingresa el codigo de acceso.</p>
         </div>
         <input
           value={code}
