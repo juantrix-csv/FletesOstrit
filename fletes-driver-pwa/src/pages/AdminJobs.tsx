@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import { Flag, MapPin, MoreVertical } from 'lucide-react';
@@ -33,6 +33,7 @@ import {
 } from '../lib/api';
 import { calculateDistance, cn, formatDuration, getScheduledAtMs } from '../lib/utils';
 import { reorderList } from '../lib/reorder';
+import { getAdminSession } from '../lib/adminSession';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -269,11 +270,31 @@ const getStatusBadge = (status: JobStatus) => {
 };
 
 export default function AdminJobs() {
+  const navigate = useNavigate();
   const { section } = useParams<{ section?: string }>();
   const [searchParams] = useSearchParams();
-  const tab = useMemo<AdminTab>(() => (
+  const adminRole = getAdminSession()?.role ?? null;
+  const isOwner = adminRole === 'owner';
+  const canSeeMoney = isOwner;
+  const resolvedTab = useMemo<AdminTab>(() => (
     resolveAdminTab(searchParams.get('tab')) ?? resolveAdminTab(section) ?? 'jobs'
   ), [searchParams, section]);
+  const tab = useMemo<AdminTab>(() => {
+    if (!isOwner && (resolvedTab === 'analytics' || resolvedTab === 'settings')) {
+      return 'jobs';
+    }
+    return resolvedTab;
+  }, [isOwner, resolvedTab]);
+  useEffect(() => {
+    if (!adminRole) {
+      navigate('/admin/login', { replace: true });
+    }
+  }, [adminRole, navigate]);
+  useEffect(() => {
+    if (!isOwner && (resolvedTab === 'analytics' || resolvedTab === 'settings')) {
+      navigate('/admin?tab=jobs', { replace: true });
+    }
+  }, [isOwner, navigate, resolvedTab]);
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -1375,6 +1396,10 @@ export default function AdminJobs() {
     : `${calendarEstimateSummary.count} fletes`;
   const calendarTotalHoursLabel = `${decimalFormatter.format(calendarEstimateSummary.totalMinutes / 60)} h`;
 
+  if (!adminRole) {
+    return null;
+  }
+
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
       <section className="space-y-4">
@@ -2051,18 +2076,22 @@ export default function AdminJobs() {
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-3">
                     <p className="text-sm font-semibold text-gray-700">{calendarRangeLabel}</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Total estimado</span>
-                      <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarEstimateTone)}>
-                        {calendarEstimateLabel}
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Neto estimado</span>
-                      <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarNetTone)}>
-                        {calendarNetLabel}
-                      </span>
-                    </div>
+                    {canSeeMoney && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-gray-400">Total estimado</span>
+                        <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarEstimateTone)}>
+                          {calendarEstimateLabel}
+                        </span>
+                      </div>
+                    )}
+                    {canSeeMoney && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-gray-400">Neto estimado</span>
+                        <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarNetTone)}>
+                          {calendarNetLabel}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[11px] uppercase tracking-wide text-gray-400">Fletes agendados</span>
                       <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-semibold text-gray-700">
@@ -2148,7 +2177,9 @@ export default function AdminJobs() {
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
                             const estimateValue = getJobEstimatedTotal(item.job);
-                            const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                            const estimateLabel = canSeeMoney && estimateValue != null
+                              ? currencyFormatter.format(estimateValue)
+                              : null;
                             if (!style) return null;
                             return (
                               <div
@@ -2253,7 +2284,9 @@ export default function AdminJobs() {
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
                                   const estimateValue = getJobEstimatedTotal(item.job);
-                                  const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                  const estimateLabel = canSeeMoney && estimateValue != null
+                                    ? currencyFormatter.format(estimateValue)
+                                    : null;
                                   if (!style) return null;
                                   return (
                                     <div
@@ -2320,7 +2353,9 @@ export default function AdminJobs() {
                             <div className="mt-2 space-y-1">
                               {items.slice(0, 3).map((item) => {
                                 const estimateValue = getJobEstimatedTotal(item.job);
-                                const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                const estimateLabel = canSeeMoney && estimateValue != null
+                                  ? currencyFormatter.format(estimateValue)
+                                  : null;
                                 return (
                                   <div
                                     key={item.job.id}
@@ -3096,9 +3131,11 @@ export default function AdminJobs() {
                       <p>
                         <span className="font-medium text-gray-900">Duracion estimada:</span> {selectedJobEstimateLabel}
                       </p>
-                      <p>
-                        <span className="font-medium text-gray-900">Cobrado:</span> {selectedJobChargedLabel}
-                      </p>
+                      {canSeeMoney && (
+                        <p>
+                          <span className="font-medium text-gray-900">Cobrado:</span> {selectedJobChargedLabel}
+                        </p>
+                      )}
                       {selectedJobDetail.clientPhone && (
                         <p>
                           <span className="font-medium text-gray-900">Contacto:</span> {selectedJobDetail.clientPhone}

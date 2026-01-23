@@ -4,6 +4,7 @@ import DriverHome from './pages/DriverHome';
 import JobWorkflow from './pages/JobWorkflow';
 import AdminJobs from './pages/AdminJobs';
 import DriverLogin from './pages/DriverLogin';
+import AdminLogin from './pages/AdminLogin';
 export default function App() {
   return (
     <BrowserRouter>
@@ -13,6 +14,7 @@ export default function App() {
           <Route path="/driver" element={<DriverHome />} />
           <Route path="/driver/login" element={<DriverLogin />} />
           <Route path="/job/:id" element={<JobWorkflow />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/admin" element={<AdminJobs />} />
           <Route path="/admin/:section" element={<AdminJobs />} />
         </Routes>
