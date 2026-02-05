@@ -26,6 +26,7 @@ export default function JobWorkflow() {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [showExpanded, setShowExpanded] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const mapRef = useRef<MapRouteHandle | null>(null);
   const { coords } = useGeoLocation();
   const [dist, setDist] = useState<number|null>(null);
@@ -71,6 +72,7 @@ export default function JobWorkflow() {
 
   useEffect(() => {
     setShowExpanded(false);
+    setShowDetails(false);
   }, [id]);
 
   useEffect(() => {
@@ -173,6 +175,58 @@ export default function JobWorkflow() {
       : null;
   const distanceLabel = distanceValueKm != null ? `${distanceValueKm.toFixed(1)} km` : 'N/D';
   const extraStops = job.extraStops ?? [];
+  const detailsSection = (
+    <>
+      <div className="rounded-2xl border bg-white p-3">
+        <p className="text-xs uppercase tracking-wide text-gray-400">Resumen</p>
+        <div className="mt-2 grid gap-1 text-sm text-gray-700">
+          <p><span className="font-medium text-gray-900">Programado:</span> {scheduleLabel}</p>
+          <p><span className="font-medium text-gray-900">Duracion estimada:</span> {estimatedDurationLabel}</p>
+          <p><span className="font-medium text-gray-900">Distancia:</span> {distanceLabel}</p>
+          <p><span className="font-medium text-gray-900">Ayudantes:</span> {job.helpersCount ?? 0}</p>
+          {clientPhone && (
+            <p><span className="font-medium text-gray-900">Contacto:</span> {clientPhone}</p>
+          )}
+        </div>
+      </div>
+      <div className="rounded-2xl border bg-white p-3">
+        <p className="text-xs uppercase tracking-wide text-gray-400">Direcciones</p>
+        <div className="mt-2 space-y-2 text-sm text-gray-700">
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-gray-400">Origen</p>
+            <p>{job.pickup?.address || 'Sin direccion'}</p>
+          </div>
+          {extraStops.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-gray-400">Paradas extra</p>
+              <ul className="mt-1 space-y-1">
+                {extraStops.map((stop, index) => (
+                  <li key={`${stop.lat}-${stop.lng}-${index}`} className="text-sm text-gray-700">
+                    {stop.address || 'Sin direccion'}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-gray-400">Destino</p>
+            <p>{job.dropoff?.address || 'Sin direccion'}</p>
+          </div>
+        </div>
+      </div>
+      {(job.description || job.notes) && (
+        <div className="rounded-2xl border bg-white p-3">
+          <p className="text-xs uppercase tracking-wide text-gray-400">Detalles</p>
+          {job.description && (
+            <p className="mt-2 text-sm text-gray-700">Descripcion: {job.description}</p>
+          )}
+          {job.notes && (
+            <p className="mt-2 text-sm text-gray-700">Notas: {job.notes}</p>
+          )}
+        </div>
+      )}
+    </>
+  );
 
   const next = async (st: JobStatus) => {
     const now = new Date().toISOString();
@@ -262,54 +316,7 @@ export default function JobWorkflow() {
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pb-2">
-          <div className="rounded-2xl border bg-white p-3">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Resumen</p>
-            <div className="mt-2 grid gap-1 text-sm text-gray-700">
-              <p><span className="font-medium text-gray-900">Programado:</span> {scheduleLabel}</p>
-              <p><span className="font-medium text-gray-900">Duracion estimada:</span> {estimatedDurationLabel}</p>
-              <p><span className="font-medium text-gray-900">Distancia:</span> {distanceLabel}</p>
-              <p><span className="font-medium text-gray-900">Ayudantes:</span> {job.helpersCount ?? 0}</p>
-              {clientPhone && (
-                <p><span className="font-medium text-gray-900">Contacto:</span> {clientPhone}</p>
-              )}
-            </div>
-          </div>
-          <div className="rounded-2xl border bg-white p-3">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Direcciones</p>
-            <div className="mt-2 space-y-2 text-sm text-gray-700">
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Origen</p>
-                <p>{job.pickup?.address || 'Sin direccion'}</p>
-              </div>
-              {extraStops.length > 0 && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-gray-400">Paradas extra</p>
-                  <ul className="mt-1 space-y-1">
-                    {extraStops.map((stop, index) => (
-                      <li key={`${stop.lat}-${stop.lng}-${index}`} className="text-sm text-gray-700">
-                        {stop.address || 'Sin direccion'}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div>
-                <p className="text-[10px] uppercase tracking-wide text-gray-400">Destino</p>
-                <p>{job.dropoff?.address || 'Sin direccion'}</p>
-              </div>
-            </div>
-          </div>
-          {(job.description || job.notes) && (
-            <div className="rounded-2xl border bg-white p-3">
-              <p className="text-xs uppercase tracking-wide text-gray-400">Detalles</p>
-              {job.description && (
-                <p className="mt-2 text-sm text-gray-700">Descripcion: {job.description}</p>
-              )}
-              {job.notes && (
-                <p className="mt-2 text-sm text-gray-700">Notas: {job.notes}</p>
-              )}
-            </div>
-          )}
+          {detailsSection}
         </div>
 
         <div className="space-y-2">
@@ -393,6 +400,15 @@ export default function JobWorkflow() {
             </div>
           </div>
         </div>
+        <div className="mt-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setShowDetails(true)}
+            className="rounded-full border border-blue-200 bg-white px-3 py-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900"
+          >
+            Ver detalle del flete
+          </button>
+        </div>
       </div>
 
       <div className="relative flex-1 min-h-0">
@@ -457,6 +473,25 @@ export default function JobWorkflow() {
         <SlideToConfirm label="Desliza para descargar" onConfirm={() => next('UNLOADING')} />
       )}
       {job.status === 'UNLOADING' && <SlideToConfirm label="Desliza para finalizar" onConfirm={() => next('DONE')} />}
+      {showDetails && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/40">
+          <div className="w-full max-w-md mx-auto max-h-[85vh] overflow-y-auto rounded-t-3xl bg-slate-50 p-4 shadow-xl">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-900">Detalle del flete</p>
+              <button
+                type="button"
+                onClick={() => setShowDetails(false)}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="mt-3 space-y-3">
+              {detailsSection}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
