@@ -200,11 +200,12 @@ const buildDayLayout = (items: CalendarJob[], day: Date) => {
 const getEventColumnStyle = (layoutEntry?: { column: number; columns: number }) => {
   const column = layoutEntry?.column ?? 0;
   const columns = layoutEntry?.columns ?? 1;
+  const gutter = columns > 2 ? 2 : calendarEventGutter;
   const columnWidth = 100 / columns;
   const left = columnWidth * column;
   return {
-    left: `calc(${left}% + ${calendarEventGutter}px)`,
-    width: `calc(${columnWidth}% - ${calendarEventGutter * 2}px)`,
+    left: `calc(${left}% + ${gutter}px)`,
+    width: `calc(${columnWidth}% - ${gutter * 2}px)`,
   };
 };
 
@@ -2270,13 +2271,18 @@ export default function AdminJobs() {
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
                             const driverColors = getDriverColors(item.job.driverId);
-                            const columnStyle = getEventColumnStyle(dayLayout.get(item.job.id));
+                            const layoutEntry = dayLayout.get(item.job.id);
+                            const columnStyle = getEventColumnStyle(layoutEntry);
+                            const isDense = (layoutEntry?.columns ?? 1) > 2;
                             if (!style) return null;
                             return (
                               <div
                                 key={item.job.id}
                                 onClick={() => openJobDetail(item.job.id)}
-                                className="absolute cursor-pointer rounded-lg border pl-2 pr-12 py-1 text-[11px] shadow-sm transition hover:shadow"
+                                className={cn(
+                                  "absolute cursor-pointer rounded-lg border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                  isDense ? "pl-1 pr-1 text-[10px]" : "pl-2 pr-12 text-[11px]"
+                                )}
                                 style={{
                                   top: style.top,
                                   height: style.height,
@@ -2286,16 +2292,16 @@ export default function AdminJobs() {
                                   color: driverColors.text,
                                 }}
                               >
-                                {estimateLabel && (
+                                {!isDense && estimateLabel && (
                                   <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
                                     {estimateLabel}
                                   </span>
                                 )}
-                                <div className="text-[10px] font-semibold uppercase tracking-wide truncate" style={{ color: driverColors.accent }}>
+                                <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
                                   {driverLabel}
                                 </div>
                                 <div className="font-semibold truncate">{item.job.clientName}</div>
-                                <div className="text-[10px] truncate" style={{ color: driverColors.accent }}>
+                                <div className={cn("truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
                                   {formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
@@ -2390,13 +2396,18 @@ export default function AdminJobs() {
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
                                   const driverColors = getDriverColors(item.job.driverId);
-                                  const columnStyle = getEventColumnStyle(dayLayoutWeek.get(item.job.id));
+                                  const layoutEntry = dayLayoutWeek.get(item.job.id);
+                                  const columnStyle = getEventColumnStyle(layoutEntry);
+                                  const isDense = (layoutEntry?.columns ?? 1) > 2;
                                   if (!style) return null;
                                   return (
                                     <div
                                       key={item.job.id}
                                       onClick={() => openJobDetail(item.job.id)}
-                                      className="absolute cursor-pointer rounded-md border pl-1.5 pr-11 py-1 text-[10px] shadow-sm transition hover:shadow"
+                                      className={cn(
+                                        "absolute cursor-pointer rounded-md border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                        isDense ? "pl-1 pr-1 text-[9px]" : "pl-1.5 pr-11 text-[10px]"
+                                      )}
                                       style={{
                                         top: style.top,
                                         height: style.height,
@@ -2406,16 +2417,16 @@ export default function AdminJobs() {
                                         color: driverColors.text,
                                       }}
                                     >
-                                      {estimateLabel && (
+                                      {!isDense && estimateLabel && (
                                         <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
                                           {estimateLabel}
                                         </span>
                                       )}
-                                      <div className="text-[9px] font-semibold uppercase tracking-wide truncate" style={{ color: driverColors.accent }}>
+                                      <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
                                         {driverLabel}
                                       </div>
                                       <div className="font-semibold truncate">{item.job.clientName}</div>
-                                      <div className="text-[9px] truncate" style={{ color: driverColors.accent }}>
+                                      <div className={cn("truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
                                         {formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
                                     </div>
