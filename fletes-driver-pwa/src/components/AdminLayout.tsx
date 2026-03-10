@@ -1,7 +1,8 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { BarChart3, CalendarDays, Package, Settings, Truck, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { clearAdminSession, getAdminSession } from '../lib/adminSession';
 
 const navItems = [
   { key: 'jobs', label: 'Fletes', to: '/admin?tab=jobs', Icon: Package },
@@ -24,7 +25,23 @@ const resolveActiveTab = (loc: string, search: string) => {
 
 export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
-  const activeTab = resolveActiveTab(loc.pathname, loc.search);
+  const navigate = useNavigate();
+  const session = getAdminSession();
+  const isOwner = session?.role === 'owner';
+  const roleLabel = session?.role === 'owner' ? 'Dueno' : session?.role === 'assistant' ? 'Asistente' : 'Sin sesion';
+  const visibleNavItems = isOwner ? navItems : navItems.filter((item) => item.key !== 'analytics');
+  const visibleBottomItems = isOwner ? bottomItems : [];
+  const allowedTabs = new Set(isOwner
+    ? ['jobs', 'drivers', 'calendar', 'analytics', 'settings']
+    : ['jobs', 'drivers', 'calendar']
+  );
+  const resolvedTab = resolveActiveTab(loc.pathname, loc.search);
+  const activeTab = allowedTabs.has(resolvedTab) ? resolvedTab : 'jobs';
+
+  const handleLogout = () => {
+    clearAdminSession();
+    navigate('/admin/login', { replace: true });
+  };
 
   return (
     <div className="flex h-[100dvh] min-h-screen bg-slate-100">
@@ -39,7 +56,7 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </div>
         <nav className="mt-3 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = activeTab === item.key;
             const Icon = item.Icon;
             return (
@@ -66,7 +83,7 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           })}
         </nav>
         <nav className="space-y-1 border-t border-slate-900/60 px-3 py-4">
-          {bottomItems.map((item) => {
+          {visibleBottomItems.map((item) => {
             const isActive = activeTab === item.key;
             const Icon = item.Icon;
             return (
@@ -92,6 +109,19 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
             );
           })}
         </nav>
+        <div className="border-t border-slate-900/60 px-3 py-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">Sesion</p>
+            <p className="text-sm font-semibold text-slate-100">{roleLabel}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-3 w-full rounded-xl border border-slate-800 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900"
+          >
+            Cerrar sesion
+          </button>
+        </div>
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col pl-72">

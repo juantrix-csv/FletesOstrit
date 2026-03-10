@@ -8,7 +8,7 @@ import { AdminLayout } from './AdminLayout';
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
   const navClass = (p: string) => cn("flex flex-col items-center w-full text-xs", loc.pathname === p ? "text-blue-600" : "text-gray-500");
-  const isAdminRoute = loc.pathname.startsWith('/admin');
+  const isAdminRoute = loc.pathname.startsWith('/admin') && loc.pathname !== '/admin/login';
   const isJobRoute = loc.pathname.startsWith('/job/');
   const isDriverRoute = loc.pathname.startsWith('/driver');
   const isDriverLogin = loc.pathname === '/driver/login';
