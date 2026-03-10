@@ -112,12 +112,12 @@ const formatJobRangeForDay = (start: Date, end: Date, day: Date) => {
   return `${timeFormatter.format(overlap.rangeStart)}-${timeFormatter.format(overlap.rangeEnd)}`;
 };
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const getMinutesIntoDay = (date: Date) => date.getHours() * 60 + date.getMinutes();
 const getEventBlockStyle = (start: Date, end: Date, day: Date) => {
   const overlap = getDayOverlapRange(start, end, day);
   if (!overlap) return null;
-  const startMinutes = getMinutesIntoDay(overlap.rangeStart);
-  const endMinutes = getMinutesIntoDay(overlap.rangeEnd);
+  const dayStart = startOfDay(day);
+  const startMinutes = (overlap.rangeStart.getTime() - dayStart.getTime()) / 60000;
+  const endMinutes = (overlap.rangeEnd.getTime() - dayStart.getTime()) / 60000;
   const minMinutes = calendarStartHour * 60;
   const maxMinutes = calendarEndHour * 60;
   const clampedStart = clampNumber(startMinutes, minMinutes, maxMinutes);
