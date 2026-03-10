@@ -211,9 +211,10 @@ const getEventColumnStyle = (layoutEntry?: { column: number; columns: number }) 
   const gutter = columns > 2 ? 2 : calendarEventGutter;
   const columnWidth = 100 / columns;
   const left = columnWidth * column;
+  const right = columnWidth * (columns - column - 1);
   return {
     left: `calc(${left}% + ${gutter}px)`,
-    width: `calc(${columnWidth}% - ${gutter * 2}px)`,
+    right: `calc(${right}% + ${gutter}px)`,
   };
 };
 
