@@ -2503,8 +2503,8 @@ export default function AdminJobs() {
 
                 {calendarView === 'week' && (
                   <div className="mt-4 rounded-2xl border bg-white p-3">
-                    <div className="overflow-x-auto">
-                      <div className="min-w-[960px]">
+                    <div className="overflow-x-hidden sm:overflow-x-auto">
+                      <div className="min-w-0 sm:min-w-[960px]">
                         <div className="grid grid-cols-[56px_repeat(7,1fr)] text-[11px] text-gray-500">
                           <div />
                           {weekDays.map((day) => {
