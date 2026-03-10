@@ -2236,7 +2236,7 @@ export default function AdminJobs() {
           {tab === 'calendar' && (
             <div className="space-y-4">
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">Calendario</p>
                     <h2 className="text-lg font-semibold text-gray-900">Agenda de fletes</h2>
@@ -2267,7 +2267,7 @@ export default function AdminJobs() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex flex-wrap items-center gap-3">
                     <p className="text-sm font-semibold text-gray-700">{calendarRangeLabel}</p>
                     {canSeeMoney && (
