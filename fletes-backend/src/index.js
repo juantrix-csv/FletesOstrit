@@ -2,21 +2,26 @@ import express from 'express';
 import cors from 'cors';
 import {
   createDriver,
+  createVehicle,
   createJob,
   deleteDriver,
+  deleteVehicle,
   deleteJob,
   getDriverByCode,
   getDriverById,
   getJob,
+  getVehicleById,
   getSetting,
   listCompletedJobs,
   listDrivers,
   listDriverLocations,
   listJobs,
+  listVehicles,
   seedJobsIfEmpty,
   setSetting,
   upsertDriverLocation,
   updateDriver,
+  updateVehicle,
   updateJob,
 } from './db.js';
 
@@ -79,6 +84,9 @@ const csvValue = (value) => {
   return text;
 };
 
+const VEHICLE_SIZES = new Set(['chico', 'mediano', 'grande']);
+const isVehicleSize = (value) => typeof value === 'string' && VEHICLE_SIZES.has(value);
+
 const getBilledHours = (durationMs) => {
   if (durationMs == null) return null;
   if (durationMs <= 0) return 0;
@@ -96,6 +104,7 @@ app.get('/', (_req, res) => {
       health: '/api/v1/health',
       jobs: '/api/v1/jobs',
       drivers: '/api/v1/drivers',
+      vehicles: '/api/v1/vehicles',
     },
   });
 });
@@ -468,6 +477,19 @@ app.post(`${API_PREFIX}/drivers`, (req, res) => {
     res.status(400).json({ error: 'Missing code' });
     return;
   }
+  let vehicleId = null;
+  if (body.vehicleId != null) {
+    if (!isNonEmptyString(body.vehicleId)) {
+      res.status(400).json({ error: 'Invalid vehicle' });
+      return;
+    }
+    const vehicle = getVehicleById(body.vehicleId);
+    if (!vehicle) {
+      res.status(400).json({ error: 'Invalid vehicle' });
+      return;
+    }
+    vehicleId = vehicle.id;
+  }
   const normalizedCode = body.code.trim().toUpperCase();
   const exists = getDriverByCode(normalizedCode);
   if (exists) {
@@ -479,6 +501,7 @@ app.post(`${API_PREFIX}/drivers`, (req, res) => {
     name: body.name,
     code: normalizedCode,
     phone: body.phone,
+    vehicleId,
     active: body.active ?? true,
     createdAt: body.createdAt,
     updatedAt: body.updatedAt,
@@ -505,6 +528,21 @@ app.patch(`${API_PREFIX}/drivers/:id`, (req, res) => {
     }
     body.code = normalizedCode;
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'vehicleId')) {
+    if (body.vehicleId == null) {
+      body.vehicleId = null;
+    } else if (!isNonEmptyString(body.vehicleId)) {
+      res.status(400).json({ error: 'Invalid vehicle' });
+      return;
+    } else {
+      const vehicle = getVehicleById(body.vehicleId);
+      if (!vehicle) {
+        res.status(400).json({ error: 'Invalid vehicle' });
+        return;
+      }
+      body.vehicleId = vehicle.id;
+    }
+  }
   const updated = updateDriver(req.params.id, body);
   if (!updated) {
     res.status(404).json({ error: 'Not found' });
@@ -515,6 +553,84 @@ app.patch(`${API_PREFIX}/drivers/:id`, (req, res) => {
 
 app.delete(`${API_PREFIX}/drivers/:id`, (req, res) => {
   const removed = deleteDriver(req.params.id);
+  if (!removed) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.status(204).send();
+});
+
+app.get(`${API_PREFIX}/vehicles`, (_req, res) => {
+  res.json(listVehicles());
+});
+
+app.post(`${API_PREFIX}/vehicles`, (req, res) => {
+  const body = req.body ?? {};
+  if (!isNonEmptyString(body.id)) {
+    res.status(400).json({ error: 'Missing id' });
+    return;
+  }
+  if (!isNonEmptyString(body.name)) {
+    res.status(400).json({ error: 'Missing name' });
+    return;
+  }
+  if (!isVehicleSize(body.size)) {
+    res.status(400).json({ error: 'Invalid size' });
+    return;
+  }
+  if (!isNonNegativeNumber(body.costPerKm)) {
+    res.status(400).json({ error: 'Invalid costPerKm' });
+    return;
+  }
+  if (!isNonNegativeNumber(body.fixedMonthlyCost)) {
+    res.status(400).json({ error: 'Invalid fixedMonthlyCost' });
+    return;
+  }
+  const exists = getVehicleById(body.id);
+  if (exists) {
+    res.status(409).json({ error: 'Vehicle already exists' });
+    return;
+  }
+  const created = createVehicle({
+    id: body.id,
+    name: body.name,
+    size: body.size,
+    costPerKm: body.costPerKm,
+    fixedMonthlyCost: body.fixedMonthlyCost,
+    createdAt: body.createdAt,
+    updatedAt: body.updatedAt,
+  });
+  res.status(201).json(created);
+});
+
+app.patch(`${API_PREFIX}/vehicles/:id`, (req, res) => {
+  const body = req.body ?? {};
+  if (body.name && !isNonEmptyString(body.name)) {
+    res.status(400).json({ error: 'Invalid name' });
+    return;
+  }
+  if (body.size && !isVehicleSize(body.size)) {
+    res.status(400).json({ error: 'Invalid size' });
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'costPerKm') && !isNonNegativeNumber(body.costPerKm)) {
+    res.status(400).json({ error: 'Invalid costPerKm' });
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'fixedMonthlyCost') && !isNonNegativeNumber(body.fixedMonthlyCost)) {
+    res.status(400).json({ error: 'Invalid fixedMonthlyCost' });
+    return;
+  }
+  const updated = updateVehicle(req.params.id, body);
+  if (!updated) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+  res.json(updated);
+});
+
+app.delete(`${API_PREFIX}/vehicles/:id`, (req, res) => {
+  const removed = deleteVehicle(req.params.id);
   if (!removed) {
     res.status(404).json({ error: 'Not found' });
     return;

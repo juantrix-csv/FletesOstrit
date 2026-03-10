@@ -1,4 +1,4 @@
-import { deleteDriver, getDriverByCode, updateDriver } from '../../_db.js';
+import { deleteDriver, getDriverByCode, getVehicleById, updateDriver } from '../../_db.js';
 
 const parseBody = (req) => {
   if (!req.body) return {};
@@ -35,6 +35,21 @@ export default async function handler(req, res) {
         return;
       }
       body.code = normalizedCode;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'vehicleId')) {
+      if (body.vehicleId == null) {
+        body.vehicleId = null;
+      } else if (!isNonEmptyString(body.vehicleId)) {
+        res.status(400).json({ error: 'Invalid vehicle' });
+        return;
+      } else {
+        const vehicle = await getVehicleById(body.vehicleId);
+        if (!vehicle) {
+          res.status(400).json({ error: 'Invalid vehicle' });
+          return;
+        }
+        body.vehicleId = vehicle.id;
+      }
     }
     const updated = await updateDriver(id, body);
     if (!updated) {

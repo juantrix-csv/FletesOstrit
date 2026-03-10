@@ -1,10 +1,21 @@
 export type JobStatus = 'PENDING' | 'TO_PICKUP' | 'LOADING' | 'TO_DROPOFF' | 'UNLOADING' | 'DONE';
 export interface LocationData { address: string; lat: number; lng: number; }
+export type VehicleSize = 'chico' | 'mediano' | 'grande';
+export interface Vehicle {
+  id: string;
+  name: string;
+  size: VehicleSize;
+  costPerKm: number;
+  fixedMonthlyCost: number;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface Driver {
   id: string;
   name: string;
   code: string;
   phone?: string;
+  vehicleId?: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;

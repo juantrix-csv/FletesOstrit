@@ -85,6 +85,13 @@ const ensureJobsColumns = () => {
   }
 };
 
+const ensureDriversColumns = () => {
+  const columns = db.prepare('PRAGMA table_info(drivers)').all().map((col) => col.name);
+  if (!columns.includes('vehicleId')) {
+    db.exec('ALTER TABLE drivers ADD COLUMN vehicleId TEXT;');
+  }
+};
+
 ensureJobsColumns();
 
 db.exec(`
@@ -93,7 +100,20 @@ db.exec(`
     name TEXT NOT NULL,
     code TEXT NOT NULL UNIQUE,
     phone TEXT,
+    vehicleId TEXT,
     active INTEGER NOT NULL DEFAULT 1,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vehicles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    size TEXT NOT NULL,
+    costPerKm REAL NOT NULL,
+    fixedMonthlyCost REAL NOT NULL,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   );
@@ -111,6 +131,8 @@ db.exec(`
     updatedAt TEXT NOT NULL
   );
 `);
+
+ensureDriversColumns();
 
 const defaultFlags = {
   nearPickupSent: false,
@@ -373,6 +395,7 @@ const toDriverRow = (driver) => ({
   name: driver.name,
   code: driver.code,
   phone: driver.phone ?? null,
+  vehicleId: driver.vehicleId ?? null,
   active: driver.active ? 1 : 0,
   createdAt: driver.createdAt,
   updatedAt: driver.updatedAt,
@@ -383,6 +406,7 @@ const fromDriverRow = (row) => ({
   name: row.name,
   code: row.code,
   phone: row.phone ?? undefined,
+  vehicleId: row.vehicleId ?? undefined,
   active: row.active === 1,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -390,9 +414,9 @@ const fromDriverRow = (row) => ({
 
 const insertDriverStmt = db.prepare(`
   INSERT INTO drivers (
-    id, name, code, phone, active, createdAt, updatedAt
+    id, name, code, phone, vehicleId, active, createdAt, updatedAt
   ) VALUES (
-    @id, @name, @code, @phone, @active, @createdAt, @updatedAt
+    @id, @name, @code, @phone, @vehicleId, @active, @createdAt, @updatedAt
   );
 `);
 
@@ -401,6 +425,7 @@ const updateDriverStmt = db.prepare(`
     name = @name,
     code = @code,
     phone = @phone,
+    vehicleId = @vehicleId,
     active = @active,
     createdAt = @createdAt,
     updatedAt = @updatedAt
@@ -451,6 +476,85 @@ export const updateDriver = (id, patch) => {
 export const deleteDriver = (id) => {
   db.prepare('UPDATE jobs SET driverId = NULL WHERE driverId = ?').run(id);
   const info = db.prepare('DELETE FROM drivers WHERE id = ?').run(id);
+  return info.changes > 0;
+};
+
+const toVehicleRow = (vehicle) => ({
+  id: vehicle.id,
+  name: vehicle.name,
+  size: vehicle.size,
+  costPerKm: Number.isFinite(vehicle.costPerKm) ? vehicle.costPerKm : 0,
+  fixedMonthlyCost: Number.isFinite(vehicle.fixedMonthlyCost) ? vehicle.fixedMonthlyCost : 0,
+  createdAt: vehicle.createdAt,
+  updatedAt: vehicle.updatedAt,
+});
+
+const fromVehicleRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  size: row.size,
+  costPerKm: Number.isFinite(row.costPerKm) ? row.costPerKm : 0,
+  fixedMonthlyCost: Number.isFinite(row.fixedMonthlyCost) ? row.fixedMonthlyCost : 0,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const insertVehicleStmt = db.prepare(`
+  INSERT INTO vehicles (
+    id, name, size, costPerKm, fixedMonthlyCost, createdAt, updatedAt
+  ) VALUES (
+    @id, @name, @size, @costPerKm, @fixedMonthlyCost, @createdAt, @updatedAt
+  );
+`);
+
+const updateVehicleStmt = db.prepare(`
+  UPDATE vehicles SET
+    name = @name,
+    size = @size,
+    costPerKm = @costPerKm,
+    fixedMonthlyCost = @fixedMonthlyCost,
+    createdAt = @createdAt,
+    updatedAt = @updatedAt
+  WHERE id = @id;
+`);
+
+export const listVehicles = () => {
+  const rows = db.prepare('SELECT * FROM vehicles ORDER BY createdAt DESC').all();
+  return rows.map(fromVehicleRow);
+};
+
+export const getVehicleById = (id) => {
+  const row = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
+  return row ? fromVehicleRow(row) : null;
+};
+
+export const createVehicle = (vehicle) => {
+  const createdAt = vehicle.createdAt ?? new Date().toISOString();
+  const updatedAt = vehicle.updatedAt ?? createdAt;
+  const row = toVehicleRow({
+    ...vehicle,
+    createdAt,
+    updatedAt,
+  });
+  insertVehicleStmt.run(row);
+  return getVehicleById(vehicle.id);
+};
+
+export const updateVehicle = (id, patch) => {
+  const current = getVehicleById(id);
+  if (!current) return null;
+  const next = {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  updateVehicleStmt.run(toVehicleRow(next));
+  return getVehicleById(id);
+};
+
+export const deleteVehicle = (id) => {
+  db.prepare('UPDATE drivers SET vehicleId = NULL WHERE vehicleId = ?').run(id);
+  const info = db.prepare('DELETE FROM vehicles WHERE id = ?').run(id);
   return info.changes > 0;
 };
 

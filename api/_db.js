@@ -89,7 +89,20 @@ export const ensureSchema = async () => {
       name TEXT NOT NULL,
       code TEXT NOT NULL UNIQUE,
       phone TEXT,
+      vehicle_id TEXT,
       active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `;
+  await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS vehicles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      size TEXT NOT NULL,
+      cost_per_km DOUBLE PRECISION NOT NULL,
+      fixed_monthly_cost DOUBLE PRECISION NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -443,6 +456,7 @@ const normalizeDriverRow = (row) => ({
   name: row.name,
   code: row.code,
   phone: row.phone ?? undefined,
+  vehicleId: row.vehicle_id ?? undefined,
   active: row.active === true,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -475,12 +489,13 @@ export const createDriver = async (driver) => {
   const active = typeof driver.active === 'boolean' ? driver.active : true;
   await sql`
     INSERT INTO drivers (
-      id, name, code, phone, active, created_at, updated_at
+      id, name, code, phone, vehicle_id, active, created_at, updated_at
     ) VALUES (
       ${driver.id},
       ${driver.name},
       ${driver.code},
       ${driver.phone ?? null},
+      ${driver.vehicleId ?? null},
       ${active},
       ${createdAt},
       ${updatedAt}
@@ -503,6 +518,7 @@ export const updateDriver = async (id, patch) => {
       name = ${next.name},
       code = ${next.code},
       phone = ${next.phone ?? null},
+      vehicle_id = ${next.vehicleId ?? null},
       active = ${next.active},
       created_at = ${next.createdAt},
       updated_at = ${next.updatedAt}
@@ -515,5 +531,76 @@ export const deleteDriver = async (id) => {
   await ensureSchema();
   await sql`UPDATE jobs SET driver_id = NULL WHERE driver_id = ${id}`;
   const result = await sql`DELETE FROM drivers WHERE id = ${id}`;
+  return result.rowCount > 0;
+};
+
+const normalizeVehicleRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  size: row.size,
+  costPerKm: row.cost_per_km != null ? Number(row.cost_per_km) : 0,
+  fixedMonthlyCost: row.fixed_monthly_cost != null ? Number(row.fixed_monthly_cost) : 0,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export const listVehicles = async () => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM vehicles ORDER BY created_at DESC`;
+  return rows.map(normalizeVehicleRow);
+};
+
+export const getVehicleById = async (id) => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM vehicles WHERE id = ${id}`;
+  if (rows.length === 0) return null;
+  return normalizeVehicleRow(rows[0]);
+};
+
+export const createVehicle = async (vehicle) => {
+  await ensureSchema();
+  const createdAt = vehicle.createdAt ?? new Date().toISOString();
+  const updatedAt = vehicle.updatedAt ?? createdAt;
+  await sql`
+    INSERT INTO vehicles (
+      id, name, size, cost_per_km, fixed_monthly_cost, created_at, updated_at
+    ) VALUES (
+      ${vehicle.id},
+      ${vehicle.name},
+      ${vehicle.size},
+      ${vehicle.costPerKm},
+      ${vehicle.fixedMonthlyCost},
+      ${createdAt},
+      ${updatedAt}
+    )
+  `;
+  return getVehicleById(vehicle.id);
+};
+
+export const updateVehicle = async (id, patch) => {
+  const current = await getVehicleById(id);
+  if (!current) return null;
+  const next = {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  await sql`
+    UPDATE vehicles SET
+      name = ${next.name},
+      size = ${next.size},
+      cost_per_km = ${next.costPerKm},
+      fixed_monthly_cost = ${next.fixedMonthlyCost},
+      created_at = ${next.createdAt},
+      updated_at = ${next.updatedAt}
+    WHERE id = ${id}
+  `;
+  return getVehicleById(id);
+};
+
+export const deleteVehicle = async (id) => {
+  await ensureSchema();
+  await sql`UPDATE drivers SET vehicle_id = NULL WHERE vehicle_id = ${id}`;
+  const result = await sql`DELETE FROM vehicles WHERE id = ${id}`;
   return result.rowCount > 0;
 };

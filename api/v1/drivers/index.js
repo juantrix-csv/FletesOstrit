@@ -1,4 +1,4 @@
-import { createDriver, getDriverByCode, listDrivers } from '../../_db.js';
+import { createDriver, getDriverByCode, getVehicleById, listDrivers } from '../../_db.js';
 
 const parseBody = (req) => {
   if (!req.body) return {};
@@ -41,25 +41,39 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Missing name' });
       return;
     }
-    if (!isNonEmptyString(body.code)) {
-      res.status(400).json({ error: 'Missing code' });
+  if (!isNonEmptyString(body.code)) {
+    res.status(400).json({ error: 'Missing code' });
+    return;
+  }
+  let vehicleId = null;
+  if (body.vehicleId != null) {
+    if (!isNonEmptyString(body.vehicleId)) {
+      res.status(400).json({ error: 'Invalid vehicle' });
       return;
     }
-    const normalizedCode = body.code.trim().toUpperCase();
-    const exists = await getDriverByCode(normalizedCode);
-    if (exists) {
-      res.status(409).json({ error: 'Code already in use' });
+    const vehicle = await getVehicleById(body.vehicleId);
+    if (!vehicle) {
+      res.status(400).json({ error: 'Invalid vehicle' });
+      return;
+    }
+    vehicleId = vehicle.id;
+  }
+  const normalizedCode = body.code.trim().toUpperCase();
+  const exists = await getDriverByCode(normalizedCode);
+  if (exists) {
+    res.status(409).json({ error: 'Code already in use' });
       return;
     }
     const created = await createDriver({
-      id: body.id,
-      name: body.name,
-      code: normalizedCode,
-      phone: body.phone,
-      active: body.active ?? true,
-      createdAt: body.createdAt,
-      updatedAt: body.updatedAt,
-    });
+    id: body.id,
+    name: body.name,
+    code: normalizedCode,
+    phone: body.phone,
+    vehicleId,
+    active: body.active ?? true,
+    createdAt: body.createdAt,
+    updatedAt: body.updatedAt,
+  });
     res.status(201).json(created);
     return;
   }

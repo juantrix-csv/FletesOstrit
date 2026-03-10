@@ -1,4 +1,4 @@
-import type { Driver, DriverLocation, Job } from './types';
+import type { Driver, DriverLocation, Job, Vehicle } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
@@ -50,6 +50,19 @@ export const updateDriver = (id: string, patch: Partial<Driver>) =>
   fetchJson<Driver>(`/drivers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 export const deleteDriver = async (id: string) => {
   const res = await fetch(`${API_BASE}/drivers/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+};
+
+export const listVehicles = () => fetchJson<Vehicle[]>('/vehicles');
+export const createVehicle = (vehicle: Vehicle) =>
+  fetchJson<Vehicle>('/vehicles', { method: 'POST', body: JSON.stringify(vehicle) });
+export const updateVehicle = (id: string, patch: Partial<Vehicle>) =>
+  fetchJson<Vehicle>(`/vehicles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+export const deleteVehicle = async (id: string) => {
+  const res = await fetch(`${API_BASE}/vehicles/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || `HTTP ${res.status}`);

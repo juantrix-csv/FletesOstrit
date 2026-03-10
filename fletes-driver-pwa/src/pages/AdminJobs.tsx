@@ -8,12 +8,14 @@ import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
-import type { Driver, DriverLocation, Job, JobStatus, LocationData } from '../lib/types';
+import type { Driver, DriverLocation, Job, JobStatus, LocationData, Vehicle } from '../lib/types';
 import {
   createDriver,
   createJob,
+  createVehicle,
   deleteDriver,
   deleteJob,
+  deleteVehicle,
   downloadJobsHistory,
   getFixedMonthlyCost,
   getHelperHourlyRate,
@@ -23,6 +25,7 @@ import {
   listDriverLocations,
   listDrivers,
   listJobs,
+  listVehicles,
   setFixedMonthlyCost,
   setHelperHourlyRate,
   setHourlyRate,
@@ -54,6 +57,11 @@ const calendarStartHour = 6;
 const calendarEndHour = 22;
 const calendarHourHeight = 56;
 const calendarHours = Array.from({ length: calendarEndHour - calendarStartHour }, (_, index) => calendarStartHour + index);
+const vehicleSizeLabels: Record<'chico' | 'mediano' | 'grande', string> = {
+  chico: 'Chico',
+  mediano: 'Mediano',
+  grande: 'Grande',
+};
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 const addDays = (date: Date, offset: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset);
@@ -389,8 +397,10 @@ export default function AdminJobs() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [jobs, setJobs] = useState<Job[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [loadingDrivers, setLoadingDrivers] = useState(true);
+  const [loadingVehicles, setLoadingVehicles] = useState(true);
   const [loadingLocations, setLoadingLocations] = useState(true);
   const [open, setOpen] = useState(false);
   const [pickup, setPickup] = useState<LocationData | null>(null);
@@ -411,6 +421,11 @@ export default function AdminJobs() {
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   const [driverModalOpen, setDriverModalOpen] = useState(false);
+  const [vehicleName, setVehicleName] = useState('');
+  const [vehicleSize, setVehicleSize] = useState<'chico' | 'mediano' | 'grande'>('mediano');
+  const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
+  const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
+  const [savingVehicle, setSavingVehicle] = useState(false);
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -443,6 +458,11 @@ export default function AdminJobs() {
     drivers.forEach((driver) => map.set(driver.id, driver));
     return map;
   }, [drivers]);
+  const vehiclesById = useMemo(() => {
+    const map = new Map<string, Vehicle>();
+    vehicles.forEach((vehicle) => map.set(vehicle.id, vehicle));
+    return map;
+  }, [vehicles]);
   const hourlyRateValue = useMemo(() => parseHourlyRate(hourlyRateInput), [hourlyRateInput]);
   const helperHourlyRateValue = useMemo(() => parseHourlyRate(helperHourlyRateInput), [helperHourlyRateInput]);
   const fixedMonthlyCostValue = useMemo(() => parseHourlyRate(fixedMonthlyCostInput), [fixedMonthlyCostInput]);
@@ -470,6 +490,18 @@ export default function AdminJobs() {
       toast.error('No se pudieron cargar los conductores');
     } finally {
       setLoadingDrivers(false);
+    }
+  };
+
+  const loadVehicles = async () => {
+    try {
+      setLoadingVehicles(true);
+      const data = await listVehicles();
+      setVehicles(data);
+    } catch {
+      toast.error('No se pudieron cargar los vehiculos');
+    } finally {
+      setLoadingVehicles(false);
     }
   };
 
@@ -589,6 +621,7 @@ export default function AdminJobs() {
   useEffect(() => {
     loadJobs();
     loadDrivers();
+    loadVehicles();
     loadDriverLocations();
     loadHourlyRate();
     loadHelperHourlyRate();
@@ -790,6 +823,55 @@ export default function AdminJobs() {
     }
   };
 
+  const handleCreateVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!vehicleName.trim()) {
+      toast.error('Nombre del vehiculo obligatorio');
+      return;
+    }
+    const costPerKm = parseMoneyInput(vehicleCostPerKmInput);
+    if (vehicleCostPerKmInput.trim() && costPerKm == null) {
+      toast.error('Gasto por km invalido');
+      return;
+    }
+    if (!vehicleCostPerKmInput.trim()) {
+      toast.error('Gasto por km obligatorio');
+      return;
+    }
+    const fixedMonthlyCost = parseMoneyInput(vehicleFixedMonthlyInput);
+    if (vehicleFixedMonthlyInput.trim() && fixedMonthlyCost == null) {
+      toast.error('Gasto fijo mensual invalido');
+      return;
+    }
+    if (!vehicleFixedMonthlyInput.trim()) {
+      toast.error('Gasto fijo mensual obligatorio');
+      return;
+    }
+    try {
+      setSavingVehicle(true);
+      const now = new Date().toISOString();
+      const created = await createVehicle({
+        id: uuidv4(),
+        name: vehicleName.trim(),
+        size: vehicleSize,
+        costPerKm: costPerKm as number,
+        fixedMonthlyCost: fixedMonthlyCost as number,
+        createdAt: now,
+        updatedAt: now,
+      });
+      setVehicles((prev) => [created, ...prev]);
+      setVehicleName('');
+      setVehicleSize('mediano');
+      setVehicleCostPerKmInput('');
+      setVehicleFixedMonthlyInput('');
+      toast.success('Vehiculo creado');
+    } catch {
+      toast.error('No se pudo crear el vehiculo');
+    } finally {
+      setSavingVehicle(false);
+    }
+  };
+
   const handleToggleDriver = async (driver: Driver) => {
     try {
       const updated = await updateDriver(driver.id, { active: !driver.active });
@@ -806,6 +888,27 @@ export default function AdminJobs() {
       await loadJobs();
     } catch {
       toast.error('No se pudo eliminar el conductor');
+    }
+  };
+
+  const handleDeleteVehicle = async (id: string) => {
+    try {
+      await deleteVehicle(id);
+      setVehicles((prev) => prev.filter((vehicle) => vehicle.id !== id));
+      setDrivers((prev) => prev.map((driver) => (driver.vehicleId === id ? { ...driver, vehicleId: null } : driver)));
+      toast.success('Vehiculo eliminado');
+    } catch {
+      toast.error('No se pudo eliminar el vehiculo');
+    }
+  };
+
+  const handleAssignVehicle = async (driver: Driver, vehicleId: string) => {
+    const nextVehicleId = vehicleId || null;
+    try {
+      const updated = await updateDriver(driver.id, { vehicleId: nextVehicleId });
+      setDrivers((prev) => prev.map((item) => (item.id === driver.id ? updated : item)));
+    } catch {
+      toast.error('No se pudo asignar el vehiculo');
     }
   };
 
@@ -2557,12 +2660,113 @@ export default function AdminJobs() {
                 </div>
               </div>
 
+              <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Vehiculos</p>
+                    <p className="text-sm font-semibold text-gray-900">Carga y costos</p>
+                  </div>
+                  <span className="text-xs text-gray-400">{vehicles.length} registrados</span>
+                </div>
+                <form onSubmit={handleCreateVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+                  <div>
+                    <label className="text-xs text-gray-500">Nombre</label>
+                    <input
+                      value={vehicleName}
+                      onChange={(event) => setVehicleName(event.target.value)}
+                      placeholder="Nombre del vehiculo"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Tamano</label>
+                    <select
+                      value={vehicleSize}
+                      onChange={(event) => setVehicleSize(event.target.value as 'chico' | 'mediano' | 'grande')}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                    >
+                      <option value="chico">Chico</option>
+                      <option value="mediano">Mediano</option>
+                      <option value="grande">Grande</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Gasto por km</label>
+                    <input
+                      value={vehicleCostPerKmInput}
+                      onChange={(event) => setVehicleCostPerKmInput(event.target.value)}
+                      placeholder="0.00"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Gasto fijo mensual</label>
+                    <input
+                      value={vehicleFixedMonthlyInput}
+                      onChange={(event) => setVehicleFixedMonthlyInput(event.target.value)}
+                      placeholder="0.00"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="submit"
+                      disabled={savingVehicle}
+                      className="w-full rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {savingVehicle ? 'Guardando...' : 'Agregar'}
+                    </button>
+                  </div>
+                </form>
+                <div className="space-y-2">
+                  {loadingVehicles && <p className="text-sm text-gray-500">Cargando vehiculos...</p>}
+                  {!loadingVehicles && vehicles.length === 0 && (
+                    <p className="text-sm text-gray-500">No hay vehiculos cargados.</p>
+                  )}
+                  {!loadingVehicles && vehicles.length > 0 && (
+                    <div className="space-y-2">
+                      {vehicles.map((vehicle) => (
+                        <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
+                          <div>
+                            <p className="font-semibold text-gray-900">{vehicle.name}</p>
+                            <p className="text-xs text-gray-500">{vehicleSizeLabels[vehicle.size]}</p>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.costPerKm)}</span> / km
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.fixedMonthlyCost)}</span> mensual
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteVehicle(vehicle.id)}
+                            className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-500"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {loadingDrivers && <p className="text-sm text-gray-500">Cargando conductores...</p>}
               {!loadingDrivers && drivers.length === 0 && <p className="text-sm text-gray-500">No hay conductores registrados.</p>}
               {!loadingDrivers && drivers.length > 0 && (
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {drivers.map((driver) => {
                     const isActive = driver.active;
+                    const assignedVehicle = driver.vehicleId ? vehiclesById.get(driver.vehicleId) : null;
                     return (
                       <div key={driver.id} className="flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm">
                         <div className="flex items-start justify-between gap-3">
@@ -2575,6 +2779,26 @@ export default function AdminJobs() {
                             <p className="text-xs text-gray-400">
                               Ubicacion: {driverLocationsById.has(driver.id) ? 'Disponible' : 'Sin datos'}
                             </p>
+                            <div className="mt-2">
+                              <label className="text-[11px] uppercase tracking-wide text-gray-400">Vehiculo</label>
+                              <select
+                                value={driver.vehicleId ?? ''}
+                                onChange={(event) => handleAssignVehicle(driver, event.target.value)}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs"
+                              >
+                                <option value="">Sin asignar</option>
+                                {vehicles.map((vehicle) => (
+                                  <option key={vehicle.id} value={vehicle.id}>
+                                    {vehicle.name} ({vehicleSizeLabels[vehicle.size]})
+                                  </option>
+                                ))}
+                              </select>
+                              {assignedVehicle && (
+                                <p className="mt-1 text-[11px] text-gray-500">
+                                  {currencyFormatter.format(assignedVehicle.costPerKm)} / km
+                                </p>
+                              )}
+                            </div>
                           </div>
                           <div className="flex flex-col items-end gap-2">
                             <button
