@@ -1604,160 +1604,227 @@ export default function AdminJobs() {
                   {open ? 'Cerrar' : 'Nuevo Flete'}
                 </button>
                   {open && (
-                    <form onSubmit={addJob} className="space-y-2 rounded bg-white p-4 shadow">
-                      <input name="cn" placeholder="Cliente" className="w-full border p-2" required />
-                      <input
-                        name="clientPhone"
-                        type="tel"
-                        placeholder="Telefono del cliente"
-                        className="w-full border p-2"
-                      />
-                      <textarea
-                        name="description"
-                        placeholder="Descripcion del flete"
-                        className="w-full border p-2 text-sm"
-                      rows={2}
-                    />
-                    <input
-                      name="helpersCount"
-                      type="number"
-                      min="0"
-                      step="1"
-                      placeholder="Ayudantes requeridos"
-                      className="w-full border p-2"
-                    />
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <input name="scheduledDate" type="date" className="w-full border p-2" required />
-                      <input name="scheduledTime" type="time" className="w-full border p-2" required />
-                    </div>
-                    <input
-                      name="estimatedDurationHours"
-                      type="number"
-                      min="0.5"
-                      step="0.5"
-                      placeholder="Duracion estimada (horas)"
-                      className="w-full border p-2"
-                      required
-                    />
-                    <AddressAutocomplete label="Origen" placeholder="Buscar origen" onSelect={setPickup} selected={pickup} />
-                    <AddressAutocomplete label="Destino" placeholder="Buscar destino" onSelect={setDropoff} selected={dropoff} />
-                    <div className="rounded border bg-gray-50 p-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-medium">Paradas extra</p>
-                        <span className="text-xs text-gray-400">{extraStops.length} agregadas</span>
+                    <form onSubmit={addJob} className="space-y-4 rounded bg-white p-3 shadow sm:p-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-gray-500">
+                          Cliente
+                          <input
+                            name="cn"
+                            placeholder="Nombre del cliente"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                        <label className="text-xs text-gray-500">
+                          Telefono
+                          <input
+                            name="clientPhone"
+                            type="tel"
+                            placeholder="Telefono del cliente"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          />
+                        </label>
                       </div>
-                      <AddressAutocomplete
-                        key={extraStopKey}
-                        label="Agregar parada"
-                        placeholder="Buscar parada extra"
-                        onSelect={setExtraStopDraft}
-                        selected={extraStopDraft}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => addExtraStop(extraStopDraft)}
-                        disabled={!extraStopDraft}
-                        className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Agregar parada
-                      </button>
-                      {extraStops.length === 0 ? (
-                        <p className="text-xs text-gray-500">Sin paradas extra.</p>
-                      ) : (
-                        <div className="space-y-1">
-                          <p className="text-[11px] text-gray-400">Arrastra para reordenar.</p>
-                          {extraStops.map((stop, index) => (
-                            <div
-                              key={`${stop.lat}-${stop.lng}-${index}`}
-                              draggable
-                              onDragStart={() => setDraggedStopIndex(index)}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={() => handleReorderStop(index)}
-                              onDragEnd={() => setDraggedStopIndex(null)}
+                      <label className="text-xs text-gray-500">
+                        Descripcion
+                        <textarea
+                          name="description"
+                          placeholder="Descripcion del flete"
+                          className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          rows={2}
+                        />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-gray-500">
+                          Ayudantes
+                          <input
+                            name="helpersCount"
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="Ayudantes requeridos"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          />
+                        </label>
+                        <label className="text-xs text-gray-500">
+                          Duracion estimada (horas)
+                          <input
+                            name="estimatedDurationHours"
+                            type="number"
+                            min="0.5"
+                            step="0.5"
+                            placeholder="Ej: 2.5"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-gray-500">
+                          Fecha
+                          <input
+                            name="scheduledDate"
+                            type="date"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                        <label className="text-xs text-gray-500">
+                          Hora
+                          <input
+                            name="scheduledTime"
+                            type="time"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        <div className="min-w-0">
+                          <AddressAutocomplete
+                            label="Origen"
+                            placeholder="Buscar origen"
+                            onSelect={setPickup}
+                            selected={pickup}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <AddressAutocomplete
+                            label="Destino"
+                            placeholder="Buscar destino"
+                            onSelect={setDropoff}
+                            selected={dropoff}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2 rounded border bg-gray-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-medium">Paradas extra</p>
+                          <span className="text-xs text-gray-400">{extraStops.length} agregadas</span>
+                        </div>
+                        <AddressAutocomplete
+                          key={extraStopKey}
+                          label="Agregar parada"
+                          placeholder="Buscar parada extra"
+                          onSelect={setExtraStopDraft}
+                          selected={extraStopDraft}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => addExtraStop(extraStopDraft)}
+                          disabled={!extraStopDraft}
+                          className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Agregar parada
+                        </button>
+                        {extraStops.length === 0 ? (
+                          <p className="text-xs text-gray-500">Sin paradas extra.</p>
+                        ) : (
+                          <div className="space-y-1">
+                            <p className="text-[11px] text-gray-400">Arrastra para reordenar.</p>
+                            {extraStops.map((stop, index) => (
+                              <div
+                                key={`${stop.lat}-${stop.lng}-${index}`}
+                                draggable
+                                onDragStart={() => setDraggedStopIndex(index)}
+                                onDragOver={(event) => event.preventDefault()}
+                                onDrop={() => handleReorderStop(index)}
+                                onDragEnd={() => setDraggedStopIndex(null)}
+                                className={cn(
+                                  "flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
+                                  draggedStopIndex === index ? "opacity-60" : "cursor-grab"
+                                )}
+                              >
+                                <span className="truncate">{stop.address}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeExtraStop(index)}
+                                  className="text-amber-600"
+                                >
+                                  Quitar
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <label className="text-xs text-gray-500">
+                        Conductor
+                        <select name="driverId" className="mt-1 w-full rounded border px-3 py-2 text-sm">
+                          <option value="">Sin asignar</option>
+                          {drivers.map((driver) => (
+                            <option key={driver.id} value={driver.id}>
+                              {driver.name} ({driver.code})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="space-y-2 rounded border bg-gray-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-medium">Seleccion en mapa</p>
+                          <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-3 sm:gap-2 md:flex md:flex-wrap md:items-center">
+                            <button
+                              type="button"
+                              onClick={() => setMapTarget('pickup')}
                               className={cn(
-                                "flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
-                                draggedStopIndex === index ? "opacity-60" : "cursor-grab"
+                                "rounded border px-2 py-1 text-xs",
+                                mapTarget === 'pickup'
+                                  ? "border-green-600 bg-green-600 text-white"
+                                  : "bg-white text-gray-600"
                               )}
                             >
-                              <span className="truncate">{stop.address}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeExtraStop(index)}
-                                className="text-amber-600"
-                              >
-                                Quitar
-                              </button>
-                            </div>
-                          ))}
+                              Origen
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMapTarget('dropoff')}
+                              className={cn(
+                                "rounded border px-2 py-1 text-xs",
+                                mapTarget === 'dropoff'
+                                  ? "border-red-600 bg-red-600 text-white"
+                                  : "bg-white text-gray-600"
+                              )}
+                            >
+                              Destino
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMapTarget('extra')}
+                              className={cn(
+                                "rounded border px-2 py-1 text-xs",
+                                mapTarget === 'extra'
+                                  ? "border-amber-500 bg-amber-500 text-white"
+                                  : "bg-white text-gray-600"
+                              )}
+                            >
+                              Parada
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                    <select name="driverId" className="w-full border p-2">
-                      <option value="">Sin asignar</option>
-                      {drivers.map((driver) => (
-                        <option key={driver.id} value={driver.id}>
-                          {driver.name} ({driver.code})
-                        </option>
-                      ))}
-                    </select>
-                    <div className="rounded border bg-gray-50 p-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-medium">Seleccion en mapa</p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setMapTarget('pickup')}
-                            className={cn(
-                              "rounded border px-2 py-1 text-xs",
-                              mapTarget === 'pickup' ? "border-green-600 bg-green-600 text-white" : "bg-white text-gray-600"
-                            )}
-                          >
-                            Origen
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMapTarget('dropoff')}
-                            className={cn(
-                              "rounded border px-2 py-1 text-xs",
-                              mapTarget === 'dropoff' ? "border-red-600 bg-red-600 text-white" : "bg-white text-gray-600"
-                            )}
-                          >
-                            Destino
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMapTarget('extra')}
-                            className={cn(
-                              "rounded border px-2 py-1 text-xs",
-                              mapTarget === 'extra' ? "border-amber-500 bg-amber-500 text-white" : "bg-white text-gray-600"
-                            )}
-                          >
-                            Parada
-                          </button>
-                        </div>
+                        <p className="text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
+                        <MapLocationPicker
+                          pickup={pickup}
+                          dropoff={dropoff}
+                          extraStops={extraStops}
+                          active={mapTarget}
+                          onSelect={(kind, location) => {
+                            if (kind === 'pickup') {
+                              setPickup(location);
+                            } else if (kind === 'dropoff') {
+                              setDropoff(location);
+                            } else {
+                              setExtraStops((prev) => [...prev, location]);
+                              setExtraStopDraft(null);
+                              setExtraStopKey((prev) => prev + 1);
+                            }
+                          }}
+                        />
                       </div>
-                      <p className="text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
-                      <MapLocationPicker
-                        pickup={pickup}
-                        dropoff={dropoff}
-                        extraStops={extraStops}
-                        active={mapTarget}
-                        onSelect={(kind, location) => {
-                          if (kind === 'pickup') {
-                            setPickup(location);
-                          } else if (kind === 'dropoff') {
-                            setDropoff(location);
-                          } else {
-                            setExtraStops((prev) => [...prev, location]);
-                            setExtraStopDraft(null);
-                            setExtraStopKey((prev) => prev + 1);
-                          }
-                        }}
-                      />
-                    </div>
-                    <button className="w-full rounded bg-green-600 p-2 text-white">Guardar</button>
-                  </form>
-                )}
+                      <button className="w-full rounded bg-green-600 px-3 py-2 text-sm font-semibold text-white">
+                        Guardar
+                      </button>
+                    </form>
+                  )}
 
                 {!loadingJobs && (
                   <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
