@@ -118,6 +118,94 @@ const getEventBlockStyle = (start: Date, end: Date, day: Date) => {
   const height = Math.max(24, ((clampedEnd - clampedStart) / 60) * calendarHourHeight);
   return { top, height };
 };
+const calendarEventGutter = 4;
+const driverColorPalette = [
+  { background: '#DBEAFE', border: '#60A5FA', text: '#1E3A8A', accent: '#1D4ED8' },
+  { background: '#DCFCE7', border: '#4ADE80', text: '#14532D', accent: '#15803D' },
+  { background: '#FEF3C7', border: '#F59E0B', text: '#92400E', accent: '#D97706' },
+  { background: '#FCE7F3', border: '#F472B6', text: '#9D174D', accent: '#DB2777' },
+  { background: '#E0F2FE', border: '#38BDF8', text: '#075985', accent: '#0284C7' },
+  { background: '#FFEDD5', border: '#FDBA74', text: '#9A3412', accent: '#EA580C' },
+  { background: '#ECFCCB', border: '#A3E635', text: '#3F6212', accent: '#65A30D' },
+  { background: '#FFE4E6', border: '#FB7185', text: '#9F1239', accent: '#E11D48' },
+] as const;
+const defaultDriverColors = { background: '#F3F4F6', border: '#D1D5DB', text: '#374151', accent: '#6B7280' };
+const hashString = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+};
+const getDriverColors = (driverId?: string | null) => {
+  if (!driverId) return defaultDriverColors;
+  const index = hashString(driverId) % driverColorPalette.length;
+  return driverColorPalette[index] ?? defaultDriverColors;
+};
+const buildDayLayout = (items: CalendarJob[], day: Date) => {
+  const layout = new Map<string, { column: number; columns: number }>();
+  const events = items
+    .map((item) => {
+      const overlap = getDayOverlapRange(item.start, item.end, day);
+      if (!overlap) return null;
+      return {
+        key: item.job.id,
+        startMs: overlap.rangeStart.getTime(),
+        endMs: overlap.rangeEnd.getTime(),
+      };
+    })
+    .filter((event): event is { key: string; startMs: number; endMs: number } => event != null)
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+  let group: typeof events = [];
+  let groupEnd = Number.NEGATIVE_INFINITY;
+  const flushGroup = () => {
+    if (group.length === 0) return;
+    const columnEnds: number[] = [];
+    group.forEach((event) => {
+      let columnIndex = columnEnds.findIndex((end) => event.startMs >= end);
+      if (columnIndex === -1) {
+        columnIndex = columnEnds.length;
+        columnEnds.push(event.endMs);
+      } else {
+        columnEnds[columnIndex] = event.endMs;
+      }
+      layout.set(event.key, { column: columnIndex, columns: 1 });
+    });
+    const columns = columnEnds.length;
+    group.forEach((event) => {
+      const entry = layout.get(event.key);
+      if (entry) entry.columns = columns;
+    });
+    group = [];
+  };
+  events.forEach((event) => {
+    if (group.length === 0) {
+      group = [event];
+      groupEnd = event.endMs;
+      return;
+    }
+    if (event.startMs < groupEnd) {
+      group.push(event);
+      groupEnd = Math.max(groupEnd, event.endMs);
+      return;
+    }
+    flushGroup();
+    group = [event];
+    groupEnd = event.endMs;
+  });
+  flushGroup();
+  return layout;
+};
+const getEventColumnStyle = (layoutEntry?: { column: number; columns: number }) => {
+  const column = layoutEntry?.column ?? 0;
+  const columns = layoutEntry?.columns ?? 1;
+  const columnWidth = 100 / columns;
+  const left = columnWidth * column;
+  return {
+    left: `calc(${left}% + ${calendarEventGutter}px)`,
+    width: `calc(${columnWidth}% - ${calendarEventGutter * 2}px)`,
+  };
+};
 
 const parseHourlyRate = (value: string) => {
   const normalized = value.trim().replace(',', '.');
@@ -1337,6 +1425,7 @@ export default function AdminJobs() {
   };
   const openJobDetail = (jobId: string) => setSelectedJobId(jobId);
   const dayJobs = getDayJobs(calendarDate);
+  const dayLayout = useMemo(() => buildDayLayout(dayJobs, calendarDate), [dayJobs, calendarDate]);
   const dayBlockedHours = new Set<number>();
   dayJobs.forEach((item) => {
     const hours = getHourSlotsForDay(item.start, item.end, calendarDate);
@@ -2149,21 +2238,35 @@ export default function AdminJobs() {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
                             const estimateValue = getJobEstimatedTotal(item.job);
                             const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                            const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
+                            const driverLabel = driver?.name ?? 'Sin asignar';
+                            const driverColors = getDriverColors(item.job.driverId);
+                            const columnStyle = getEventColumnStyle(dayLayout.get(item.job.id));
                             if (!style) return null;
                             return (
                               <div
                                 key={item.job.id}
                                 onClick={() => openJobDetail(item.job.id)}
-                                className="absolute left-2 right-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 pl-2 pr-12 py-1 text-[11px] text-blue-800 shadow-sm hover:bg-blue-100"
-                                style={{ top: style.top, height: style.height }}
+                                className="absolute cursor-pointer rounded-lg border pl-2 pr-12 py-1 text-[11px] shadow-sm transition hover:shadow"
+                                style={{
+                                  top: style.top,
+                                  height: style.height,
+                                  ...columnStyle,
+                                  backgroundColor: driverColors.background,
+                                  borderColor: driverColors.border,
+                                  color: driverColors.text,
+                                }}
                               >
                                 {estimateLabel && (
                                   <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
                                     {estimateLabel}
                                   </span>
                                 )}
+                                <div className="text-[10px] font-semibold uppercase tracking-wide truncate" style={{ color: driverColors.accent }}>
+                                  {driverLabel}
+                                </div>
                                 <div className="font-semibold truncate">{item.job.clientName}</div>
-                                <div className="text-[10px] text-blue-600">
+                                <div className="text-[10px] truncate" style={{ color: driverColors.accent }}>
                                   {formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
@@ -2227,6 +2330,7 @@ export default function AdminJobs() {
                           </div>
                           {weekDays.map((day) => {
                             const items = getDayJobs(day);
+                            const dayLayoutWeek = buildDayLayout(items, day);
                             const isToday = isSameDay(day, calendarToday);
                             return (
                               <div
@@ -2254,21 +2358,35 @@ export default function AdminJobs() {
                                   const style = getEventBlockStyle(item.start, item.end, day);
                                   const estimateValue = getJobEstimatedTotal(item.job);
                                   const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                  const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
+                                  const driverLabel = driver?.name ?? 'Sin asignar';
+                                  const driverColors = getDriverColors(item.job.driverId);
+                                  const columnStyle = getEventColumnStyle(dayLayoutWeek.get(item.job.id));
                                   if (!style) return null;
                                   return (
                                     <div
                                       key={item.job.id}
                                       onClick={() => openJobDetail(item.job.id)}
-                                      className="absolute left-1 right-1 cursor-pointer rounded-md border border-blue-200 bg-blue-50 pl-1.5 pr-11 py-1 text-[10px] text-blue-800 shadow-sm hover:bg-blue-100"
-                                      style={{ top: style.top, height: style.height }}
+                                      className="absolute cursor-pointer rounded-md border pl-1.5 pr-11 py-1 text-[10px] shadow-sm transition hover:shadow"
+                                      style={{
+                                        top: style.top,
+                                        height: style.height,
+                                        ...columnStyle,
+                                        backgroundColor: driverColors.background,
+                                        borderColor: driverColors.border,
+                                        color: driverColors.text,
+                                      }}
                                     >
                                       {estimateLabel && (
                                         <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
                                           {estimateLabel}
                                         </span>
                                       )}
+                                      <div className="text-[9px] font-semibold uppercase tracking-wide truncate" style={{ color: driverColors.accent }}>
+                                        {driverLabel}
+                                      </div>
                                       <div className="font-semibold truncate">{item.job.clientName}</div>
-                                      <div className="text-[9px] text-blue-600">
+                                      <div className="text-[9px] truncate" style={{ color: driverColors.accent }}>
                                         {formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
                                     </div>
@@ -2321,18 +2439,31 @@ export default function AdminJobs() {
                               {items.slice(0, 3).map((item) => {
                                 const estimateValue = getJobEstimatedTotal(item.job);
                                 const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
+                                const driverLabel = driver?.name ?? 'Sin asignar';
+                                const driverColors = getDriverColors(item.job.driverId);
                                 return (
                                   <div
                                     key={item.job.id}
                                     onClick={() => openJobDetail(item.job.id)}
-                                    className="relative truncate rounded bg-gray-100 pl-2 pr-12 py-1 text-[10px] text-gray-700 cursor-pointer hover:bg-gray-200"
+                                    className="relative rounded border px-2 py-1 text-[9px] leading-tight cursor-pointer hover:shadow"
+                                    style={{
+                                      backgroundColor: driverColors.background,
+                                      borderColor: driverColors.border,
+                                      color: driverColors.text,
+                                    }}
                                   >
                                     {estimateLabel && (
                                       <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
                                         {estimateLabel}
                                       </span>
                                     )}
-                                    {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                    <div className="truncate font-semibold" style={{ color: driverColors.accent }}>
+                                      {driverLabel}
+                                    </div>
+                                    <div className="truncate">
+                                      {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                    </div>
                                   </div>
                                 );
                               })}
