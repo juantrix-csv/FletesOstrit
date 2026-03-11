@@ -4,6 +4,7 @@ import maplibregl from 'maplibre-gl';
 import type { Driver, DriverLocation } from '../lib/types';
 import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
+import { getDriverColors } from '../lib/driverColors';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
 const fallbackCenter = { lat: -34.9214, lng: -57.9544 };
@@ -76,11 +77,27 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
         {locations.map((loc) => {
           const driver = driversById.get(loc.driverId);
           const label = driver ? driver.name : 'Conductor';
+          const driverColors = getDriverColors(loc.driverId);
+          const isActive = driver?.active ?? false;
           return (
             <Marker key={loc.driverId} latitude={loc.lat} longitude={loc.lng}>
               <div className="flex flex-col items-center">
-                <div className={cn("h-3 w-3 rounded-full shadow", driver?.active ? "bg-emerald-500" : "bg-gray-400")} />
-                <span className="mt-1 rounded bg-white px-1.5 py-0.5 text-[10px] text-gray-700 shadow">
+                <div
+                  className="h-3 w-3 rounded-full shadow border"
+                  style={{
+                    backgroundColor: driverColors.accent,
+                    borderColor: driverColors.border,
+                    opacity: isActive ? 1 : 0.4,
+                  }}
+                />
+                <span
+                  className={cn("mt-1 rounded border px-1.5 py-0.5 text-[10px] shadow", isActive ? "opacity-100" : "opacity-70")}
+                  style={{
+                    backgroundColor: driverColors.background,
+                    borderColor: driverColors.border,
+                    color: driverColors.text,
+                  }}
+                >
                   {label}
                 </span>
               </div>

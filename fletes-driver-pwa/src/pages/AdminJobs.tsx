@@ -39,6 +39,7 @@ import {
   updateJob,
 } from '../lib/api';
 import { calculateDistance, cn, formatDuration, getScheduledAtMs } from '../lib/utils';
+import { getDriverColors } from '../lib/driverColors';
 import { reorderList } from '../lib/reorder';
 import { getAdminSession } from '../lib/adminSession';
 
@@ -136,29 +137,6 @@ const getEventBlockStyle = (start: Date, end: Date, day: Date) => {
   return { top, height };
 };
 const calendarEventGutter = 4;
-const driverColorPalette = [
-  { background: '#DBEAFE', border: '#60A5FA', text: '#1E3A8A', accent: '#1D4ED8' },
-  { background: '#DCFCE7', border: '#4ADE80', text: '#14532D', accent: '#15803D' },
-  { background: '#FEF3C7', border: '#F59E0B', text: '#92400E', accent: '#D97706' },
-  { background: '#FCE7F3', border: '#F472B6', text: '#9D174D', accent: '#DB2777' },
-  { background: '#E0F2FE', border: '#38BDF8', text: '#075985', accent: '#0284C7' },
-  { background: '#FFEDD5', border: '#FDBA74', text: '#9A3412', accent: '#EA580C' },
-  { background: '#ECFCCB', border: '#A3E635', text: '#3F6212', accent: '#65A30D' },
-  { background: '#FFE4E6', border: '#FB7185', text: '#9F1239', accent: '#E11D48' },
-] as const;
-const defaultDriverColors = { background: '#F3F4F6', border: '#D1D5DB', text: '#374151', accent: '#6B7280' };
-const hashString = (value: string) => {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
-  }
-  return hash;
-};
-const getDriverColors = (driverId?: string | null) => {
-  if (!driverId) return defaultDriverColors;
-  const index = hashString(driverId) % driverColorPalette.length;
-  return driverColorPalette[index] ?? defaultDriverColors;
-};
 const buildDayLayout = (items: CalendarJob[], day: Date) => {
   const layout = new Map<string, { column: number; columns: number }>();
   const events = items
@@ -3060,11 +3038,19 @@ export default function AdminJobs() {
                   {drivers.map((driver) => {
                     const isActive = driver.active;
                     const assignedVehicle = driver.vehicleId ? vehiclesById.get(driver.vehicleId) : null;
+                    const driverColors = getDriverColors(driver.id);
                     return (
-                      <div key={driver.id} className="flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm">
+                      <div
+                        key={driver.id}
+                        className="flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm"
+                        style={{ borderColor: driverColors.border }}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-base font-semibold text-gray-900">{driver.name}</p>
+                            <div className="flex items-center gap-2">
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: driverColors.accent }} />
+                              <p className="text-base font-semibold text-gray-900">{driver.name}</p>
+                            </div>
                             <p className="text-sm font-semibold text-gray-800">
                               Codigo: <span className="font-mono">{driver.code}</span>
                             </p>
