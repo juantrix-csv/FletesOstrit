@@ -12,9 +12,14 @@ const parseBody = (req) => {
   return req.body;
 };
 
-const parseNumber = (value) => {
+const parseSettingValue = (key, value) => {
   if (value == null || value === '') return null;
-  if (!Number.isFinite(value) || value < 0) return NaN;
+  if (!Number.isFinite(value)) return NaN;
+  if (key === 'ownerVehicleDriverShare' || key === 'driverVehicleDriverShare') {
+    if (value < 0 || value > 1) return NaN;
+    return value;
+  }
+  if (value < 0) return NaN;
   return value;
 };
 
@@ -24,6 +29,8 @@ const resolveSettingKey = (raw) => {
   if (raw === 'fixed-monthly-cost') return 'fixedMonthlyCost';
   if (raw === 'trip-cost-per-hour') return 'tripCostPerHour';
   if (raw === 'trip-cost-per-km') return 'tripCostPerKm';
+  if (raw === 'owner-vehicle-driver-share') return 'ownerVehicleDriverShare';
+  if (raw === 'driver-vehicle-driver-share') return 'driverVehicleDriverShare';
   return null;
 };
 
@@ -57,7 +64,7 @@ export default async function handler(req, res) {
 
   if (req.method === 'PUT') {
     const body = parseBody(req);
-    const parsed = parseNumber(resolveBodyValue(body));
+    const parsed = parseSettingValue(key, resolveBodyValue(body));
     if (Number.isNaN(parsed)) {
       res.status(400).json({ error: 'Invalid value' });
       return;

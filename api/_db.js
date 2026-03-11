@@ -101,12 +101,17 @@ export const ensureSchema = async () => {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       size TEXT NOT NULL,
+      ownership_type TEXT NOT NULL DEFAULT 'owner',
       cost_per_km DOUBLE PRECISION NOT NULL,
       fixed_monthly_cost DOUBLE PRECISION NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `;
+  await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS ownership_type TEXT;`;
+  await sql`UPDATE vehicles SET ownership_type = 'owner' WHERE ownership_type IS NULL;`;
+  await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET DEFAULT 'owner';`;
+  await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET NOT NULL;`;
   await sql`
     CREATE TABLE IF NOT EXISTS driver_locations (
       driver_id TEXT PRIMARY KEY,
@@ -538,6 +543,7 @@ const normalizeVehicleRow = (row) => ({
   id: row.id,
   name: row.name,
   size: row.size,
+  ownershipType: row.ownership_type === 'driver' ? 'driver' : 'owner',
   costPerKm: row.cost_per_km != null ? Number(row.cost_per_km) : 0,
   fixedMonthlyCost: row.fixed_monthly_cost != null ? Number(row.fixed_monthly_cost) : 0,
   createdAt: row.created_at,
@@ -563,11 +569,12 @@ export const createVehicle = async (vehicle) => {
   const updatedAt = vehicle.updatedAt ?? createdAt;
   await sql`
     INSERT INTO vehicles (
-      id, name, size, cost_per_km, fixed_monthly_cost, created_at, updated_at
+      id, name, size, ownership_type, cost_per_km, fixed_monthly_cost, created_at, updated_at
     ) VALUES (
       ${vehicle.id},
       ${vehicle.name},
       ${vehicle.size},
+      ${vehicle.ownershipType ?? 'owner'},
       ${vehicle.costPerKm},
       ${vehicle.fixedMonthlyCost},
       ${createdAt},
@@ -589,6 +596,7 @@ export const updateVehicle = async (id, patch) => {
     UPDATE vehicles SET
       name = ${next.name},
       size = ${next.size},
+      ownership_type = ${next.ownershipType ?? 'owner'},
       cost_per_km = ${next.costPerKm},
       fixed_monthly_cost = ${next.fixedMonthlyCost},
       created_at = ${next.createdAt},

@@ -87,6 +87,20 @@ export const setHelperHourlyRate = (hourlyRate: number | null) =>
     body: JSON.stringify({ hourlyRate }),
   });
 
+export const getOwnerVehicleDriverShare = () => fetchJson<{ value: number | null }>('/settings/owner-vehicle-driver-share');
+export const setOwnerVehicleDriverShare = (value: number | null) =>
+  fetchJson<{ value: number | null }>('/settings/owner-vehicle-driver-share', {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
+export const getDriverVehicleDriverShare = () => fetchJson<{ value: number | null }>('/settings/driver-vehicle-driver-share');
+export const setDriverVehicleDriverShare = (value: number | null) =>
+  fetchJson<{ value: number | null }>('/settings/driver-vehicle-driver-share', {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
 export const getFixedMonthlyCost = () => fetchJson<{ value: number | null }>('/settings/fixed-monthly-cost');
 export const setFixedMonthlyCost = (value: number | null) =>
   fetchJson<{ value: number | null }>('/settings/fixed-monthly-cost', {

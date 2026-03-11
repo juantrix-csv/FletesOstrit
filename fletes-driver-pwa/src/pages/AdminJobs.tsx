@@ -8,7 +8,7 @@ import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
-import type { Driver, DriverLocation, Job, JobStatus, LocationData, Vehicle } from '../lib/types';
+import type { Driver, DriverLocation, Job, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
 import {
   createDriver,
   createJob,
@@ -20,6 +20,8 @@ import {
   getFixedMonthlyCost,
   getHelperHourlyRate,
   getHourlyRate,
+  getDriverVehicleDriverShare,
+  getOwnerVehicleDriverShare,
   getTripCostPerHour,
   getTripCostPerKm,
   listDriverLocations,
@@ -27,8 +29,10 @@ import {
   listJobs,
   listVehicles,
   setFixedMonthlyCost,
+  setDriverVehicleDriverShare,
   setHelperHourlyRate,
   setHourlyRate,
+  setOwnerVehicleDriverShare,
   setTripCostPerHour,
   setTripCostPerKm,
   updateDriver,
@@ -61,6 +65,10 @@ const vehicleSizeLabels: Record<'chico' | 'mediano' | 'grande', string> = {
   chico: 'Chico',
   mediano: 'Mediano',
   grande: 'Grande',
+};
+const vehicleOwnershipLabels: Record<VehicleOwnershipType, string> = {
+  owner: 'Del dueno',
+  driver: 'Del chofer',
 };
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -234,6 +242,19 @@ const parseDurationHours = (value: string) => {
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return parsed;
 };
+const parsePercentageInput = (value: string) => {
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null;
+  return parsed;
+};
+const formatRatioAsPercentInput = (ratio: number) => {
+  const percent = ratio * 100;
+  if (!Number.isFinite(percent)) return '';
+  return percent.toFixed(2).replace(/\.?0+$/, '');
+};
+const clampRatio = (value: number) => Math.min(1, Math.max(0, value));
 
 const parseTimestampMs = (value?: string) => {
   if (!value) return null;
@@ -424,6 +445,7 @@ export default function AdminJobs() {
   const [driverModalOpen, setDriverModalOpen] = useState(false);
   const [vehicleName, setVehicleName] = useState('');
   const [vehicleSize, setVehicleSize] = useState<'chico' | 'mediano' | 'grande'>('mediano');
+  const [vehicleOwnershipType, setVehicleOwnershipType] = useState<VehicleOwnershipType>('owner');
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
@@ -435,11 +457,15 @@ export default function AdminJobs() {
   const [mapSearchLocation, setMapSearchLocation] = useState<LocationData | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState('');
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
+  const [ownerVehicleDriverShareInput, setOwnerVehicleDriverShareInput] = useState('');
+  const [driverVehicleDriverShareInput, setDriverVehicleDriverShareInput] = useState('');
   const [fixedMonthlyCostInput, setFixedMonthlyCostInput] = useState('');
   const [tripCostPerHourInput, setTripCostPerHourInput] = useState('');
   const [tripCostPerKmInput, setTripCostPerKmInput] = useState('');
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
+  const [savingOwnerVehicleDriverShare, setSavingOwnerVehicleDriverShare] = useState(false);
+  const [savingDriverVehicleDriverShare, setSavingDriverVehicleDriverShare] = useState(false);
   const [savingFixedMonthlyCost, setSavingFixedMonthlyCost] = useState(false);
   const [savingTripCostPerHour, setSavingTripCostPerHour] = useState(false);
   const [savingTripCostPerKm, setSavingTripCostPerKm] = useState(false);
@@ -466,6 +492,20 @@ export default function AdminJobs() {
   }, [vehicles]);
   const hourlyRateValue = useMemo(() => parseHourlyRate(hourlyRateInput), [hourlyRateInput]);
   const helperHourlyRateValue = useMemo(() => parseHourlyRate(helperHourlyRateInput), [helperHourlyRateInput]);
+  const ownerVehicleDriverSharePercentValue = useMemo(
+    () => parsePercentageInput(ownerVehicleDriverShareInput),
+    [ownerVehicleDriverShareInput],
+  );
+  const driverVehicleDriverSharePercentValue = useMemo(
+    () => parsePercentageInput(driverVehicleDriverShareInput),
+    [driverVehicleDriverShareInput],
+  );
+  const ownerVehicleDriverShareRatio = ownerVehicleDriverSharePercentValue != null
+    ? clampRatio(ownerVehicleDriverSharePercentValue / 100)
+    : (1 / 3);
+  const driverVehicleDriverShareRatio = driverVehicleDriverSharePercentValue != null
+    ? clampRatio(driverVehicleDriverSharePercentValue / 100)
+    : (2 / 3);
   const fixedMonthlyCostValue = useMemo(() => parseHourlyRate(fixedMonthlyCostInput), [fixedMonthlyCostInput]);
   const tripCostPerHourValue = useMemo(() => parseHourlyRate(tripCostPerHourInput), [tripCostPerHourInput]);
   const tripCostPerKmValue = useMemo(() => parseHourlyRate(tripCostPerKmInput), [tripCostPerKmInput]);
@@ -558,6 +598,28 @@ export default function AdminJobs() {
     }
   };
 
+  const loadOwnerVehicleDriverShare = async () => {
+    try {
+      const data = await getOwnerVehicleDriverShare();
+      setOwnerVehicleDriverShareInput(
+        data.value != null ? formatRatioAsPercentInput(data.value) : '',
+      );
+    } catch {
+      toast.error('No se pudo cargar el reparto (vehiculo del dueno)');
+    }
+  };
+
+  const loadDriverVehicleDriverShare = async () => {
+    try {
+      const data = await getDriverVehicleDriverShare();
+      setDriverVehicleDriverShareInput(
+        data.value != null ? formatRatioAsPercentInput(data.value) : '',
+      );
+    } catch {
+      toast.error('No se pudo cargar el reparto (vehiculo del chofer)');
+    }
+  };
+
   const loadFixedMonthlyCost = async () => {
     try {
       const data = await getFixedMonthlyCost();
@@ -626,6 +688,8 @@ export default function AdminJobs() {
     loadDriverLocations();
     loadHourlyRate();
     loadHelperHourlyRate();
+    loadOwnerVehicleDriverShare();
+    loadDriverVehicleDriverShare();
     loadFixedMonthlyCost();
     loadTripCostPerHour();
     loadTripCostPerKm();
@@ -855,6 +919,7 @@ export default function AdminJobs() {
         id: uuidv4(),
         name: vehicleName.trim(),
         size: vehicleSize,
+        ownershipType: vehicleOwnershipType,
         costPerKm: costPerKm as number,
         fixedMonthlyCost: fixedMonthlyCost as number,
         createdAt: now,
@@ -863,6 +928,7 @@ export default function AdminJobs() {
       setVehicles((prev) => [created, ...prev]);
       setVehicleName('');
       setVehicleSize('mediano');
+      setVehicleOwnershipType('owner');
       setVehicleCostPerKmInput('');
       setVehicleFixedMonthlyInput('');
       toast.success('Vehiculo creado');
@@ -951,6 +1017,48 @@ export default function AdminJobs() {
       toast.error('No se pudo guardar el precio hora ayudante');
     } finally {
       setSavingHelperHourlyRate(false);
+    }
+  };
+
+  const handleSaveOwnerVehicleDriverShare = async () => {
+    const parsedPercent = parsePercentageInput(ownerVehicleDriverShareInput);
+    if (ownerVehicleDriverShareInput.trim() && parsedPercent == null) {
+      toast.error('El reparto debe estar entre 0 y 100');
+      return;
+    }
+    const ratio = parsedPercent != null ? parsedPercent / 100 : null;
+    try {
+      setSavingOwnerVehicleDriverShare(true);
+      const saved = await setOwnerVehicleDriverShare(ratio);
+      setOwnerVehicleDriverShareInput(
+        saved.value != null ? formatRatioAsPercentInput(saved.value) : '',
+      );
+      toast.success('Reparto de vehiculo del dueno actualizado');
+    } catch {
+      toast.error('No se pudo guardar el reparto de vehiculo del dueno');
+    } finally {
+      setSavingOwnerVehicleDriverShare(false);
+    }
+  };
+
+  const handleSaveDriverVehicleDriverShare = async () => {
+    const parsedPercent = parsePercentageInput(driverVehicleDriverShareInput);
+    if (driverVehicleDriverShareInput.trim() && parsedPercent == null) {
+      toast.error('El reparto debe estar entre 0 y 100');
+      return;
+    }
+    const ratio = parsedPercent != null ? parsedPercent / 100 : null;
+    try {
+      setSavingDriverVehicleDriverShare(true);
+      const saved = await setDriverVehicleDriverShare(ratio);
+      setDriverVehicleDriverShareInput(
+        saved.value != null ? formatRatioAsPercentInput(saved.value) : '',
+      );
+      toast.success('Reparto de vehiculo del chofer actualizado');
+    } catch {
+      toast.error('No se pudo guardar el reparto de vehiculo del chofer');
+    } finally {
+      setSavingDriverVehicleDriverShare(false);
     }
   };
 
@@ -1114,19 +1222,51 @@ export default function AdminJobs() {
     }
     return null;
   };
+  const getEntryVehicle = (entry: { job: Job }) => {
+    if (!entry.job.driverId) return null;
+    const driver = driversById.get(entry.job.driverId);
+    if (!driver?.vehicleId) return null;
+    return vehiclesById.get(driver.vehicleId) ?? null;
+  };
+  const getDriverShareRatioByVehicle = (vehicle: Vehicle | null) => {
+    if (vehicle?.ownershipType === 'driver') return driverVehicleDriverShareRatio;
+    return ownerVehicleDriverShareRatio;
+  };
+  const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
+    if (hourlyRateValue == null) return null;
+    const billedHours = getEntryBilledHours(entry);
+    if (billedHours == null) return null;
+    return billedHours * hourlyRateValue;
+  };
+  const getEntryHourDistribution = (entry: { job: Job; durationMs: number | null }) => {
+    const hourlyValue = getEntryHourlyValue(entry);
+    if (hourlyValue == null) return null;
+    const vehicle = getEntryVehicle(entry);
+    const driverShareRatio = getDriverShareRatioByVehicle(vehicle);
+    const driverShare = hourlyValue * driverShareRatio;
+    return {
+      hourlyValue,
+      driverShare,
+      ownerShare: hourlyValue - driverShare,
+      driverShareRatio,
+      vehicle,
+    };
+  };
   const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
     const revenue = getEntryTotal(entry);
     if (revenue == null) return null;
+    const hourlyDistribution = getEntryHourDistribution(entry);
     const billedHours = getEntryBilledHours(entry);
     const helpersCount = entry.job.helpersCount ?? 0;
     const helpersCost = helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
       ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
+    const driverCost = hourlyDistribution?.driverShare ?? 0;
     const distanceKm = jobDistanceKmById.get(entry.job.id) ?? null;
     const fuelCost = tripCostPerKmValue != null && distanceKm != null
       ? distanceKm * tripCostPerKmValue
       : 0;
-    return revenue - helpersCost - fuelCost;
+    return revenue - helpersCost - fuelCost - driverCost;
   };
   const getJobEstimatedTotal = (job: Job) => {
     if (job.chargedAmount != null) return job.chargedAmount;
@@ -1141,6 +1281,8 @@ export default function AdminJobs() {
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
+  const ownerVehicleDriverShareLabel = percentFormatter.format(ownerVehicleDriverShareRatio);
+  const driverVehicleDriverShareLabel = percentFormatter.format(driverVehicleDriverShareRatio);
   const now = new Date();
   const currentMonthLabel = monthFormatter.format(now);
   const currentMonth = now.getMonth();
@@ -1214,12 +1356,28 @@ export default function AdminJobs() {
         if (distanceKm == null || !Number.isFinite(distanceKm)) return;
         variableCost += distanceKm * tripCostPerKmValue;
       }
+      const hourlyDistribution = getEntryHourDistribution(entry);
+      if (hourlyDistribution != null) {
+        variableCost += hourlyDistribution.driverShare;
+      }
       const net = revenue - variableCost - fixedCostPerTrip;
       total += net;
       count += 1;
     });
     return { average: count > 0 ? total / count : null, count };
-  }, [completedThisMonth, fixedCostPerTrip, jobDistanceKmById, tripCostPerHourValue, tripCostPerKmValue, hourlyRateValue, helperHourlyRateValue]);
+  }, [
+    completedThisMonth,
+    fixedCostPerTrip,
+    jobDistanceKmById,
+    tripCostPerHourValue,
+    tripCostPerKmValue,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const recurringClientStats = useMemo(() => {
     const counts = new Map<string, number>();
     completedHistory.forEach((entry) => {
@@ -1313,7 +1471,17 @@ export default function AdminJobs() {
       runningNet += item.net;
       return { ...item, total: runningTotal, net: runningNet };
     });
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById]);
+  }, [
+    completedHistory,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    tripCostPerKmValue,
+    jobDistanceKmById,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const dailyRevenueMaxValue = useMemo(() => {
     const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => Math.max(item.total, item.net)));
     return maxValue;
@@ -1357,7 +1525,17 @@ export default function AdminJobs() {
       }
     });
     return months;
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById]);
+  }, [
+    completedHistory,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    tripCostPerKmValue,
+    jobDistanceKmById,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const monthlyRevenueMaxValue = useMemo(() => {
     const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => Math.max(item.total, item.net)));
     return maxValue;
@@ -2736,7 +2914,7 @@ export default function AdminJobs() {
                   </div>
                   <span className="text-xs text-gray-400">{vehicles.length} registrados</span>
                 </div>
-                <form onSubmit={handleCreateVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_auto]">
+                <form onSubmit={handleCreateVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
                   <div>
                     <label className="text-xs text-gray-500">Nombre</label>
                     <input
@@ -2757,6 +2935,17 @@ export default function AdminJobs() {
                       <option value="chico">Chico</option>
                       <option value="mediano">Mediano</option>
                       <option value="grande">Grande</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Propiedad</label>
+                    <select
+                      value={vehicleOwnershipType}
+                      onChange={(event) => setVehicleOwnershipType(event.target.value as VehicleOwnershipType)}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                    >
+                      <option value="owner">Del dueno</option>
+                      <option value="driver">Del chofer</option>
                     </select>
                   </div>
                   <div>
@@ -2806,7 +2995,9 @@ export default function AdminJobs() {
                         <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
                           <div>
                             <p className="font-semibold text-gray-900">{vehicle.name}</p>
-                            <p className="text-xs text-gray-500">{vehicleSizeLabels[vehicle.size]}</p>
+                            <p className="text-xs text-gray-500">
+                              {vehicleSizeLabels[vehicle.size]} | {vehicleOwnershipLabels[vehicle.ownershipType]}
+                            </p>
                           </div>
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.costPerKm)}</span> / km
@@ -2857,7 +3048,7 @@ export default function AdminJobs() {
                                 <option value="">Sin asignar</option>
                                 {vehicles.map((vehicle) => (
                                   <option key={vehicle.id} value={vehicle.id}>
-                                    {vehicle.name} ({vehicleSizeLabels[vehicle.size]})
+                                    {vehicle.name} ({vehicleSizeLabels[vehicle.size]}, {vehicleOwnershipLabels[vehicle.ownershipType]})
                                   </option>
                                 ))}
                               </select>
@@ -3273,6 +3464,8 @@ export default function AdminJobs() {
                   <div className="mt-3 space-y-2">
                     {completedHistory.map((entry) => {
                       const driver = entry.job.driverId ? driversById.get(entry.job.driverId) : null;
+                      const vehicle = driver?.vehicleId ? vehiclesById.get(driver.vehicleId) ?? null : null;
+                      const hourlyDistribution = getEntryHourDistribution(entry);
                       const durationLabel = entry.durationMs != null ? formatDurationMs(entry.durationMs) : 'Sin tiempos';
                       const helpersCount = entry.job.helpersCount ?? 0;
                       const billedHours = getBilledHours(entry.durationMs);
@@ -3301,6 +3494,19 @@ export default function AdminJobs() {
                             : 'Sin ayudantes';
                       const computedTotalLabel = totalValue != null ? currencyFormatter.format(totalValue) : 'N/D';
                       const displayTotalLabel = chargedAmountLabel ?? computedTotalLabel;
+                      const driverHourShareLabel = hourlyDistribution != null
+                        ? currencyFormatter.format(hourlyDistribution.driverShare)
+                        : hourlyRateValue == null
+                          ? 'Defini precio hora'
+                          : 'Sin base horaria';
+                      const ownerHourShareLabel = hourlyDistribution != null
+                        ? currencyFormatter.format(hourlyDistribution.ownerShare)
+                        : hourlyRateValue == null
+                          ? 'Defini precio hora'
+                          : 'Sin base horaria';
+                      const shareRuleLabel = hourlyDistribution != null
+                        ? percentFormatter.format(hourlyDistribution.driverShareRatio)
+                        : '--';
                       const endLabel = entry.endMs != null ? new Date(entry.endMs).toLocaleString() : 'Sin datos';
                       const chargedInputValue = chargedAmountDrafts[entry.job.id] ?? (chargedAmount != null ? String(chargedAmount) : '');
                       const isSavingCharge = savingChargedAmountId === entry.job.id;
@@ -3313,6 +3519,11 @@ export default function AdminJobs() {
                                 <p className="text-sm text-gray-500">Descripcion: {entry.job.description}</p>
                               )}
                               <p className="text-sm text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
+                              <p className="text-sm text-gray-500">
+                                Vehiculo: {vehicle
+                                  ? `${vehicle.name} (${vehicleOwnershipLabels[vehicle.ownershipType]})`
+                                  : 'Sin vehiculo asignado (regla del dueno)'}
+                              </p>
                               <p className="text-sm text-gray-500">Ayudantes: {helpersCount}</p>
                               <p className="text-sm text-gray-500">Finalizado: {endLabel}</p>
                             </div>
@@ -3332,6 +3543,9 @@ export default function AdminJobs() {
                                 <p className="text-sm text-gray-500">Estimado: {computedTotalLabel}</p>
                               )}
                               <p className="text-sm text-gray-500">Flete: {jobValueLabel}</p>
+                              <p className="text-sm text-gray-500">Chofer (hora): {driverHourShareLabel}</p>
+                              <p className="text-sm text-gray-500">Empresa (hora): {ownerHourShareLabel}</p>
+                              <p className="text-sm text-gray-500">Regla reparto: {shareRuleLabel}</p>
                               <p className="text-sm text-gray-500">Ayudantes: {helpersValueLabel}</p>
                               <p className="text-sm text-gray-500">Duracion: {durationLabel}</p>
                             </div>
@@ -3384,7 +3598,7 @@ export default function AdminJobs() {
                 <div>
                   <p className="text-xs uppercase tracking-wide text-gray-400">Configuracion</p>
                   <h2 className="text-lg font-semibold text-gray-900">Parametros del sistema</h2>
-                  <p className="text-xs text-gray-500">Precios y costos que impactan en analiticas.</p>
+                  <p className="text-xs text-gray-500">Precios, costos y repartos que impactan en analiticas.</p>
                 </div>
               </div>
               <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
@@ -3434,6 +3648,58 @@ export default function AdminJobs() {
                       >
                         {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
                       </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 border-t border-gray-100 pt-4">
+                    <p className="text-sm font-semibold text-gray-900">Reparto del valor hora (chofer)</p>
+                    <p className="text-xs text-gray-500">
+                      Vehiculo del dueno: {ownerVehicleDriverShareLabel} para chofer. Vehiculo del chofer: {driverVehicleDriverShareLabel} para chofer.
+                    </p>
+                    <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Vehiculo del dueno (%)</p>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="Ej: 33.33"
+                          value={ownerVehicleDriverShareInput}
+                          onChange={(event) => setOwnerVehicleDriverShareInput(event.target.value)}
+                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveOwnerVehicleDriverShare}
+                          disabled={savingOwnerVehicleDriverShare}
+                          className="mt-2 w-full rounded border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingOwnerVehicleDriverShare ? 'Guardando...' : 'Guardar reparto dueno'}
+                        </button>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Vehiculo del chofer (%)</p>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="Ej: 66.67"
+                          value={driverVehicleDriverShareInput}
+                          onChange={(event) => setDriverVehicleDriverShareInput(event.target.value)}
+                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveDriverVehicleDriverShare}
+                          disabled={savingDriverVehicleDriverShare}
+                          className="mt-2 w-full rounded border border-cyan-200 px-2 py-1 text-xs font-semibold text-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingDriverVehicleDriverShare ? 'Guardando...' : 'Guardar reparto chofer'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
