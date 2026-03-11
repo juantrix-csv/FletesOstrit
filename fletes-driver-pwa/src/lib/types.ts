@@ -36,6 +36,12 @@ export interface Job {
   id: string; clientName: string; clientPhone?: string | null; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
   notes?: string; helpersCount?: number; estimatedDurationMinutes?: number | null; status: JobStatus; driverId?: string | null;
   chargedAmount?: number | null;
+  hourlyBilledHours?: number | null;
+  hourlyBaseAmount?: number | null;
+  driverShareAmount?: number | null;
+  companyShareAmount?: number | null;
+  driverShareRatio?: number | null;
+  shareSource?: string | null;
   stopIndex?: number | null;
   distanceMeters?: number | null;
   distanceKm?: number | null;

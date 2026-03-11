@@ -1206,16 +1206,24 @@ export default function AdminJobs() {
   );
   const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
     if (entry.job.chargedAmount != null) return entry.job.chargedAmount;
-    if (hourlyRateValue == null || entry.durationMs == null) return null;
-    const billedHours = getBilledHours(entry.durationMs);
+    const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
+    const baseValue = Number.isFinite(entry.job.hourlyBaseAmount)
+      ? (entry.job.hourlyBaseAmount as number)
+      : hourlyRateValue != null
+        ? billedHours * hourlyRateValue
+        : null;
+    if (baseValue == null) return null;
     const helpersCount = entry.job.helpersCount ?? 0;
     const helpersValue = helperHourlyRateValue != null && helpersCount > 0
       ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
-    return billedHours * hourlyRateValue + helpersValue;
+    return baseValue + helpersValue;
   };
   const getEntryBilledHours = (entry: { job: Job; durationMs: number | null }) => {
+    if (Number.isFinite(entry.job.hourlyBilledHours)) {
+      return entry.job.hourlyBilledHours as number;
+    }
     if (entry.durationMs != null) return getBilledHours(entry.durationMs);
     if (Number.isFinite(entry.job.estimatedDurationMinutes)) {
       return getBilledHours((entry.job.estimatedDurationMinutes as number) * 60000);
@@ -1228,11 +1236,16 @@ export default function AdminJobs() {
     if (!driver?.vehicleId) return null;
     return vehiclesById.get(driver.vehicleId) ?? null;
   };
-  const getDriverShareRatioByVehicle = (vehicle: Vehicle | null) => {
+  const isOwnerAccountDriver = (driver: Driver | null) => String(driver?.code ?? '').trim() === '6666';
+  const getDriverShareRatioByVehicle = (vehicle: Vehicle | null, driver: Driver | null) => {
+    if (isOwnerAccountDriver(driver)) return 0;
     if (vehicle?.ownershipType === 'driver') return driverVehicleDriverShareRatio;
     return ownerVehicleDriverShareRatio;
   };
   const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
+    if (Number.isFinite(entry.job.hourlyBaseAmount)) {
+      return entry.job.hourlyBaseAmount as number;
+    }
     if (hourlyRateValue == null) return null;
     const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
@@ -1241,8 +1254,25 @@ export default function AdminJobs() {
   const getEntryHourDistribution = (entry: { job: Job; durationMs: number | null }) => {
     const hourlyValue = getEntryHourlyValue(entry);
     if (hourlyValue == null) return null;
+    const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
     const vehicle = getEntryVehicle(entry);
-    const driverShareRatio = getDriverShareRatioByVehicle(vehicle);
+    if (Number.isFinite(entry.job.driverShareAmount) && Number.isFinite(entry.job.companyShareAmount)) {
+      const storedDriverShare = entry.job.driverShareAmount as number;
+      const storedOwnerShare = entry.job.companyShareAmount as number;
+      const storedRatio = Number.isFinite(entry.job.driverShareRatio)
+        ? (entry.job.driverShareRatio as number)
+        : hourlyValue > 0
+          ? storedDriverShare / hourlyValue
+          : 0;
+      return {
+        hourlyValue,
+        driverShare: storedDriverShare,
+        ownerShare: storedOwnerShare,
+        driverShareRatio: storedRatio,
+        vehicle,
+      };
+    }
+    const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
     const driverShare = hourlyValue * driverShareRatio;
     return {
       hourlyValue,
@@ -3468,12 +3498,10 @@ export default function AdminJobs() {
                       const hourlyDistribution = getEntryHourDistribution(entry);
                       const durationLabel = entry.durationMs != null ? formatDurationMs(entry.durationMs) : 'Sin tiempos';
                       const helpersCount = entry.job.helpersCount ?? 0;
-                      const billedHours = getBilledHours(entry.durationMs);
-                      const jobValue = hourlyRateValue != null && entry.durationMs != null
-                        ? (billedHours ?? 0) * hourlyRateValue
-                        : null;
-                      const helpersValue = helperHourlyRateValue != null && entry.durationMs != null && helpersCount > 0
-                        ? (billedHours ?? 0) * helperHourlyRateValue * helpersCount
+                      const billedHours = getEntryBilledHours(entry);
+                      const jobValue = getEntryHourlyValue(entry);
+                      const helpersValue = helperHourlyRateValue != null && billedHours != null && helpersCount > 0
+                        ? billedHours * helperHourlyRateValue * helpersCount
                         : null;
                       const totalValue = jobValue != null || helpersValue != null
                         ? (jobValue ?? 0) + (helpersValue ?? 0)

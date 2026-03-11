@@ -14,6 +14,7 @@ const MAX_TRACK_ACCURACY_METERS = 60;
 const MIN_TRACK_DISTANCE_METERS = 6;
 const MAX_TRACK_SPEED_MPS = 45;
 const MAX_TRACK_INTERVAL_MS = 5 * 60 * 1000;
+const OWNER_ACCOUNT_DRIVER_CODE = '6666';
 
 const toRadians = (value) => (value * Math.PI) / 180;
 const calculateDistanceMeters = (lat1, lng1, lat2, lng2) => {
@@ -62,6 +63,12 @@ export const ensureSchema = async () => {
       helpers_count INTEGER,
       estimated_duration_minutes INTEGER,
       charged_amount DOUBLE PRECISION,
+      hourly_billed_hours DOUBLE PRECISION,
+      hourly_base_amount DOUBLE PRECISION,
+      driver_share_amount DOUBLE PRECISION,
+      company_share_amount DOUBLE PRECISION,
+      driver_share_ratio DOUBLE PRECISION,
+      share_source TEXT,
       status TEXT NOT NULL,
       flags JSONB NOT NULL,
       timestamps JSONB NOT NULL,
@@ -83,6 +90,12 @@ export const ensureSchema = async () => {
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helpers_count INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_duration_minutes INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charged_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_billed_hours DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_base_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_share_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS company_share_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_share_ratio DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS share_source TEXT;`;
   await sql`
     CREATE TABLE IF NOT EXISTS drivers (
       id TEXT PRIMARY KEY,
@@ -162,6 +175,12 @@ const normalizeRow = (row) => {
     helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
     estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
     chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : undefined,
+    hourlyBilledHours: row.hourly_billed_hours != null ? Number(row.hourly_billed_hours) : undefined,
+    hourlyBaseAmount: row.hourly_base_amount != null ? Number(row.hourly_base_amount) : undefined,
+    driverShareAmount: row.driver_share_amount != null ? Number(row.driver_share_amount) : undefined,
+    companyShareAmount: row.company_share_amount != null ? Number(row.company_share_amount) : undefined,
+    driverShareRatio: row.driver_share_ratio != null ? Number(row.driver_share_ratio) : undefined,
+    shareSource: row.share_source ?? undefined,
     status: row.status,
     flags: row.flags ?? defaultFlags,
     timestamps: row.timestamps ?? {},
@@ -170,6 +189,108 @@ const normalizeRow = (row) => {
     scheduledAt: row.scheduled_at != null ? Number(row.scheduled_at) : undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+};
+
+const parseTimestampMs = (value) => {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const getBilledHoursFromTimestamps = (timestamps) => {
+  const startMs = parseTimestampMs(timestamps?.startJobAt)
+    ?? parseTimestampMs(timestamps?.startLoadingAt)
+    ?? parseTimestampMs(timestamps?.startTripAt)
+    ?? parseTimestampMs(timestamps?.startUnloadingAt)
+    ?? null;
+  const endMs = parseTimestampMs(timestamps?.endUnloadingAt)
+    ?? parseTimestampMs(timestamps?.endTripAt)
+    ?? null;
+  if (startMs == null || endMs == null) return null;
+  const durationMs = Math.max(0, endMs - startMs);
+  if (durationMs <= 0) return 0;
+  return Math.ceil(durationMs / 3600000);
+};
+
+const toFiniteOrNull = (value) => (Number.isFinite(value) ? value : null);
+
+const resolveDriverShareRatio = async (driverId) => {
+  if (!driverId) {
+    return { ratio: 0, source: 'no_driver' };
+  }
+
+  const driver = await getDriverById(driverId);
+  if (!driver) {
+    return { ratio: 0, source: 'driver_not_found' };
+  }
+
+  if (String(driver.code ?? '').trim() === OWNER_ACCOUNT_DRIVER_CODE) {
+    return { ratio: 0, source: 'owner_account' };
+  }
+
+  const ownerVehicleSetting = await getSetting('ownerVehicleDriverShare');
+  const driverVehicleSetting = await getSetting('driverVehicleDriverShare');
+  const ownerVehicleRatio = Number.isFinite(ownerVehicleSetting) && ownerVehicleSetting >= 0 && ownerVehicleSetting <= 1
+    ? ownerVehicleSetting
+    : (1 / 3);
+  const driverVehicleRatio = Number.isFinite(driverVehicleSetting) && driverVehicleSetting >= 0 && driverVehicleSetting <= 1
+    ? driverVehicleSetting
+    : (2 / 3);
+
+  if (!driver.vehicleId) {
+    return { ratio: ownerVehicleRatio, source: 'owner_vehicle_no_assignment' };
+  }
+
+  const vehicle = await getVehicleById(driver.vehicleId);
+  if (vehicle?.ownershipType === 'driver') {
+    return { ratio: driverVehicleRatio, source: 'driver_vehicle' };
+  }
+  return { ratio: ownerVehicleRatio, source: 'owner_vehicle' };
+};
+
+const buildJobShareSnapshot = async (job) => {
+  if (job.status !== 'DONE') {
+    return {
+      hourlyBilledHours: null,
+      hourlyBaseAmount: null,
+      driverShareAmount: null,
+      companyShareAmount: null,
+      driverShareRatio: null,
+      shareSource: null,
+    };
+  }
+
+  const billedHours = getBilledHoursFromTimestamps(job.timestamps);
+  const hourlyRateSetting = await getSetting('hourlyRate');
+  const hourlyRate = Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null;
+  const baseAmount = billedHours != null && hourlyRate != null
+    ? Number((billedHours * hourlyRate).toFixed(2))
+    : null;
+
+  const { ratio, source } = await resolveDriverShareRatio(job.driverId);
+
+  if (baseAmount == null) {
+    return {
+      hourlyBilledHours: billedHours,
+      hourlyBaseAmount: null,
+      driverShareAmount: null,
+      companyShareAmount: null,
+      driverShareRatio: ratio,
+      shareSource: source,
+    };
+  }
+
+  const driverShareAmount = Number((baseAmount * ratio).toFixed(2));
+  const companyShareAmount = Number((baseAmount - driverShareAmount).toFixed(2));
+
+  return {
+    hourlyBilledHours: billedHours,
+    hourlyBaseAmount: baseAmount,
+    driverShareAmount,
+    companyShareAmount,
+    driverShareRatio: ratio,
+    shareSource: source,
   };
 };
 
@@ -212,10 +333,15 @@ export const createJob = async (job) => {
   const extraStopsJson = toJson(Array.isArray(job.extraStops) ? job.extraStops : [], []);
   const flagsJson = toJson(flags, defaultFlags);
   const timestampsJson = toJson(timestamps, {});
+  const shareSnapshot = await buildJobShareSnapshot({
+    ...job,
+    timestamps,
+  });
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, status,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount,
+      hourly_billed_hours, hourly_base_amount, driver_share_amount, company_share_amount, driver_share_ratio, share_source, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -236,6 +362,12 @@ export const createJob = async (job) => {
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
       ${Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null},
       ${Number.isFinite(job.chargedAmount) ? job.chargedAmount : null},
+      ${toFiniteOrNull(shareSnapshot.hourlyBilledHours)},
+      ${toFiniteOrNull(shareSnapshot.hourlyBaseAmount)},
+      ${toFiniteOrNull(shareSnapshot.driverShareAmount)},
+      ${toFiniteOrNull(shareSnapshot.companyShareAmount)},
+      ${toFiniteOrNull(shareSnapshot.driverShareRatio)},
+      ${shareSnapshot.shareSource ?? null},
       ${job.status},
       ${flagsJson}::jsonb,
       ${timestampsJson}::jsonb,
@@ -279,6 +411,35 @@ export const updateJob = async (id, patch) => {
   const extraStopsJson = toJson(Array.isArray(next.extraStops) ? next.extraStops : [], []);
   const flagsJson = toJson(next.flags ?? defaultFlags, defaultFlags);
   const timestampsJson = toJson(next.timestamps ?? {}, {});
+  let shareSnapshot = null;
+  if (next.status !== 'DONE') {
+    shareSnapshot = {
+      hourlyBilledHours: null,
+      hourlyBaseAmount: null,
+      driverShareAmount: null,
+      companyShareAmount: null,
+      driverShareRatio: null,
+      shareSource: null,
+    };
+  } else {
+    const mustRecomputeShare = current.status !== 'DONE'
+      || Object.prototype.hasOwnProperty.call(patch, 'status')
+      || Object.prototype.hasOwnProperty.call(patch, 'driverId')
+      || Object.prototype.hasOwnProperty.call(patch, 'timestamps');
+
+    if (mustRecomputeShare) {
+      shareSnapshot = await buildJobShareSnapshot(next);
+    } else {
+      shareSnapshot = {
+        hourlyBilledHours: toFiniteOrNull(current.hourlyBilledHours),
+        hourlyBaseAmount: toFiniteOrNull(current.hourlyBaseAmount),
+        driverShareAmount: toFiniteOrNull(current.driverShareAmount),
+        companyShareAmount: toFiniteOrNull(current.companyShareAmount),
+        driverShareRatio: toFiniteOrNull(current.driverShareRatio),
+        shareSource: current.shareSource ?? null,
+      };
+    }
+  }
 
   await sql`
     UPDATE jobs SET
@@ -294,6 +455,12 @@ export const updateJob = async (id, patch) => {
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
       charged_amount = ${Number.isFinite(next.chargedAmount) ? next.chargedAmount : null},
+      hourly_billed_hours = ${toFiniteOrNull(shareSnapshot.hourlyBilledHours)},
+      hourly_base_amount = ${toFiniteOrNull(shareSnapshot.hourlyBaseAmount)},
+      driver_share_amount = ${toFiniteOrNull(shareSnapshot.driverShareAmount)},
+      company_share_amount = ${toFiniteOrNull(shareSnapshot.companyShareAmount)},
+      driver_share_ratio = ${toFiniteOrNull(shareSnapshot.driverShareRatio)},
+      share_source = ${shareSnapshot.shareSource ?? null},
       status = ${next.status},
       flags = ${flagsJson}::jsonb,
       timestamps = ${timestampsJson}::jsonb,
