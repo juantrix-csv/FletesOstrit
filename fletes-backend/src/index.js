@@ -90,7 +90,11 @@ const isVehicleSize = (value) => typeof value === 'string' && VEHICLE_SIZES.has(
 const getBilledHours = (durationMs) => {
   if (durationMs == null) return null;
   if (durationMs <= 0) return 0;
-  return Math.ceil(durationMs / 3600000);
+  const firstHourMs = 60 * 60 * 1000;
+  if (durationMs <= firstHourMs) return 1;
+  const halfHourMs = 30 * 60 * 1000;
+  const extraBlocks = Math.ceil((durationMs - firstHourMs) / halfHourMs);
+  return 1 + extraBlocks * 0.5;
 };
 
 app.use(cors());

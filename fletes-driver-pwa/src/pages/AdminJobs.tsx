@@ -286,7 +286,11 @@ const formatDurationMs = (ms: number) => {
 const getBilledHours = (ms: number | null) => {
   if (ms == null) return null;
   if (ms <= 0) return 0;
-  return Math.ceil(ms / 3600000);
+  const firstHourMs = 60 * 60 * 1000;
+  if (ms <= firstHourMs) return 1;
+  const halfHourMs = 30 * 60 * 1000;
+  const extraBlocks = Math.ceil((ms - firstHourMs) / halfHourMs);
+  return 1 + extraBlocks * 0.5;
 };
 
 type CalendarJob = {

@@ -217,12 +217,18 @@ export default function JobWorkflow() {
       {(job.description || job.notes) && (
         <div className="rounded-2xl border bg-white p-3">
           <p className="text-xs uppercase tracking-wide text-gray-400">Detalles</p>
-          {job.description && (
-            <p className="mt-2 text-sm text-gray-700">Descripcion: {job.description}</p>
-          )}
-          {job.notes && (
-            <p className="mt-2 text-sm text-gray-700">Notas: {job.notes}</p>
-          )}
+          <div className="mt-2 max-h-40 space-y-2 overflow-y-auto pr-2 text-sm text-gray-700">
+            {job.description && (
+              <div className="whitespace-pre-wrap break-words">
+                <span className="font-medium text-gray-900">Descripcion:</span> {job.description}
+              </div>
+            )}
+            {job.notes && (
+              <div className="whitespace-pre-wrap break-words">
+                <span className="font-medium text-gray-900">Notas:</span> {job.notes}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </>
