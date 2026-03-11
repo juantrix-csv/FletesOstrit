@@ -122,7 +122,7 @@ export default function AddressAutocomplete({ label, placeholder, onSelect, sele
                 key={item.place_id}
                 type="button"
                 onMouseDown={() => handleSelect(item)}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
+                className="w-full break-words px-3 py-2 text-left text-sm hover:bg-gray-100 whitespace-normal"
               >
                 {item.display_name}
               </button>

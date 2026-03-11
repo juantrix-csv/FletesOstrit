@@ -1597,9 +1597,9 @@ export default function AdminJobs() {
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
       <section className="space-y-4">
-            {tab === 'jobs' && (
-              <div className="grid gap-4 xl:grid-cols-[420px_1fr] xl:h-[calc(100dvh-4rem)]">
-                <div className="flex min-h-[70vh] flex-col gap-3 xl:min-h-0 xl:h-full">
+          {tab === 'jobs' && (
+              <div className="grid min-w-0 gap-4 overflow-x-hidden xl:grid-cols-[420px_1fr] xl:h-[calc(100dvh-4rem)]">
+                <div className="flex min-h-[70vh] min-w-0 flex-col gap-3 xl:min-h-0 xl:h-full">
                 <button onClick={() => setOpen(!open)} className="w-full rounded bg-blue-600 p-3 text-white">
                   {open ? 'Cerrar' : 'Nuevo Flete'}
                 </button>
@@ -1723,23 +1723,23 @@ export default function AdminJobs() {
                           <div className="space-y-1">
                             <p className="text-[11px] text-gray-400">Arrastra para reordenar.</p>
                             {extraStops.map((stop, index) => (
-                              <div
-                                key={`${stop.lat}-${stop.lng}-${index}`}
-                                draggable
-                                onDragStart={() => setDraggedStopIndex(index)}
-                                onDragOver={(event) => event.preventDefault()}
-                                onDrop={() => handleReorderStop(index)}
-                                onDragEnd={() => setDraggedStopIndex(null)}
-                                className={cn(
-                                  "flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
-                                  draggedStopIndex === index ? "opacity-60" : "cursor-grab"
-                                )}
-                              >
-                                <span className="truncate">{stop.address}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeExtraStop(index)}
-                                  className="text-amber-600"
+                            <div
+                              key={`${stop.lat}-${stop.lng}-${index}`}
+                              draggable
+                              onDragStart={() => setDraggedStopIndex(index)}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={() => handleReorderStop(index)}
+                              onDragEnd={() => setDraggedStopIndex(null)}
+                              className={cn(
+                                "flex min-w-0 items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
+                                draggedStopIndex === index ? "opacity-60" : "cursor-grab"
+                              )}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{stop.address}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeExtraStop(index)}
+                                className="text-amber-600"
                                 >
                                   Quitar
                                 </button>
@@ -1898,7 +1898,7 @@ export default function AdminJobs() {
                   </div>
                 )}
 
-                <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
+                <div className="flex-1 min-h-0 space-y-2 overflow-x-hidden overflow-y-auto pr-1">
                   {loadingJobs && <p className="text-sm text-gray-500">Cargando fletes...</p>}
                   {!loadingJobs && jobs?.length === 0 && <p className="text-sm text-gray-500">No hay fletes cargados.</p>}
                   {!loadingJobs && jobs?.length > 0 && filteredJobs.length === 0 && (
@@ -1932,8 +1932,8 @@ export default function AdminJobs() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-gray-900 truncate">{job.clientName}</p>
+                            <div className="flex min-w-0 items-center gap-2">
+                              <p className="min-w-0 flex-1 truncate font-semibold text-gray-900">{job.clientName}</p>
                               <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", statusBadge.className)}>
                                 {statusBadge.label}
                               </span>
@@ -1943,13 +1943,13 @@ export default function AdminJobs() {
                               <p className="text-xs text-gray-600">Descripcion: {job.description}</p>
                             )}
                             <div className="mt-1 space-y-1">
-                              <div className="flex items-start gap-2 text-xs text-gray-600">
+                              <div className="flex min-w-0 items-start gap-2 text-xs text-gray-600">
                                 <MapPin size={12} className="mt-0.5 text-emerald-600" />
-                                <span className="truncate">{job.pickup.address}</span>
+                                <span className="min-w-0 flex-1 truncate">{job.pickup.address}</span>
                               </div>
-                              <div className="flex items-start gap-2 text-xs text-gray-600">
+                              <div className="flex min-w-0 items-start gap-2 text-xs text-gray-600">
                                 <Flag size={12} className="mt-0.5 text-rose-600" />
-                                <span className="truncate">{job.dropoff.address}</span>
+                                <span className="min-w-0 flex-1 truncate">{job.dropoff.address}</span>
                               </div>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-500">
@@ -2019,13 +2019,13 @@ export default function AdminJobs() {
                           </div>
                         </div>
                         {!isEditing && (
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
                             <label className="text-xs text-gray-500">Conductor:</label>
                             <select
                               value={job.driverId ?? ''}
                               onClick={(event) => event.stopPropagation()}
                               onChange={(event) => handleAssignJob(job, event.target.value)}
-                              className="rounded border px-2 py-1 text-xs"
+                              className="w-full max-w-full rounded border px-2 py-1 text-xs sm:w-auto"
                             >
                               <option value="">Sin asignar</option>
                               {drivers.map((driver) => (
@@ -2170,11 +2170,11 @@ export default function AdminJobs() {
                                           onDrop={() => handleReorderEditStop(index)}
                                           onDragEnd={() => setEditDraggedStopIndex(null)}
                                           className={cn(
-                                            "flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-[10px] text-gray-600",
+                                            "flex min-w-0 items-center justify-between gap-2 rounded bg-white px-2 py-1 text-[10px] text-gray-600",
                                             editDraggedStopIndex === index ? "opacity-60" : "cursor-grab"
                                           )}
                                         >
-                                          <span className="truncate">{stop.address}</span>
+                                          <span className="min-w-0 flex-1 truncate">{stop.address}</span>
                                           <button
                                             type="button"
                                             onClick={() => removeEditExtraStop(index)}
@@ -2274,7 +2274,7 @@ export default function AdminJobs() {
                 </div>
               </div>
 
-                <div className="relative min-h-[70vh] rounded-2xl border bg-white shadow-sm xl:h-full xl:sticky xl:top-8">
+                <div className="relative min-h-[70vh] min-w-0 rounded-2xl border bg-white shadow-sm xl:h-full xl:sticky xl:top-8">
                 <div className="absolute left-4 right-4 top-4 z-10">
                   <div className="rounded-xl bg-white/95 p-3 shadow">
                     <AddressAutocomplete
@@ -2503,8 +2503,8 @@ export default function AdminJobs() {
 
                 {calendarView === 'week' && (
                   <div className="mt-4 rounded-2xl border bg-white p-3">
-                    <div className="overflow-x-hidden sm:overflow-x-auto">
-                      <div className="min-w-0 sm:min-w-[960px]">
+                    <div className="overflow-x-auto">
+                      <div className="min-w-[960px]">
                         <div className="grid grid-cols-[56px_repeat(7,1fr)] text-[11px] text-gray-500">
                           <div />
                           {weekDays.map((day) => {
