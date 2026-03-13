@@ -3801,8 +3801,8 @@ export default function AdminJobs() {
       </section>
 
       {selectedJobId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-5xl space-y-4 rounded-2xl bg-white p-4 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 sm:items-center sm:p-4">
+          <div className="my-3 w-full max-w-5xl max-h-[calc(100vh-1.5rem)] space-y-4 overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:my-4 sm:max-h-[calc(100vh-2rem)] sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-wide text-blue-500">Detalle del flete</p>
