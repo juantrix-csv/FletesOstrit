@@ -280,6 +280,56 @@ type CalendarJob = {
 };
 
 type AdminTab = 'jobs' | 'drivers' | 'calendar' | 'analytics' | 'settings';
+type MapSelectionTarget = 'pickup' | 'dropoff' | 'extra';
+
+interface MapTargetSelectorProps {
+  value: MapSelectionTarget;
+  onChange: (target: MapSelectionTarget) => void;
+  size?: 'xs' | 'sm';
+  className?: string;
+}
+
+function MapTargetSelector({ value, onChange, size = 'sm', className }: MapTargetSelectorProps) {
+  const buttonClassName = size === 'xs' ? 'px-2 py-1 text-[10px]' : 'px-2 py-1 text-xs';
+
+  return (
+    <div className={cn('grid w-full gap-2 sm:w-auto sm:grid-cols-3 sm:gap-2 md:flex md:flex-wrap md:items-center', className)}>
+      <button
+        type="button"
+        onClick={() => onChange('pickup')}
+        className={cn(
+          'rounded border',
+          buttonClassName,
+          value === 'pickup' ? 'border-green-600 bg-green-600 text-white' : 'bg-white text-gray-600'
+        )}
+      >
+        Origen
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('dropoff')}
+        className={cn(
+          'rounded border',
+          buttonClassName,
+          value === 'dropoff' ? 'border-red-600 bg-red-600 text-white' : 'bg-white text-gray-600'
+        )}
+      >
+        Destino
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('extra')}
+        className={cn(
+          'rounded border',
+          buttonClassName,
+          value === 'extra' ? 'border-amber-500 bg-amber-500 text-white' : 'bg-white text-gray-600'
+        )}
+      >
+        Parada
+      </button>
+    </div>
+  );
+}
 
 const resolveAdminTab = (value?: string | null): AdminTab | null => {
   if (!value) return null;
@@ -413,14 +463,14 @@ export default function AdminJobs() {
   const [extraStopDraft, setExtraStopDraft] = useState<LocationData | null>(null);
   const [extraStopKey, setExtraStopKey] = useState(0);
   const [draggedStopIndex, setDraggedStopIndex] = useState<number | null>(null);
-  const [mapTarget, setMapTarget] = useState<'pickup' | 'dropoff' | 'extra'>('pickup');
+  const [mapTarget, setMapTarget] = useState<MapSelectionTarget>('pickup');
   const [editPickup, setEditPickup] = useState<LocationData | null>(null);
   const [editDropoff, setEditDropoff] = useState<LocationData | null>(null);
   const [editExtraStops, setEditExtraStops] = useState<LocationData[]>([]);
   const [editExtraStopDraft, setEditExtraStopDraft] = useState<LocationData | null>(null);
   const [editExtraStopKey, setEditExtraStopKey] = useState(0);
   const [editDraggedStopIndex, setEditDraggedStopIndex] = useState<number | null>(null);
-  const [editMapTarget, setEditMapTarget] = useState<'pickup' | 'dropoff' | 'extra'>('pickup');
+  const [editMapTarget, setEditMapTarget] = useState<MapSelectionTarget>('pickup');
   const [driverName, setDriverName] = useState('');
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
@@ -646,6 +696,20 @@ export default function AdminJobs() {
     setDraggedStopIndex(null);
   };
 
+  const handleCreateMapSelect = (kind: MapSelectionTarget, location: LocationData) => {
+    if (kind === 'pickup') {
+      setPickup(location);
+      return;
+    }
+    if (kind === 'dropoff') {
+      setDropoff(location);
+      return;
+    }
+    setExtraStops((prev) => [...prev, location]);
+    setExtraStopDraft(null);
+    setExtraStopKey((prev) => prev + 1);
+  };
+
   const addEditExtraStop = (location: LocationData | null) => {
     if (!location) return;
     setEditExtraStops((prev) => [...prev, location]);
@@ -661,6 +725,20 @@ export default function AdminJobs() {
     if (editDraggedStopIndex == null || editDraggedStopIndex === targetIndex) return;
     setEditExtraStops((prev) => reorderList(prev, editDraggedStopIndex, targetIndex));
     setEditDraggedStopIndex(null);
+  };
+
+  const handleEditMapSelect = (kind: MapSelectionTarget, location: LocationData) => {
+    if (kind === 'pickup') {
+      setEditPickup(location);
+      return;
+    }
+    if (kind === 'dropoff') {
+      setEditDropoff(location);
+      return;
+    }
+    setEditExtraStops((prev) => [...prev, location]);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
   };
 
   useEffect(() => {
@@ -1952,44 +2030,7 @@ export default function AdminJobs() {
                       <div className="space-y-2 rounded border bg-gray-50 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-sm font-medium">Seleccion en mapa</p>
-                          <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-3 sm:gap-2 md:flex md:flex-wrap md:items-center">
-                            <button
-                              type="button"
-                              onClick={() => setMapTarget('pickup')}
-                              className={cn(
-                                "rounded border px-2 py-1 text-xs",
-                                mapTarget === 'pickup'
-                                  ? "border-green-600 bg-green-600 text-white"
-                                  : "bg-white text-gray-600"
-                              )}
-                            >
-                              Origen
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setMapTarget('dropoff')}
-                              className={cn(
-                                "rounded border px-2 py-1 text-xs",
-                                mapTarget === 'dropoff'
-                                  ? "border-red-600 bg-red-600 text-white"
-                                  : "bg-white text-gray-600"
-                              )}
-                            >
-                              Destino
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setMapTarget('extra')}
-                              className={cn(
-                                "rounded border px-2 py-1 text-xs",
-                                mapTarget === 'extra'
-                                  ? "border-amber-500 bg-amber-500 text-white"
-                                  : "bg-white text-gray-600"
-                              )}
-                            >
-                              Parada
-                            </button>
-                          </div>
+                          <MapTargetSelector value={mapTarget} onChange={setMapTarget} />
                         </div>
                         <p className="text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
                         <MapLocationPicker
@@ -1997,17 +2038,7 @@ export default function AdminJobs() {
                           dropoff={dropoff}
                           extraStops={extraStops}
                           active={mapTarget}
-                          onSelect={(kind, location) => {
-                            if (kind === 'pickup') {
-                              setPickup(location);
-                            } else if (kind === 'dropoff') {
-                              setDropoff(location);
-                            } else {
-                              setExtraStops((prev) => [...prev, location]);
-                              setExtraStopDraft(null);
-                              setExtraStopKey((prev) => prev + 1);
-                            }
-                          }}
+                          onSelect={handleCreateMapSelect}
                         />
                       </div>
                       <button className="w-full rounded bg-green-600 px-3 py-2 text-sm font-semibold text-white">
@@ -2380,44 +2411,7 @@ export default function AdminJobs() {
                                 <div className="rounded border bg-white p-2 space-y-2">
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <p className="text-xs font-medium">Seleccion en mapa</p>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditMapTarget('pickup')}
-                                        className={cn(
-                                          "rounded border px-2 py-1 text-[10px]",
-                                          editMapTarget === 'pickup'
-                                            ? "border-green-600 bg-green-600 text-white"
-                                            : "bg-white text-gray-600"
-                                        )}
-                                      >
-                                        Origen
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditMapTarget('dropoff')}
-                                        className={cn(
-                                          "rounded border px-2 py-1 text-[10px]",
-                                          editMapTarget === 'dropoff'
-                                            ? "border-red-600 bg-red-600 text-white"
-                                            : "bg-white text-gray-600"
-                                        )}
-                                      >
-                                        Destino
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditMapTarget('extra')}
-                                        className={cn(
-                                          "rounded border px-2 py-1 text-[10px]",
-                                          editMapTarget === 'extra'
-                                            ? "border-amber-500 bg-amber-500 text-white"
-                                            : "bg-white text-gray-600"
-                                        )}
-                                      >
-                                        Parada
-                                      </button>
-                                    </div>
+                                    <MapTargetSelector value={editMapTarget} onChange={setEditMapTarget} size="xs" />
                                   </div>
                                   <p className="text-[10px] text-gray-500">Click en el mapa para asignar {editMapTargetLabel}.</p>
                                   <MapLocationPicker
@@ -2425,17 +2419,7 @@ export default function AdminJobs() {
                                     dropoff={editDropoff}
                                     extraStops={editExtraStops}
                                     active={editMapTarget}
-                                    onSelect={(kind, location) => {
-                                      if (kind === 'pickup') {
-                                        setEditPickup(location);
-                                      } else if (kind === 'dropoff') {
-                                        setEditDropoff(location);
-                                      } else {
-                                        setEditExtraStops((prev) => [...prev, location]);
-                                        setEditExtraStopDraft(null);
-                                        setEditExtraStopKey((prev) => prev + 1);
-                                      }
-                                    }}
+                                    onSelect={handleEditMapSelect}
                                   />
                                 </div>
                               </div>
@@ -2464,8 +2448,8 @@ export default function AdminJobs() {
                 </div>
               </div>
 
-                <div className="relative min-h-[70vh] min-w-0 rounded-2xl border bg-white shadow-sm xl:h-full xl:sticky xl:top-8">
-                <div className="absolute left-4 right-4 top-4 z-10">
+              <div className="relative min-h-[70vh] min-w-0 rounded-2xl border bg-white shadow-sm xl:h-full xl:sticky xl:top-8">
+                <div className="absolute left-4 right-4 top-4 z-10 space-y-3">
                   <div className="rounded-xl bg-white/95 p-3 shadow">
                     <AddressAutocomplete
                       label="Buscar direccion"
@@ -2474,13 +2458,51 @@ export default function AdminJobs() {
                       selected={mapSearchLocation}
                     />
                   </div>
+                  {editingJobId && (
+                    <div className="rounded-xl bg-white/95 p-3 shadow">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-gray-700">Mapa de edicion</p>
+                        <MapTargetSelector value={editMapTarget} onChange={setEditMapTarget} />
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">Click en el mapa para asignar {editMapTargetLabel}.</p>
+                    </div>
+                  )}
+                  {!editingJobId && open && (
+                    <div className="rounded-xl bg-white/95 p-3 shadow">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-gray-700">Mapa de carga</p>
+                        <MapTargetSelector value={mapTarget} onChange={setMapTarget} />
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
+                    </div>
+                  )}
                 </div>
-                {selectedMapJob ? (
-                    <JobRoutePreviewMap
-                      job={selectedMapJob}
-                      focusLocation={mapSearchLocation}
-                      className="h-full min-h-[70vh] xl:min-h-0"
-                    />
+                {editingJobId ? (
+                  <MapLocationPicker
+                    pickup={editPickup}
+                    dropoff={editDropoff}
+                    extraStops={editExtraStops}
+                    active={editMapTarget}
+                    onSelect={handleEditMapSelect}
+                    focusLocation={mapSearchLocation}
+                    className="h-full min-h-[70vh] xl:min-h-0"
+                  />
+                ) : open ? (
+                  <MapLocationPicker
+                    pickup={pickup}
+                    dropoff={dropoff}
+                    extraStops={extraStops}
+                    active={mapTarget}
+                    onSelect={handleCreateMapSelect}
+                    focusLocation={mapSearchLocation}
+                    className="h-full min-h-[70vh] xl:min-h-0"
+                  />
+                ) : selectedMapJob ? (
+                  <JobRoutePreviewMap
+                    job={selectedMapJob}
+                    focusLocation={mapSearchLocation}
+                    className="h-full min-h-[70vh] xl:min-h-0"
+                  />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-gray-500">
                     No hay fletes para mostrar.

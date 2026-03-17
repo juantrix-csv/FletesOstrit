@@ -23,10 +23,19 @@ interface MapLocationPickerProps {
   extraStops?: LocationData[];
   active: 'pickup' | 'dropoff' | 'extra';
   onSelect: (kind: 'pickup' | 'dropoff' | 'extra', location: LocationData) => void;
+  focusLocation?: LocationData | null;
   className?: string;
 }
 
-export default function MapLocationPicker({ pickup, dropoff, extraStops = [], active, onSelect, className }: MapLocationPickerProps) {
+export default function MapLocationPicker({
+  pickup,
+  dropoff,
+  extraStops = [],
+  active,
+  onSelect,
+  focusLocation,
+  className,
+}: MapLocationPickerProps) {
   const activeLocation = active === 'pickup'
     ? pickup
     : active === 'dropoff'
@@ -34,6 +43,7 @@ export default function MapLocationPicker({ pickup, dropoff, extraStops = [], ac
       : extraStops.length > 0
         ? extraStops[extraStops.length - 1]
         : null;
+  const focusValid = focusLocation ? isWithinBounds(focusLocation.lat, focusLocation.lng) : false;
   const center = useMemo(
     () => activeLocation ?? pickup ?? dropoff ?? fallbackLocation,
     [activeLocation, pickup, dropoff]
@@ -46,6 +56,11 @@ export default function MapLocationPicker({ pickup, dropoff, extraStops = [], ac
     if (!mapReady || !mapRef.current) return;
     mapRef.current.easeTo({ center: [center.lng, center.lat], duration: 400 });
   }, [center.lat, center.lng, mapReady]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !focusValid || !focusLocation) return;
+    mapRef.current.easeTo({ center: [focusLocation.lng, focusLocation.lat], zoom: 13.5, duration: 450 });
+  }, [focusLocation?.lat, focusLocation?.lng, focusValid, mapReady]);
 
   const handleClick = async (event: MapLayerMouseEvent) => {
     const { lng, lat } = event.lngLat;
@@ -95,6 +110,11 @@ export default function MapLocationPicker({ pickup, dropoff, extraStops = [], ac
             <div className={cn("h-2.5 w-2.5 rounded-full bg-amber-500 shadow", active === 'extra' && index === extraStops.length - 1 ? "ring-2 ring-amber-200" : "ring-2 ring-white")} />
           </Marker>
         ))}
+        {focusValid && focusLocation && (
+          <Marker latitude={focusLocation.lat} longitude={focusLocation.lng}>
+            <div className="h-3.5 w-3.5 rounded-full border-2 border-white bg-blue-600 shadow" />
+          </Marker>
+        )}
       </Map>
     </div>
   );
