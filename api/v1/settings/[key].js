@@ -1,5 +1,15 @@
 import { getSetting, setSetting } from '../../_db.js';
 
+const INVALID_SETTING = Symbol('invalid');
+
+const isLocation = (value) => (
+  value &&
+  typeof value.address === 'string' &&
+  value.address.trim().length > 0 &&
+  Number.isFinite(value.lat) &&
+  Number.isFinite(value.lng)
+);
+
 const parseBody = (req) => {
   if (!req.body) return {};
   if (typeof req.body === 'string') {
@@ -13,6 +23,15 @@ const parseBody = (req) => {
 };
 
 const parseSettingValue = (key, value) => {
+  if (key === 'operationsBaseLocation') {
+    if (value == null || value === '') return null;
+    if (!isLocation(value)) return INVALID_SETTING;
+    return {
+      address: value.address.trim(),
+      lat: Number(value.lat),
+      lng: Number(value.lng),
+    };
+  }
   if (value == null || value === '') return null;
   if (!Number.isFinite(value)) return NaN;
   if (key === 'ownerVehicleDriverShare' || key === 'driverVehicleDriverShare') {
@@ -31,16 +50,22 @@ const resolveSettingKey = (raw) => {
   if (raw === 'trip-cost-per-km') return 'tripCostPerKm';
   if (raw === 'owner-vehicle-driver-share') return 'ownerVehicleDriverShare';
   if (raw === 'driver-vehicle-driver-share') return 'driverVehicleDriverShare';
+  if (raw === 'operations-base-location') return 'operationsBaseLocation';
   return null;
 };
 
 const resolveBodyValue = (body) => {
   if (body && Object.prototype.hasOwnProperty.call(body, 'value')) return body.value;
   if (body && Object.prototype.hasOwnProperty.call(body, 'hourlyRate')) return body.hourlyRate;
+  if (body && Object.prototype.hasOwnProperty.call(body, 'location')) return body.location;
   return undefined;
 };
 
 const respondSetting = (res, key, stored) => {
+  if (key === 'operationsBaseLocation') {
+    res.status(200).json({ location: isLocation(stored) ? stored : null });
+    return;
+  }
   const value = typeof stored === 'number' && Number.isFinite(stored) ? stored : null;
   if (key === 'hourlyRate' || key === 'helperHourlyRate') {
     res.status(200).json({ hourlyRate: value });
@@ -65,7 +90,7 @@ export default async function handler(req, res) {
   if (req.method === 'PUT') {
     const body = parseBody(req);
     const parsed = parseSettingValue(key, resolveBodyValue(body));
-    if (Number.isNaN(parsed)) {
+    if (parsed === INVALID_SETTING || Number.isNaN(parsed)) {
       res.status(400).json({ error: 'Invalid value' });
       return;
     }

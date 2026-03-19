@@ -25,6 +25,7 @@ import {
   getDriverVehicleDriverShare,
   jobsListQueryKey,
   getOwnerVehicleDriverShare,
+  getOperationsBaseLocation,
   getTripCostPerHour,
   getTripCostPerKm,
   listDriverLocations,
@@ -36,6 +37,7 @@ import {
   setHelperHourlyRate,
   setHourlyRate,
   setOwnerVehicleDriverShare,
+  setOperationsBaseLocation as saveOperationsBaseLocation,
   setTripCostPerHour,
   setTripCostPerKm,
   updateDriver,
@@ -47,6 +49,7 @@ import { getDriverColors } from '../lib/driverColors';
 import { reorderList } from '../lib/reorder';
 import { getAdminSession } from '../lib/adminSession';
 import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '../lib/queryCache';
+import { getRouteEstimate } from '../lib/routeEstimate';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -591,6 +594,9 @@ export default function AdminJobs() {
   const [fixedMonthlyCostInput, setFixedMonthlyCostInput] = useState('');
   const [tripCostPerHourInput, setTripCostPerHourInput] = useState('');
   const [tripCostPerKmInput, setTripCostPerKmInput] = useState('');
+  const [operationsBaseLocation, setOperationsBaseLocation] = useState<LocationData | null>(null);
+  const [operationsBaseLocationDraft, setOperationsBaseLocationDraft] = useState<LocationData | null>(null);
+  const [operationsBaseLocationKey, setOperationsBaseLocationKey] = useState(0);
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
   const [savingOwnerVehicleDriverShare, setSavingOwnerVehicleDriverShare] = useState(false);
@@ -598,6 +604,7 @@ export default function AdminJobs() {
   const [savingFixedMonthlyCost, setSavingFixedMonthlyCost] = useState(false);
   const [savingTripCostPerHour, setSavingTripCostPerHour] = useState(false);
   const [savingTripCostPerKm, setSavingTripCostPerKm] = useState(false);
+  const [savingOperationsBaseLocation, setSavingOperationsBaseLocation] = useState(false);
   const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
   const [savingPaymentJobId, setSavingPaymentJobId] = useState<string | null>(null);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
@@ -607,6 +614,16 @@ export default function AdminJobs() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending'>('all');
   const [dateFilter, setDateFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
+  const [baseTravelEstimate, setBaseTravelEstimate] = useState<{
+    pickupMinutes: number | null;
+    pickupKm: number | null;
+    dropoffMinutes: number | null;
+    dropoffKm: number | null;
+    farthestPoint: 'pickup' | 'dropoff';
+    farthestMinutes: number | null;
+    farthestKm: number | null;
+  } | null>(null);
+  const [loadingBaseTravelEstimate, setLoadingBaseTravelEstimate] = useState(false);
   const locationsLoadedRef = useRef(false);
 
   const driversById = useMemo(() => {
@@ -820,6 +837,16 @@ export default function AdminJobs() {
     }
   };
 
+  const loadOperationsBaseLocation = async () => {
+    try {
+      const data = await getOperationsBaseLocation();
+      setOperationsBaseLocation(data.location ?? null);
+      setOperationsBaseLocationDraft(data.location ?? null);
+    } catch {
+      toast.error('No se pudo cargar la base operativa');
+    }
+  };
+
   const addExtraStop = (location: LocationData | null) => {
     if (!location) return;
     setExtraStops((prev) => [...prev, location]);
@@ -883,6 +910,55 @@ export default function AdminJobs() {
   };
 
   useEffect(() => {
+    let active = true;
+    if (!open || !operationsBaseLocation || !pickup || !dropoff) {
+      setBaseTravelEstimate(null);
+      setLoadingBaseTravelEstimate(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLoadingBaseTravelEstimate(true);
+    (async () => {
+      const [pickupRoute, dropoffRoute] = await Promise.all([
+        getRouteEstimate(operationsBaseLocation, pickup),
+        getRouteEstimate(operationsBaseLocation, dropoff),
+      ]);
+      if (!active) return;
+
+      if (!pickupRoute && !dropoffRoute) {
+        setBaseTravelEstimate(null);
+        setLoadingBaseTravelEstimate(false);
+        return;
+      }
+
+      const pickupMinutes = pickupRoute ? Math.max(1, Math.round(pickupRoute.durationSeconds / 60)) : null;
+      const pickupKm = pickupRoute ? pickupRoute.distanceMeters / 1000 : null;
+      const dropoffMinutes = dropoffRoute ? Math.max(1, Math.round(dropoffRoute.durationSeconds / 60)) : null;
+      const dropoffKm = dropoffRoute ? dropoffRoute.distanceMeters / 1000 : null;
+      const farthestPoint = (pickupRoute?.durationSeconds ?? 0) >= (dropoffRoute?.durationSeconds ?? 0)
+        ? 'pickup'
+        : 'dropoff';
+
+      setBaseTravelEstimate({
+        pickupMinutes,
+        pickupKm,
+        dropoffMinutes,
+        dropoffKm,
+        farthestPoint,
+        farthestMinutes: farthestPoint === 'pickup' ? pickupMinutes : dropoffMinutes,
+        farthestKm: farthestPoint === 'pickup' ? pickupKm : dropoffKm,
+      });
+      setLoadingBaseTravelEstimate(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [dropoff, open, operationsBaseLocation, pickup]);
+
+  useEffect(() => {
     loadJobs();
     loadDrivers();
     loadVehicles();
@@ -894,6 +970,7 @@ export default function AdminJobs() {
     loadFixedMonthlyCost();
     loadTripCostPerHour();
     loadTripCostPerKm();
+    loadOperationsBaseLocation();
     const id = window.setInterval(loadDriverLocations, 12000);
     return () => clearInterval(id);
   }, []);
@@ -1323,6 +1400,20 @@ export default function AdminJobs() {
     }
   };
 
+  const handleSaveOperationsBaseLocation = async () => {
+    try {
+      setSavingOperationsBaseLocation(true);
+      const saved = await saveOperationsBaseLocation(operationsBaseLocationDraft);
+      setOperationsBaseLocation(saved.location ?? null);
+      setOperationsBaseLocationDraft(saved.location ?? null);
+      toast.success(operationsBaseLocationDraft ? 'Base operativa actualizada' : 'Base operativa eliminada');
+    } catch {
+      toast.error('No se pudo guardar la base operativa');
+    } finally {
+      setSavingOperationsBaseLocation(false);
+    }
+  };
+
   const handleSavePayment = async (job: Job) => {
     const draft = paymentDrafts[job.id] ?? buildPaymentDraft(job);
     const parsedCashAmount = parseMoneyInput(draft.cashAmount);
@@ -1671,9 +1762,23 @@ export default function AdminJobs() {
   const fixedMonthlyCostLabel = fixedMonthlyCostValue != null
     ? currencyFormatter.format(fixedMonthlyCostValue)
     : 'Sin configurar';
+  const operationsBaseLocationLabel = operationsBaseLocation?.address ?? 'Sin configurar';
   const costPerHourLabel = tripCostPerHourValue != null ? `${currencyFormatter.format(tripCostPerHourValue)}/h` : null;
   const costPerKmLabel = tripCostPerKmValue != null ? `${currencyFormatter.format(tripCostPerKmValue)}/km` : null;
   const variableCostLabel = [costPerHourLabel, costPerKmLabel].filter(Boolean).join(' + ');
+  const farthestPointLabel = baseTravelEstimate?.farthestPoint === 'pickup' ? 'Origen' : 'Destino';
+  const farthestBaseTravelLabel = baseTravelEstimate?.farthestMinutes != null
+    ? `${baseTravelEstimate.farthestMinutes} min`
+    : 'No disponible';
+  const farthestBaseTravelDistanceLabel = baseTravelEstimate?.farthestKm != null
+    ? `${decimalFormatter.format(baseTravelEstimate.farthestKm)} km`
+    : 'N/D';
+  const pickupBaseTravelLabel = baseTravelEstimate?.pickupMinutes != null
+    ? `${baseTravelEstimate.pickupMinutes} min`
+    : 'N/D';
+  const dropoffBaseTravelLabel = baseTravelEstimate?.dropoffMinutes != null
+    ? `${baseTravelEstimate.dropoffMinutes} min`
+    : 'N/D';
   const realHourlyMeta = realHourlyStats.trips > 0
     ? `Basado en ${realHourlyStats.trips} viajes y ${decimalFormatter.format(realHourlyStats.hoursTotal)} h.`
     : 'Sin tiempos suficientes.';
@@ -2263,7 +2368,45 @@ export default function AdminJobs() {
                           onSelect={handleCreateMapSelect}
                         />
                       </div>
+                      <div className="rounded border bg-blue-50/70 p-3 text-sm">
+                        <p className="font-semibold text-blue-900">Tiempo estimado desde base operativa</p>
+                        {!operationsBaseLocation && (
+                          <p className="mt-1 text-blue-800">
+                            Configura la base operativa en Configuracion para ver este dato.
+                          </p>
+                        )}
+                        {operationsBaseLocation && (!pickup || !dropoff) && (
+                          <p className="mt-1 text-blue-800">
+                            Completa origen y destino para estimar la ida o vuelta al punto mas lejano.
+                          </p>
+                        )}
+                        {operationsBaseLocation && pickup && dropoff && loadingBaseTravelEstimate && (
+                          <p className="mt-1 text-blue-800">Calculando tiempo estimado...</p>
+                        )}
+                        {operationsBaseLocation && pickup && dropoff && !loadingBaseTravelEstimate && baseTravelEstimate && (
+                          <div className="mt-2 space-y-1 text-blue-900">
+                            <p>
+                              <span className="font-medium">Origen:</span> {pickupBaseTravelLabel}
+                            </p>
+                            <p>
+                              <span className="font-medium">Destino:</span> {dropoffBaseTravelLabel}
+                            </p>
+                            <p className="font-semibold">
+                              Punto mas lejano: {farthestPointLabel} ({farthestBaseTravelLabel} | {farthestBaseTravelDistanceLabel})
+                            </p>
+                            <p className="text-xs text-blue-700">
+                              Informativo para decidir el precio. No se usa en ningun calculo automatico.
+                            </p>
+                          </div>
+                        )}
+                        {operationsBaseLocation && pickup && dropoff && !loadingBaseTravelEstimate && !baseTravelEstimate && (
+                          <p className="mt-1 text-blue-800">
+                            No se pudo estimar el tiempo desde la base operativa para este flete.
+                          </p>
+                        )}
+                      </div>
                       <button
+                        type="submit"
                         disabled={savingJob}
                         className="w-full rounded bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
                       >
@@ -4011,6 +4154,61 @@ export default function AdminJobs() {
                   <p className="text-xs uppercase tracking-wide text-gray-400">Configuracion</p>
                   <h2 className="text-lg font-semibold text-gray-900">Parametros del sistema</h2>
                   <p className="text-xs text-gray-500">Precios, costos y repartos que impactan en analiticas.</p>
+                </div>
+              </div>
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Base operativa</p>
+                    <h3 className="text-lg font-semibold text-gray-900">Sede central</h3>
+                    <p className="text-xs text-gray-500">
+                      Se usa solo como referencia para mostrar el tiempo estimado al punto mas lejano del flete.
+                    </p>
+                  </div>
+                  <p className="text-sm text-gray-500">Actual: {operationsBaseLocationLabel}</p>
+                </div>
+                <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+                  <div>
+                    <AddressAutocomplete
+                      key={operationsBaseLocationKey}
+                      label="Ubicacion de la sede"
+                      placeholder="Buscar sede central o base operativa"
+                      onSelect={setOperationsBaseLocationDraft}
+                      selected={operationsBaseLocationDraft}
+                    />
+                  </div>
+                  <div className="rounded-xl border bg-gray-50 p-3 text-sm text-gray-600">
+                    <p className="font-semibold text-gray-900">Como se muestra en el alta de fletes</p>
+                    <p className="mt-2">
+                      Cuando completes origen y destino, el sistema muestra el tiempo estimado desde esta base al punto mas lejano.
+                    </p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Es un dato informativo para el asistente. No interviene en precios, margenes ni calculos automaticos.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                  {operationsBaseLocationDraft && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOperationsBaseLocationDraft(null);
+                        setOperationsBaseLocationKey((prev) => prev + 1);
+                      }}
+                      disabled={savingOperationsBaseLocation}
+                      className="rounded border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Limpiar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSaveOperationsBaseLocation}
+                    disabled={savingOperationsBaseLocation}
+                    className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingOperationsBaseLocation ? 'Guardando...' : 'Guardar base operativa'}
+                  </button>
                 </div>
               </div>
               <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">

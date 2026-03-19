@@ -1,4 +1,4 @@
-import type { Driver, DriverLocation, Job, Vehicle } from './types';
+import type { Driver, DriverLocation, Job, LocationData, Vehicle } from './types';
 import { invalidateCachedQueries, updateMatchingCachedQueries } from './queryCache';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
@@ -322,6 +322,15 @@ export const setTripCostPerKm = (value: number | null) =>
   fetchJson<{ value: number | null }>('/settings/trip-cost-per-km', {
     method: 'PUT',
     body: JSON.stringify({ value }),
+  });
+
+export const getOperationsBaseLocation = () =>
+  fetchJson<{ location: LocationData | null }>('/settings/operations-base-location');
+
+export const setOperationsBaseLocation = (location: LocationData | null) =>
+  fetchJson<{ location: LocationData | null }>('/settings/operations-base-location', {
+    method: 'PUT',
+    body: JSON.stringify({ location }),
   });
 
 export const downloadJobsHistory = async () => {
