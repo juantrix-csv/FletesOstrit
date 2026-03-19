@@ -8,15 +8,10 @@ import { AdminLayout } from './AdminLayout';
 import { useApiActivity } from '../hooks/useApiActivity';
 
 const GlobalApiFeedback = () => {
-  const { pendingRequests, pendingMutations } = useApiActivity();
+  const { pendingMutations } = useApiActivity();
 
   return (
     <>
-      {pendingRequests > 0 && (
-        <div className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-1 overflow-hidden bg-blue-100/70">
-          <div className="h-full w-1/3 animate-pulse rounded-full bg-blue-600" />
-        </div>
-      )}
       {pendingMutations > 0 && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/10 backdrop-blur-[1px]">
           <div className="rounded-2xl border border-white/70 bg-white px-4 py-3 shadow-lg">

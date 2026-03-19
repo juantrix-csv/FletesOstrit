@@ -61,12 +61,10 @@ export default function DriverHome() {
     key: session ? jobsListQueryKey({ driverId: session.driverId }) : 'jobs:list:disabled',
     enabled: !!session,
     loader: () => listJobs({ driverId: session!.driverId }),
-    staleMs: 10000,
-    refreshIntervalMs: saveData ? 30000 : 15000,
+    staleMs: saveData ? 120000 : 60000,
   });
   const jobs = jobsQuery.data ?? [];
   const loading = jobsQuery.loading;
-  const refreshing = jobsQuery.refreshing;
 
   useEffect(() => {
     const current = getDriverSession();
@@ -157,7 +155,6 @@ export default function DriverHome() {
       </div>
       <div className="flex-1 overflow-y-auto space-y-3 pb-2">
         {loading && <p className="text-sm text-gray-500">Cargando fletes...</p>}
-        {!loading && refreshing && <p className="text-sm text-gray-500">Actualizando fletes...</p>}
         {!loading && jobsForDay.length === 0 && (
           <div className="rounded-2xl border border-dashed bg-white p-6 text-center text-sm text-gray-500">
             No hay viajes para este dia.

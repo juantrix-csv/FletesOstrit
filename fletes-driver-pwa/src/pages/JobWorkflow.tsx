@@ -37,11 +37,9 @@ export default function JobWorkflow() {
     key: id && session ? jobDetailQueryKey(id, { driverId: session.driverId }) : 'job:detail:disabled',
     enabled: !!id && !!session,
     loader: () => getJob(id as string, { driverId: session!.driverId }),
-    staleMs: 10000,
-    refreshIntervalMs: 15000,
+    staleMs: 45000,
   });
   const loading = jobQuery.loading;
-  const refreshing = jobQuery.refreshing;
   const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
   const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
     ? job.stopIndex
@@ -477,9 +475,6 @@ export default function JobWorkflow() {
             <p className="text-xs text-gray-600 text-center">Disponible desde {availableAt.toLocaleString()}</p>
           )}
         </div>
-      )}
-      {refreshing && !actionPending && (
-        <p className="text-center text-xs text-gray-500">Actualizando estado...</p>
       )}
       {job.status === 'TO_PICKUP' && <SlideToConfirm label="Desliza para cargar" onConfirm={() => next('LOADING')} disabled={actionPending} disabledLabel="Procesando..." />}
       {job.status === 'LOADING' && <SlideToConfirm label="Desliza para salir" onConfirm={() => next('TO_DROPOFF')} disabled={actionPending} disabledLabel="Procesando..." />}
