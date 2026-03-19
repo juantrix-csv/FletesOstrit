@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import MapGL, { Marker, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
+import OperationsBaseMarker from './OperationsBaseMarker';
+import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { Driver, DriverLocation } from '../lib/types';
 import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
@@ -21,10 +23,11 @@ interface DriversOverviewMapProps {
 }
 
 export default function DriversOverviewMap({ locations, drivers, className }: DriversOverviewMapProps) {
+  const { location: operationsBaseLocation } = useOperationsBaseLocation();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const hasFitRef = useRef(false);
-  const lastCountRef = useRef(0);
+  const lastViewportKeyRef = useRef('');
 
   const driversById = useMemo(() => {
     const map = new Map<string, Driver>();
@@ -38,22 +41,33 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
-    if (locations.length === 0) {
+    const points: Array<[number, number]> = locations.map((loc) => [loc.lng, loc.lat]);
+    if (operationsBaseLocation) {
+      points.push([operationsBaseLocation.lng, operationsBaseLocation.lat]);
+    }
+    if (points.length === 0) {
       if (!hasFitRef.current) {
         mapRef.current.easeTo({ center: [fallbackCenter.lng, fallbackCenter.lat], zoom: 10, duration: 400 });
       }
       return;
     }
-    if (hasFitRef.current && lastCountRef.current === locations.length) return;
+    const viewportKey = points.map(([lng, lat]) => `${lat.toFixed(4)},${lng.toFixed(4)}`).join('|');
+    if (hasFitRef.current && lastViewportKeyRef.current === viewportKey) return;
+    if (points.length === 1) {
+      mapRef.current.easeTo({ center: points[0], zoom: 10.5, duration: 400 });
+      hasFitRef.current = true;
+      lastViewportKeyRef.current = viewportKey;
+      return;
+    }
     const bounds = new maplibregl.LngLatBounds(
-      [locations[0].lng, locations[0].lat],
-      [locations[0].lng, locations[0].lat]
+      points[0],
+      points[0]
     );
-    locations.slice(1).forEach((loc) => bounds.extend([loc.lng, loc.lat]));
+    points.slice(1).forEach((point) => bounds.extend(point));
     mapRef.current.fitBounds(bounds, { padding: 80, duration: 500 });
     hasFitRef.current = true;
-    lastCountRef.current = locations.length;
-  }, [mapReady, locations]);
+    lastViewportKeyRef.current = viewportKey;
+  }, [locations, mapReady, operationsBaseLocation]);
 
   return (
     <div className={cn("aspect-[2/1] w-full min-h-[240px] overflow-hidden rounded-xl border bg-white", className)}>
@@ -104,6 +118,7 @@ export default function DriversOverviewMap({ locations, drivers, className }: Dr
             </Marker>
           );
         })}
+        <OperationsBaseMarker location={operationsBaseLocation} />
       </MapGL>
     </div>
   );

@@ -615,6 +615,8 @@ export default function AdminJobs() {
   const [dateFilter, setDateFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
   const [baseTravelEstimate, setBaseTravelEstimate] = useState<{
+    tripMinutes: number | null;
+    tripKm: number | null;
     pickupMinutes: number | null;
     pickupKm: number | null;
     dropoffMinutes: number | null;
@@ -911,7 +913,7 @@ export default function AdminJobs() {
 
   useEffect(() => {
     let active = true;
-    if (!open || !operationsBaseLocation || !pickup || !dropoff) {
+    if (!open || !pickup || !dropoff) {
       setBaseTravelEstimate(null);
       setLoadingBaseTravelEstimate(false);
       return () => {
@@ -921,18 +923,28 @@ export default function AdminJobs() {
 
     setLoadingBaseTravelEstimate(true);
     (async () => {
-      const [pickupRoute, dropoffRoute] = await Promise.all([
-        getRouteEstimate(operationsBaseLocation, pickup),
-        getRouteEstimate(operationsBaseLocation, dropoff),
+      const tripRoutePromise = getRouteEstimate(pickup, dropoff);
+      const pickupRoutePromise = operationsBaseLocation
+        ? getRouteEstimate(operationsBaseLocation, pickup)
+        : Promise.resolve(null);
+      const dropoffRoutePromise = operationsBaseLocation
+        ? getRouteEstimate(operationsBaseLocation, dropoff)
+        : Promise.resolve(null);
+      const [tripRoute, pickupRoute, dropoffRoute] = await Promise.all([
+        tripRoutePromise,
+        pickupRoutePromise,
+        dropoffRoutePromise,
       ]);
       if (!active) return;
 
-      if (!pickupRoute && !dropoffRoute) {
+      if (!tripRoute && !pickupRoute && !dropoffRoute) {
         setBaseTravelEstimate(null);
         setLoadingBaseTravelEstimate(false);
         return;
       }
 
+      const tripMinutes = tripRoute ? Math.max(1, Math.round(tripRoute.durationSeconds / 60)) : null;
+      const tripKm = tripRoute ? tripRoute.distanceMeters / 1000 : null;
       const pickupMinutes = pickupRoute ? Math.max(1, Math.round(pickupRoute.durationSeconds / 60)) : null;
       const pickupKm = pickupRoute ? pickupRoute.distanceMeters / 1000 : null;
       const dropoffMinutes = dropoffRoute ? Math.max(1, Math.round(dropoffRoute.durationSeconds / 60)) : null;
@@ -942,6 +954,8 @@ export default function AdminJobs() {
         : 'dropoff';
 
       setBaseTravelEstimate({
+        tripMinutes,
+        tripKm,
         pickupMinutes,
         pickupKm,
         dropoffMinutes,
@@ -1779,6 +1793,12 @@ export default function AdminJobs() {
   const dropoffBaseTravelLabel = baseTravelEstimate?.dropoffMinutes != null
     ? `${baseTravelEstimate.dropoffMinutes} min`
     : 'N/D';
+  const tripTravelLabel = baseTravelEstimate?.tripMinutes != null
+    ? `${baseTravelEstimate.tripMinutes} min`
+    : 'N/D';
+  const tripTravelDistanceLabel = baseTravelEstimate?.tripKm != null
+    ? `${decimalFormatter.format(baseTravelEstimate.tripKm)} km`
+    : 'N/D';
   const realHourlyMeta = realHourlyStats.trips > 0
     ? `Basado en ${realHourlyStats.trips} viajes y ${decimalFormatter.format(realHourlyStats.hoursTotal)} h.`
     : 'Sin tiempos suficientes.';
@@ -2369,39 +2389,52 @@ export default function AdminJobs() {
                         />
                       </div>
                       <div className="rounded border bg-blue-50/70 p-3 text-sm">
-                        <p className="font-semibold text-blue-900">Tiempo estimado desde base operativa</p>
-                        {!operationsBaseLocation && (
+                        <p className="font-semibold text-blue-900">Tiempos estimados del flete</p>
+                        {(!pickup || !dropoff) && (
                           <p className="mt-1 text-blue-800">
-                            Configura la base operativa en Configuracion para ver este dato.
+                            Completa origen y destino para estimar el tiempo entre ambos puntos.
                           </p>
                         )}
-                        {operationsBaseLocation && (!pickup || !dropoff) && (
-                          <p className="mt-1 text-blue-800">
-                            Completa origen y destino para estimar la ida o vuelta al punto mas lejano.
-                          </p>
-                        )}
-                        {operationsBaseLocation && pickup && dropoff && loadingBaseTravelEstimate && (
+                        {pickup && dropoff && loadingBaseTravelEstimate && (
                           <p className="mt-1 text-blue-800">Calculando tiempo estimado...</p>
                         )}
-                        {operationsBaseLocation && pickup && dropoff && !loadingBaseTravelEstimate && baseTravelEstimate && (
+                        {pickup && dropoff && !loadingBaseTravelEstimate && baseTravelEstimate && (
                           <div className="mt-2 space-y-1 text-blue-900">
-                            <p>
-                              <span className="font-medium">Origen:</span> {pickupBaseTravelLabel}
-                            </p>
-                            <p>
-                              <span className="font-medium">Destino:</span> {dropoffBaseTravelLabel}
-                            </p>
                             <p className="font-semibold">
-                              Punto mas lejano: {farthestPointLabel} ({farthestBaseTravelLabel} | {farthestBaseTravelDistanceLabel})
+                              Origen {'->'} Destino: {tripTravelLabel} | {tripTravelDistanceLabel}
                             </p>
-                            <p className="text-xs text-blue-700">
+                            {operationsBaseLocation && (
+                              <>
+                                <p className="mt-2 font-medium text-blue-800">
+                                  Referencia desde base operativa
+                                </p>
+                                <p>
+                                  <span className="font-medium">Origen:</span> {pickupBaseTravelLabel}
+                                </p>
+                                <p>
+                                  <span className="font-medium">Destino:</span> {dropoffBaseTravelLabel}
+                                </p>
+                                <p className="font-semibold">
+                                  Punto mas lejano: {farthestPointLabel} ({farthestBaseTravelLabel} | {farthestBaseTravelDistanceLabel})
+                                </p>
+                              </>
+                            )}
+                            {!operationsBaseLocation && (
+                              <p className="text-xs text-blue-700">
+                                Si configuras la base operativa en Configuracion, tambien vas a ver la ida o vuelta al punto mas lejano.
+                              </p>
+                            )}
+                            <p>
+                              <span className="font-medium">Uso:</span>{' '}
+                              <span className="text-xs text-blue-700">
                               Informativo para decidir el precio. No se usa en ningun calculo automatico.
+                              </span>
                             </p>
                           </div>
                         )}
-                        {operationsBaseLocation && pickup && dropoff && !loadingBaseTravelEstimate && !baseTravelEstimate && (
+                        {pickup && dropoff && !loadingBaseTravelEstimate && !baseTravelEstimate && (
                           <p className="mt-1 text-blue-800">
-                            No se pudo estimar el tiempo desde la base operativa para este flete.
+                            No se pudo estimar el tiempo para este recorrido.
                           </p>
                         )}
                       </div>

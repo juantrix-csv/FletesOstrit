@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
+import OperationsBaseMarker from './OperationsBaseMarker';
+import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { LocationData } from '../lib/types';
 import { reverseGeocodeLocation } from '../lib/geocode';
 import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
@@ -36,6 +39,7 @@ export default function MapLocationPicker({
   focusLocation,
   className,
 }: MapLocationPickerProps) {
+  const { location: operationsBaseLocation } = useOperationsBaseLocation();
   const activeLocation = active === 'pickup'
     ? pickup
     : active === 'dropoff'
@@ -45,17 +49,47 @@ export default function MapLocationPicker({
         : null;
   const focusValid = focusLocation ? isWithinBounds(focusLocation.lat, focusLocation.lng) : false;
   const center = useMemo(
-    () => activeLocation ?? pickup ?? dropoff ?? fallbackLocation,
-    [activeLocation, pickup, dropoff]
+    () => activeLocation ?? pickup ?? dropoff ?? operationsBaseLocation ?? fallbackLocation,
+    [activeLocation, operationsBaseLocation, pickup, dropoff]
   );
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
-    mapRef.current.easeTo({ center: [center.lng, center.lat], duration: 400 });
-  }, [center.lat, center.lng, mapReady]);
+    if (!mapReady || !mapRef.current || focusValid) return;
+    const map = mapRef.current.getMap();
+    const points: Array<[number, number]> = [];
+    if (pickup && isWithinBounds(pickup.lat, pickup.lng)) points.push([pickup.lng, pickup.lat]);
+    if (dropoff && isWithinBounds(dropoff.lat, dropoff.lng)) points.push([dropoff.lng, dropoff.lat]);
+    extraStops.forEach((stop) => {
+      if (isWithinBounds(stop.lat, stop.lng)) points.push([stop.lng, stop.lat]);
+    });
+    if (operationsBaseLocation && isWithinBounds(operationsBaseLocation.lat, operationsBaseLocation.lng)) {
+      points.push([operationsBaseLocation.lng, operationsBaseLocation.lat]);
+    }
+
+    if (points.length >= 2) {
+      const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+      points.slice(1).forEach((point) => bounds.extend(point));
+      map.fitBounds(bounds, { padding: 70, duration: 450 });
+      return;
+    }
+
+    map.easeTo({ center: [center.lng, center.lat], duration: 400 });
+  }, [
+    center.lat,
+    center.lng,
+    dropoff?.lat,
+    dropoff?.lng,
+    extraStops,
+    focusValid,
+    mapReady,
+    operationsBaseLocation?.lat,
+    operationsBaseLocation?.lng,
+    pickup?.lat,
+    pickup?.lng,
+  ]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !focusValid || !focusLocation) return;
@@ -115,6 +149,7 @@ export default function MapLocationPicker({
             <div className="h-3.5 w-3.5 rounded-full border-2 border-white bg-blue-600 shadow" />
           </Marker>
         )}
+        <OperationsBaseMarker location={operationsBaseLocation} />
       </Map>
     </div>
   );

@@ -1,5 +1,5 @@
 import type { Driver, DriverLocation, Job, LocationData, Vehicle } from './types';
-import { invalidateCachedQueries, updateMatchingCachedQueries } from './queryCache';
+import { invalidateCachedQueries, setCachedQueryData, updateMatchingCachedQueries } from './queryCache';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
@@ -178,6 +178,7 @@ export const jobDetailQueryKey = (id: string, opts?: { driverId?: string; driver
 export const driversListQueryKey = () => 'drivers:list';
 export const vehiclesListQueryKey = () => 'vehicles:list';
 export const driverLocationsListQueryKey = () => 'driver-locations:list';
+export const operationsBaseLocationQueryKey = () => 'settings:operations-base-location';
 
 export const listJobs = (opts?: { driverId?: string; driverCode?: string }) => {
   const qs = toQueryString(opts);
@@ -327,11 +328,14 @@ export const setTripCostPerKm = (value: number | null) =>
 export const getOperationsBaseLocation = () =>
   fetchJson<{ location: LocationData | null }>('/settings/operations-base-location');
 
-export const setOperationsBaseLocation = (location: LocationData | null) =>
-  fetchJson<{ location: LocationData | null }>('/settings/operations-base-location', {
+export const setOperationsBaseLocation = async (location: LocationData | null) => {
+  const saved = await fetchJson<{ location: LocationData | null }>('/settings/operations-base-location', {
     method: 'PUT',
     body: JSON.stringify({ location }),
   });
+  setCachedQueryData(operationsBaseLocationQueryKey(), saved);
+  return saved;
+};
 
 export const downloadJobsHistory = async () => {
   return fetchBlob('/jobs/history/export');

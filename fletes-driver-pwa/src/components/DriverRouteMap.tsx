@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
+import OperationsBaseMarker from './OperationsBaseMarker';
+import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { DriverLocation, Job, LocationData } from '../lib/types';
 import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
@@ -29,6 +31,7 @@ interface DriverRouteMapProps {
 }
 
 export default function DriverRouteMap({ location, job, className }: DriverRouteMapProps) {
+  const { location: operationsBaseLocation } = useOperationsBaseLocation();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -130,23 +133,29 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current.getMap();
-    if (!location && !target) {
-      map.easeTo({ center: [fallbackLocation.lng, fallbackLocation.lat], zoom: 11, duration: 400 });
+    const points: Array<[number, number]> = [];
+    if (location && isValidLocation(location)) points.push([location.lng, location.lat]);
+    pendingStops.forEach((stop) => points.push([stop.lng, stop.lat]));
+    if (target && isValidLocation(target)) points.push([target.lng, target.lat]);
+    if (operationsBaseLocation && isValidLocation(operationsBaseLocation)) {
+      points.push([operationsBaseLocation.lng, operationsBaseLocation.lat]);
+    }
+
+    if (points.length === 0) {
+      const fallback = operationsBaseLocation && isValidLocation(operationsBaseLocation)
+        ? operationsBaseLocation
+        : fallbackLocation;
+      map.easeTo({ center: [fallback.lng, fallback.lat], zoom: 11, duration: 400 });
       return;
     }
-    if (location && !target) {
-      map.easeTo({ center: [location.lng, location.lat], zoom: 13, duration: 400 });
+    if (points.length === 1) {
+      map.easeTo({ center: [points[0][0], points[0][1]], zoom: 13, duration: 400 });
       return;
     }
-    if (location && target) {
-      const points: Array<[number, number]> = [[location.lng, location.lat]];
-      pendingStops.forEach((stop) => points.push([stop.lng, stop.lat]));
-      points.push([target.lng, target.lat]);
-      const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
-      points.slice(1).forEach((point) => bounds.extend(point));
-      map.fitBounds(bounds, { padding: 80, duration: 500 });
-    }
-  }, [mapReady, location?.lat, location?.lng, target?.lat, target?.lng, pendingStops]);
+    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+    points.slice(1).forEach((point) => bounds.extend(point));
+    map.fitBounds(bounds, { padding: 80, duration: 500 });
+  }, [location, mapReady, operationsBaseLocation, pendingStops, target]);
 
   return (
     <div className={cn("h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
@@ -202,6 +211,7 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
             )} />
           </Marker>
         )}
+        <OperationsBaseMarker location={operationsBaseLocation} />
       </Map>
     </div>
   );

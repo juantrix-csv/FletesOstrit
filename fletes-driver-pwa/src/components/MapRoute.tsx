@@ -1,6 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
 import maplibregl from 'maplibre-gl';
+import OperationsBaseMarker from './OperationsBaseMarker';
+import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import { calculateDistance, cn } from '../lib/utils';
 import type { Job, LocationData } from '../lib/types';
@@ -55,6 +57,7 @@ const getFitPadding = (map: maplibregl.Map) => {
 };
 
 const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mode }, ref) => {
+  const { location: operationsBaseLocation } = useOperationsBaseLocation();
   const { coords } = useGeoLocation();
   const mapRef = useRef<MapRef | null>(null);
   const lastRouteRef = useRef<{ lat: number; lng: number; targetKey: string; at: number } | null>(null);
@@ -272,8 +275,14 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     if (pickupValid) points.push([pickup.lng, pickup.lat]);
     extraStopsValid.forEach((stop) => points.push([stop.lng, stop.lat]));
     if (dropoffValid) points.push([dropoff.lng, dropoff.lat]);
+    if (operationsBaseLocation && isValidLocation(operationsBaseLocation)) {
+      points.push([operationsBaseLocation.lng, operationsBaseLocation.lat]);
+    }
     if (points.length < 2) {
-      map.easeTo({ center: [fallbackLocation.lng, fallbackLocation.lat], zoom: 12, duration: 600 });
+      const fallback = operationsBaseLocation && isValidLocation(operationsBaseLocation)
+        ? operationsBaseLocation
+        : fallbackLocation;
+      map.easeTo({ center: [fallback.lng, fallback.lat], zoom: 12, duration: 600 });
       return;
     }
     const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
@@ -307,6 +316,9 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     if (pickupValid) points.push([pickup.lng, pickup.lat]);
     extraStopsValid.forEach((stop) => points.push([stop.lng, stop.lat]));
     if (dropoffValid) points.push([dropoff.lng, dropoff.lat]);
+    if (operationsBaseLocation && isValidLocation(operationsBaseLocation)) {
+      points.push([operationsBaseLocation.lng, operationsBaseLocation.lat]);
+    }
     if (coords && isValidLocation(coords)) points.push([coords.lng, coords.lat]);
     if (points.length === 0) return;
     const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
@@ -320,7 +332,19 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       [ne.lng + lngSpan, ne.lat + latSpan]
     );
     map.setMaxBounds(maxBounds);
-  }, [mapReady, pickupValid, dropoffValid, coords?.lat, coords?.lng, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, extraStopsValid]);
+  }, [
+    coords?.lat,
+    coords?.lng,
+    dropoff.lat,
+    dropoff.lng,
+    dropoffValid,
+    extraStopsValid,
+    mapReady,
+    operationsBaseLocation,
+    pickup.lat,
+    pickup.lng,
+    pickupValid,
+  ]);
 
   useEffect(() => {
     if (!job) return;
@@ -377,6 +401,9 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       if (pickupValid) points.push({ lat: pickup.lat, lng: pickup.lng });
       extraStopsValid.forEach((stop) => points.push({ lat: stop.lat, lng: stop.lng }));
       if (dropoffValid) points.push({ lat: dropoff.lat, lng: dropoff.lng });
+      if (operationsBaseLocation && isValidLocation(operationsBaseLocation)) {
+        points.push({ lat: operationsBaseLocation.lat, lng: operationsBaseLocation.lng });
+      }
     }
 
     if (points.length === 0) {
@@ -418,7 +445,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   useImperativeHandle(ref, () => ({
     centerOnUser,
     fitRoute,
-  }), [mapReady, coords, pickupValid, dropoffValid, displayHeading, status, targetValid, pendingStops, extraStopsValid]);
+  }), [coords, displayHeading, dropoffValid, extraStopsValid, mapReady, operationsBaseLocation, pendingStops, pickupValid, status, targetValid]);
 
   if (!job) {
     return (
@@ -510,6 +537,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
             </div>
           </Marker>
         )}
+        <OperationsBaseMarker location={operationsBaseLocation} />
       </Map>
     </div>
   );
