@@ -40,6 +40,38 @@ const getBilledHours = (durationMs) => {
   return Math.ceil(durationMs / 3600000);
 };
 
+const roundMoney = (value) => Number(Number(value).toFixed(2));
+
+const getPaymentBreakdown = (job) => {
+  const cashAmount = Number.isFinite(job.cashAmount) ? Number(job.cashAmount) : null;
+  const transferAmount = Number.isFinite(job.transferAmount) ? Number(job.transferAmount) : null;
+  const hasBreakdown = cashAmount != null || transferAmount != null;
+  const chargedAmount = Number.isFinite(job.chargedAmount) ? Number(job.chargedAmount) : null;
+  const totalBilled = hasBreakdown
+    ? roundMoney((cashAmount ?? 0) + (transferAmount ?? 0))
+    : chargedAmount;
+  const paymentMethod = hasBreakdown
+    ? cashAmount != null && transferAmount != null
+      ? 'mixed'
+      : cashAmount != null
+        ? 'cash'
+        : transferAmount != null
+          ? 'transfer'
+          : null
+    : chargedAmount != null
+      ? 'unassigned'
+      : null;
+
+  return {
+    cashAmount,
+    transferAmount,
+    chargedAmount,
+    paymentMethod,
+    unassignedAmount: !hasBreakdown ? chargedAmount : null,
+    totalBilled,
+  };
+};
+
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 
 const formatDate = (date) => {
@@ -134,6 +166,10 @@ const handleExport = async (res) => {
     'helpers_total_value',
     'total_with_helpers',
     'charged_amount',
+    'cash_amount',
+    'transfer_amount',
+    'payment_method',
+    'unassigned_amount',
     'total_billed',
     'created_at',
     'updated_at',
@@ -164,8 +200,8 @@ const handleExport = async (res) => {
     const totalWithHelpers = totalValue != null && helpersTotalValue != null
       ? Number((totalValue + helpersTotalValue).toFixed(2))
       : totalValue ?? helpersTotalValue;
-    const chargedAmount = Number.isFinite(job.chargedAmount) ? job.chargedAmount : null;
-    const totalBilled = chargedAmount != null ? Number(chargedAmount.toFixed(2)) : totalWithHelpers;
+    const payment = getPaymentBreakdown(job);
+    const totalBilled = payment.totalBilled != null ? payment.totalBilled : totalWithHelpers;
     const driverName = job.driverId ? driversById.get(job.driverId)?.name ?? '' : '';
 
     rows.push([
@@ -191,7 +227,11 @@ const handleExport = async (res) => {
       helperHourlyRate,
       helpersTotalValue,
       totalWithHelpers,
-      chargedAmount,
+      payment.chargedAmount,
+      payment.cashAmount,
+      payment.transferAmount,
+      payment.paymentMethod,
+      payment.unassignedAmount,
       totalBilled,
       job.createdAt,
       job.updatedAt,

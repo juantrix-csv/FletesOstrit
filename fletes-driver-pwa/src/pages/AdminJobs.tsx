@@ -8,7 +8,7 @@ import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
-import type { Driver, DriverLocation, Job, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
+import type { Driver, DriverLocation, Job, JobPaymentMethod, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
 import {
   createDriver,
   createJob,
@@ -17,10 +17,13 @@ import {
   deleteJob,
   deleteVehicle,
   downloadJobsHistory,
+  driverLocationsListQueryKey,
+  driversListQueryKey,
   getFixedMonthlyCost,
   getHelperHourlyRate,
   getHourlyRate,
   getDriverVehicleDriverShare,
+  jobsListQueryKey,
   getOwnerVehicleDriverShare,
   getTripCostPerHour,
   getTripCostPerKm,
@@ -37,11 +40,13 @@ import {
   setTripCostPerKm,
   updateDriver,
   updateJob,
+  vehiclesListQueryKey,
 } from '../lib/api';
 import { calculateDistance, cn, formatDuration, getScheduledAtMs } from '../lib/utils';
 import { getDriverColors } from '../lib/driverColors';
 import { reorderList } from '../lib/reorder';
 import { getAdminSession } from '../lib/adminSession';
+import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '../lib/queryCache';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -233,6 +238,88 @@ const formatRatioAsPercentInput = (ratio: number) => {
   return percent.toFixed(2).replace(/\.?0+$/, '');
 };
 const clampRatio = (value: number) => Math.min(1, Math.max(0, value));
+const roundMoney = (value: number) => Number(value.toFixed(2));
+
+type PaymentMethodView = JobPaymentMethod | 'unassigned' | 'none';
+type PaymentDraft = {
+  method: JobPaymentMethod;
+  cashAmount: string;
+  transferAmount: string;
+};
+
+const toStoredMoney = (value?: number | null) => (Number.isFinite(value) ? Number(value) : null);
+
+const getJobCollectedPayment = (job: Job) => {
+  const cashAmount = toStoredMoney(job.cashAmount);
+  const transferAmount = toStoredMoney(job.transferAmount);
+  const hasBreakdown = cashAmount != null || transferAmount != null;
+  const chargedAmount = toStoredMoney(job.chargedAmount);
+  const cashPositive = cashAmount != null && cashAmount > 0;
+  const transferPositive = transferAmount != null && transferAmount > 0;
+  let method: PaymentMethodView = 'none';
+
+  if (hasBreakdown) {
+    if (cashPositive && transferPositive) method = 'mixed';
+    else if (cashPositive) method = 'cash';
+    else if (transferPositive) method = 'transfer';
+    else if (cashAmount != null && transferAmount != null) method = 'mixed';
+    else if (cashAmount != null) method = 'cash';
+    else if (transferAmount != null) method = 'transfer';
+  } else if (chargedAmount != null) {
+    method = 'unassigned';
+  }
+
+  return {
+    cashAmount,
+    transferAmount,
+    chargedAmount,
+    unassignedAmount: hasBreakdown ? null : chargedAmount,
+    total: hasBreakdown ? roundMoney((cashAmount ?? 0) + (transferAmount ?? 0)) : chargedAmount,
+    method,
+  };
+};
+
+const getPaymentMethodLabel = (method: PaymentMethodView) => {
+  switch (method) {
+    case 'cash':
+      return 'Efectivo';
+    case 'transfer':
+      return 'Transferencia';
+    case 'mixed':
+      return 'Combinado';
+    case 'unassigned':
+      return 'Sin definir';
+    default:
+      return 'Sin cargar';
+  }
+};
+
+const buildPaymentDraft = (job: Job): PaymentDraft => {
+  const payment = getJobCollectedPayment(job);
+  if (payment.method === 'transfer') {
+    return {
+      method: 'transfer',
+      cashAmount: '',
+      transferAmount: payment.transferAmount != null ? String(payment.transferAmount) : '',
+    };
+  }
+  if (payment.method === 'mixed') {
+    return {
+      method: 'mixed',
+      cashAmount: payment.cashAmount != null ? String(payment.cashAmount) : '',
+      transferAmount: payment.transferAmount != null ? String(payment.transferAmount) : '',
+    };
+  }
+  return {
+    method: 'cash',
+    cashAmount: payment.cashAmount != null
+      ? String(payment.cashAmount)
+      : payment.unassignedAmount != null
+        ? String(payment.unassignedAmount)
+        : '',
+    transferAmount: '',
+  };
+};
 
 const parseTimestampMs = (value?: string) => {
   if (!value) return null;
@@ -436,6 +523,14 @@ export default function AdminJobs() {
     }
     return resolvedTab;
   }, [isOwner, resolvedTab]);
+  const jobsCacheKey = jobsListQueryKey();
+  const driversCacheKey = driversListQueryKey();
+  const vehiclesCacheKey = vehiclesListQueryKey();
+  const locationsCacheKey = driverLocationsListQueryKey();
+  const jobsCacheEntry = getCachedQueryEntry<Job[]>(jobsCacheKey);
+  const driversCacheEntry = getCachedQueryEntry<Driver[]>(driversCacheKey);
+  const vehiclesCacheEntry = getCachedQueryEntry<Vehicle[]>(vehiclesCacheKey);
+  const locationsCacheEntry = getCachedQueryEntry<DriverLocation[]>(locationsCacheKey);
   useEffect(() => {
     if (!adminRole) {
       navigate('/admin/login', { replace: true });
@@ -449,13 +544,14 @@ export default function AdminJobs() {
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [loadingJobs, setLoadingJobs] = useState(true);
-  const [loadingDrivers, setLoadingDrivers] = useState(true);
-  const [loadingVehicles, setLoadingVehicles] = useState(true);
-  const [loadingLocations, setLoadingLocations] = useState(true);
+  const [jobs, setJobs] = useState<Job[]>(() => jobsCacheEntry?.data ?? []);
+  const [drivers, setDrivers] = useState<Driver[]>(() => driversCacheEntry?.data ?? []);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() => vehiclesCacheEntry?.data ?? []);
+  const [loadingJobs, setLoadingJobs] = useState(() => !jobsCacheEntry);
+  const [loadingDrivers, setLoadingDrivers] = useState(() => !driversCacheEntry);
+  const [loadingVehicles, setLoadingVehicles] = useState(() => !vehiclesCacheEntry);
+  const [loadingLocations, setLoadingLocations] = useState(() => !locationsCacheEntry);
+  const [savingJob, setSavingJob] = useState(false);
   const [open, setOpen] = useState(false);
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
@@ -475,13 +571,14 @@ export default function AdminJobs() {
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   const [driverModalOpen, setDriverModalOpen] = useState(false);
+  const [savingDriver, setSavingDriver] = useState(false);
   const [vehicleName, setVehicleName] = useState('');
   const [vehicleSize, setVehicleSize] = useState<'chico' | 'mediano' | 'grande'>('mediano');
   const [vehicleOwnershipType, setVehicleOwnershipType] = useState<VehicleOwnershipType>('owner');
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
-  const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
+  const [driverLocations, setDriverLocations] = useState<DriverLocation[]>(() => locationsCacheEntry?.data ?? []);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedMapJobId, setSelectedMapJobId] = useState<string | null>(null);
@@ -501,8 +598,8 @@ export default function AdminJobs() {
   const [savingFixedMonthlyCost, setSavingFixedMonthlyCost] = useState(false);
   const [savingTripCostPerHour, setSavingTripCostPerHour] = useState(false);
   const [savingTripCostPerKm, setSavingTripCostPerKm] = useState(false);
-  const [chargedAmountDrafts, setChargedAmountDrafts] = useState<Record<string, string>>({});
-  const [savingChargedAmountId, setSavingChargedAmountId] = useState<string | null>(null);
+  const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
+  const [savingPaymentJobId, setSavingPaymentJobId] = useState<string | null>(null);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditJobDraft>(emptyEditDraft);
   const [savingEditId, setSavingEditId] = useState<string | null>(null);
@@ -544,8 +641,10 @@ export default function AdminJobs() {
 
   const loadJobs = async () => {
     try {
-      setLoadingJobs(true);
-      const data = await listJobs();
+      if (!getCachedQueryEntry<Job[]>(jobsCacheKey)) {
+        setLoadingJobs(true);
+      }
+      const data = await refreshCachedQuery(jobsCacheKey, () => listJobs());
       setJobs(data);
     } catch {
       toast.error('No se pudieron cargar los fletes');
@@ -556,8 +655,10 @@ export default function AdminJobs() {
 
   const loadDrivers = async () => {
     try {
-      setLoadingDrivers(true);
-      const data = await listDrivers();
+      if (!getCachedQueryEntry<Driver[]>(driversCacheKey)) {
+        setLoadingDrivers(true);
+      }
+      const data = await refreshCachedQuery(driversCacheKey, () => listDrivers());
       setDrivers(data);
     } catch {
       toast.error('No se pudieron cargar los conductores');
@@ -568,8 +669,10 @@ export default function AdminJobs() {
 
   const loadVehicles = async () => {
     try {
-      setLoadingVehicles(true);
-      const data = await listVehicles();
+      if (!getCachedQueryEntry<Vehicle[]>(vehiclesCacheKey)) {
+        setLoadingVehicles(true);
+      }
+      const data = await refreshCachedQuery(vehiclesCacheKey, () => listVehicles());
       setVehicles(data);
     } catch {
       toast.error('No se pudieron cargar los vehiculos');
@@ -582,6 +685,44 @@ export default function AdminJobs() {
     const id = window.setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const unsubscribeJobs = subscribeCachedQuery(jobsCacheKey, () => {
+      const entry = getCachedQueryEntry<Job[]>(jobsCacheKey);
+      if (entry) {
+        setJobs(entry.data);
+      }
+      setLoadingJobs(false);
+    });
+    const unsubscribeDrivers = subscribeCachedQuery(driversCacheKey, () => {
+      const entry = getCachedQueryEntry<Driver[]>(driversCacheKey);
+      if (entry) {
+        setDrivers(entry.data);
+      }
+      setLoadingDrivers(false);
+    });
+    const unsubscribeVehicles = subscribeCachedQuery(vehiclesCacheKey, () => {
+      const entry = getCachedQueryEntry<Vehicle[]>(vehiclesCacheKey);
+      if (entry) {
+        setVehicles(entry.data);
+      }
+      setLoadingVehicles(false);
+    });
+    const unsubscribeLocations = subscribeCachedQuery(locationsCacheKey, () => {
+      const entry = getCachedQueryEntry<DriverLocation[]>(locationsCacheKey);
+      if (entry) {
+        setDriverLocations(entry.data);
+      }
+      setLoadingLocations(false);
+    });
+
+    return () => {
+      unsubscribeJobs();
+      unsubscribeDrivers();
+      unsubscribeVehicles();
+      unsubscribeLocations();
+    };
+  }, [driversCacheKey, jobsCacheKey, locationsCacheKey, vehiclesCacheKey]);
 
 
   useEffect(() => {
@@ -597,10 +738,10 @@ export default function AdminJobs() {
 
   const loadDriverLocations = async () => {
     try {
-      if (!locationsLoadedRef.current) {
+      if (!locationsLoadedRef.current && !getCachedQueryEntry<DriverLocation[]>(locationsCacheKey)) {
         setLoadingLocations(true);
       }
-      const data = await listDriverLocations();
+      const data = await refreshCachedQuery(locationsCacheKey, () => listDriverLocations());
       setDriverLocations(data);
     } catch {
       // Keep last known positions on transient errors.
@@ -784,6 +925,7 @@ export default function AdminJobs() {
     const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
     const driverIdValue = String(fd.get('driverId') || '').trim();
     try {
+      setSavingJob(true);
       await createJob({
         id: uuidv4(),
         clientName: String(fd.get('cn') || ''),
@@ -815,6 +957,8 @@ export default function AdminJobs() {
       await loadJobs();
     } catch {
       toast.error('No se pudo crear el flete');
+    } finally {
+      setSavingJob(false);
     }
   };
 
@@ -928,6 +1072,7 @@ export default function AdminJobs() {
       return;
     }
     try {
+      setSavingDriver(true);
       const created = await createDriver({
         id: uuidv4(),
         name: driverName.trim(),
@@ -945,6 +1090,8 @@ export default function AdminJobs() {
       toast.success('Conductor creado');
     } catch {
       toast.error('No se pudo crear el conductor');
+    } finally {
+      setSavingDriver(false);
     }
   };
 
@@ -1176,21 +1323,43 @@ export default function AdminJobs() {
     }
   };
 
-  const handleSaveChargedAmount = async (job: Job) => {
-    const raw = chargedAmountDrafts[job.id] ?? (job.chargedAmount != null ? String(job.chargedAmount) : '');
-    const parsed = parseMoneyInput(raw);
-    if (raw.trim() && parsed == null) {
-      toast.error('Monto cobrado invalido');
+  const handleSavePayment = async (job: Job) => {
+    const draft = paymentDrafts[job.id] ?? buildPaymentDraft(job);
+    const parsedCashAmount = parseMoneyInput(draft.cashAmount);
+    const parsedTransferAmount = parseMoneyInput(draft.transferAmount);
+
+    if (draft.cashAmount.trim() && parsedCashAmount == null) {
+      toast.error('Monto en efectivo invalido');
       return;
     }
+    if (draft.transferAmount.trim() && parsedTransferAmount == null) {
+      toast.error('Monto en transferencia invalido');
+      return;
+    }
+
+    const cashAmount = draft.method === 'transfer' ? null : (draft.cashAmount.trim() ? parsedCashAmount : null);
+    const transferAmount = draft.method === 'cash' ? null : (draft.transferAmount.trim() ? parsedTransferAmount : null);
+    const total = cashAmount != null || transferAmount != null
+      ? roundMoney((cashAmount ?? 0) + (transferAmount ?? 0))
+      : null;
+
+    if (draft.method === 'mixed' && total == null) {
+      toast.error('Carga al menos un monto para el cobro combinado');
+      return;
+    }
+
     try {
-      setSavingChargedAmountId(job.id);
-      const updated = await updateJob(job.id, { chargedAmount: raw.trim() ? parsed : null });
+      setSavingPaymentJobId(job.id);
+      const updated = await updateJob(job.id, {
+        chargedAmount: total,
+        cashAmount,
+        transferAmount,
+      });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
-      setChargedAmountDrafts((prev) => {
+      setPaymentDrafts((prev) => {
         const next = { ...prev };
-        if (raw.trim()) {
-          next[job.id] = String(parsed);
+        if (total != null) {
+          next[job.id] = buildPaymentDraft(updated);
         } else {
           delete next[job.id];
         }
@@ -1200,16 +1369,20 @@ export default function AdminJobs() {
     } catch {
       toast.error('No se pudo actualizar el cobro');
     } finally {
-      setSavingChargedAmountId(null);
+      setSavingPaymentJobId(null);
     }
   };
 
-  const handleClearChargedAmount = async (job: Job) => {
+  const handleClearPayment = async (job: Job) => {
     try {
-      setSavingChargedAmountId(job.id);
-      const updated = await updateJob(job.id, { chargedAmount: null });
+      setSavingPaymentJobId(job.id);
+      const updated = await updateJob(job.id, {
+        chargedAmount: null,
+        cashAmount: null,
+        transferAmount: null,
+      });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
-      setChargedAmountDrafts((prev) => {
+      setPaymentDrafts((prev) => {
         const next = { ...prev };
         delete next[job.id];
         return next;
@@ -1218,7 +1391,7 @@ export default function AdminJobs() {
     } catch {
       toast.error('No se pudo eliminar el cobro');
     } finally {
-      setSavingChargedAmountId(null);
+      setSavingPaymentJobId(null);
     }
   };
 
@@ -1261,11 +1434,12 @@ export default function AdminJobs() {
     return map;
   }, [jobs]);
   const hasChargeOverrides = useMemo(
-    () => completedHistory.some((entry) => entry.job.chargedAmount != null),
+    () => completedHistory.some((entry) => getJobCollectedPayment(entry.job).total != null),
     [completedHistory],
   );
   const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
-    if (entry.job.chargedAmount != null) return entry.job.chargedAmount;
+    const collectedPayment = getJobCollectedPayment(entry.job);
+    if (collectedPayment.total != null) return collectedPayment.total;
     const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
     const baseValue = Number.isFinite(entry.job.hourlyBaseAmount)
@@ -1359,7 +1533,8 @@ export default function AdminJobs() {
     return revenue - helpersCost - fuelCost - driverCost;
   };
   const getJobEstimatedTotal = (job: Job) => {
-    if (job.chargedAmount != null) return job.chargedAmount;
+    const collectedPayment = getJobCollectedPayment(job);
+    if (collectedPayment.total != null) return collectedPayment.total;
     if (hourlyRateValue == null) return null;
     const estimatedHours = getEstimatedDurationMinutes(job) / 60;
     if (!Number.isFinite(estimatedHours) || estimatedHours <= 0) return null;
@@ -1642,6 +1817,51 @@ export default function AdminJobs() {
       return { value, label: formatCurrencyTick(value) };
     });
   }, [monthlyRevenueMaxValue]);
+  const monthlyPaymentBreakdown = useMemo(() => {
+    const now = new Date();
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const label = `${monthShortFormatter.format(date)} ${String(date.getFullYear()).slice(-2)}`;
+      return { key, label, cash: 0, transfer: 0, unassigned: 0, total: 0, count: 0 };
+    });
+    const byKey = new Map(months.map((item) => [item.key, item]));
+    completedHistory.forEach((entry) => {
+      if (entry.endMs == null) return;
+      const payment = getJobCollectedPayment(entry.job);
+      if (payment.total == null) return;
+      const endDate = new Date(entry.endMs);
+      const key = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}`;
+      const target = byKey.get(key);
+      if (!target) return;
+      target.cash += payment.cashAmount ?? 0;
+      target.transfer += payment.transferAmount ?? 0;
+      target.unassigned += payment.unassignedAmount ?? 0;
+      target.total += payment.total;
+      target.count += 1;
+    });
+    return months.map((item) => ({
+      ...item,
+      cash: roundMoney(item.cash),
+      transfer: roundMoney(item.transfer),
+      unassigned: roundMoney(item.unassigned),
+      total: roundMoney(item.total),
+    }));
+  }, [completedHistory]);
+  const currentMonthPaymentBreakdown = monthlyPaymentBreakdown[monthlyPaymentBreakdown.length - 1] ?? null;
+  const paymentBreakdownHasData = monthlyPaymentBreakdown.some((item) => item.total > 0);
+  const currentMonthCashLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.cash)
+    : currencyFormatter.format(0);
+  const currentMonthTransferLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.transfer)
+    : currencyFormatter.format(0);
+  const currentMonthUnassignedLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.unassigned)
+    : currencyFormatter.format(0);
+  const currentMonthCollectedLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.total)
+    : currencyFormatter.format(0);
   const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null || hasChargeOverrides;
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
@@ -1719,9 +1939,11 @@ export default function AdminJobs() {
   const selectedJobEstimateLabel = selectedJobDetail && Number.isFinite(selectedJobDetail.estimatedDurationMinutes)
     ? formatDurationMs((selectedJobDetail.estimatedDurationMinutes as number) * 60000)
     : 'N/D';
-  const selectedJobChargedLabel = selectedJobDetail?.chargedAmount != null
-    ? currencyFormatter.format(selectedJobDetail.chargedAmount)
+  const selectedJobPayment = selectedJobDetail ? getJobCollectedPayment(selectedJobDetail) : null;
+  const selectedJobChargedLabel = selectedJobPayment?.total != null
+    ? currencyFormatter.format(selectedJobPayment.total)
     : 'Sin cargar';
+  const selectedJobPaymentMethodLabel = getPaymentMethodLabel(selectedJobPayment?.method ?? 'none');
   const scheduledJobs = useMemo(() => {
     return jobs
       .map((job) => {
@@ -2041,8 +2263,11 @@ export default function AdminJobs() {
                           onSelect={handleCreateMapSelect}
                         />
                       </div>
-                      <button className="w-full rounded bg-green-600 px-3 py-2 text-sm font-semibold text-white">
-                        Guardar
+                      <button
+                        disabled={savingJob}
+                        className="w-full rounded bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        {savingJob ? 'Guardando...' : 'Guardar'}
                       </button>
                     </form>
                   )}
@@ -3211,8 +3436,11 @@ export default function AdminJobs() {
                         >
                           Cancelar
                         </button>
-                        <button className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white">
-                          Guardar conductor
+                        <button
+                          disabled={savingDriver}
+                          className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        >
+                          {savingDriver ? 'Guardando...' : 'Guardar conductor'}
                         </button>
                       </div>
                     </form>
@@ -3485,6 +3713,88 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Metodos de pago</p>
+                    <p className="text-xl font-semibold text-gray-900">Ingresos por efectivo y transferencia</p>
+                    <p className="text-sm text-gray-500">Desglose de los ultimos 12 meses segun lo cargado en cada flete.</p>
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {paymentBreakdownHasData
+                      ? `${currentMonthPaymentBreakdown?.count ?? 0} cobros cargados en ${currentMonthLabel}`
+                      : 'Sin cobros cargados por metodo'}
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-emerald-700">Efectivo</p>
+                    <p className="mt-2 text-2xl font-semibold text-emerald-700">{currentMonthCashLabel}</p>
+                    <p className="text-sm text-emerald-700/80">{currentMonthLabel}</p>
+                  </div>
+                  <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-sky-700">Transferencia</p>
+                    <p className="mt-2 text-2xl font-semibold text-sky-700">{currentMonthTransferLabel}</p>
+                    <p className="text-sm text-sky-700/80">{currentMonthLabel}</p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-amber-700">Sin definir</p>
+                    <p className="mt-2 text-2xl font-semibold text-amber-700">{currentMonthUnassignedLabel}</p>
+                    <p className="text-sm text-amber-700/80">Fletes viejos o sin metodo</p>
+                  </div>
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Total cobrado</p>
+                    <p className="mt-2 text-2xl font-semibold text-gray-900">{currentMonthCollectedLabel}</p>
+                    <p className="text-sm text-gray-500">{currentMonthLabel}</p>
+                  </div>
+                </div>
+                {paymentBreakdownHasData ? (
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs uppercase tracking-wide text-gray-400">
+                          <th className="pb-2 pr-4 font-medium">Mes</th>
+                          <th className="pb-2 pr-4 font-medium">Efectivo</th>
+                          <th className="pb-2 pr-4 font-medium">Transferencia</th>
+                          <th className="pb-2 pr-4 font-medium">Sin definir</th>
+                          <th className="pb-2 pr-4 font-medium">Total</th>
+                          <th className="pb-2 font-medium">Cobros</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlyPaymentBreakdown.map((item) => {
+                          const total = item.total > 0 ? item.total : 1;
+                          const cashWidth = `${(item.cash / total) * 100}%`;
+                          const transferWidth = `${(item.transfer / total) * 100}%`;
+                          const unassignedWidth = `${(item.unassigned / total) * 100}%`;
+                          return (
+                            <tr key={item.key} className="border-b border-gray-100 align-top text-gray-700">
+                              <td className="py-3 pr-4 font-medium text-gray-900">{item.label}</td>
+                              <td className="py-3 pr-4">{currencyFormatter.format(item.cash)}</td>
+                              <td className="py-3 pr-4">{currencyFormatter.format(item.transfer)}</td>
+                              <td className="py-3 pr-4">{currencyFormatter.format(item.unassigned)}</td>
+                              <td className="py-3 pr-4">
+                                <p className="font-semibold text-gray-900">{currencyFormatter.format(item.total)}</p>
+                                <div className="mt-2 h-2 w-40 overflow-hidden rounded-full bg-gray-100">
+                                  <div className="flex h-full w-full">
+                                    <div className="bg-emerald-500" style={{ width: cashWidth }} />
+                                    <div className="bg-sky-500" style={{ width: transferWidth }} />
+                                    <div className="bg-amber-400" style={{ width: unassignedWidth }} />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 text-gray-500">{item.count}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-gray-500">Cuando cargues el metodo de pago en los fletes completados, aca vas a ver el desglose mensual.</p>
+                )}
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
                     <p className="text-sm uppercase tracking-wide text-gray-400">Historial</p>
                     <p className="text-xl font-semibold text-gray-900">Fletes realizados</p>
                     <p className="text-sm text-gray-500">Total bruto {currentMonthLabel}: {monthlyGrossLabel}</p>
@@ -3518,8 +3828,10 @@ export default function AdminJobs() {
                       const totalValue = jobValue != null || helpersValue != null
                         ? (jobValue ?? 0) + (helpersValue ?? 0)
                         : null;
-                      const chargedAmount = entry.job.chargedAmount ?? null;
-                      const chargedAmountLabel = chargedAmount != null ? currencyFormatter.format(chargedAmount) : null;
+                      const paymentSummary = getJobCollectedPayment(entry.job);
+                      const paymentTotal = paymentSummary.total;
+                      const paymentTotalLabel = paymentTotal != null ? currencyFormatter.format(paymentTotal) : null;
+                      const paymentMethodLabel = getPaymentMethodLabel(paymentSummary.method);
                       const jobValueLabel = jobValue != null
                         ? currencyFormatter.format(jobValue)
                         : hourlyRateValue == null
@@ -3533,7 +3845,7 @@ export default function AdminJobs() {
                             ? 'Sin tiempos'
                             : 'Sin ayudantes';
                       const computedTotalLabel = totalValue != null ? currencyFormatter.format(totalValue) : 'N/D';
-                      const displayTotalLabel = chargedAmountLabel ?? computedTotalLabel;
+                      const displayTotalLabel = paymentTotalLabel ?? computedTotalLabel;
                       const driverHourShareLabel = hourlyDistribution != null
                         ? currencyFormatter.format(hourlyDistribution.driverShare)
                         : hourlyRateValue == null
@@ -3548,8 +3860,8 @@ export default function AdminJobs() {
                         ? percentFormatter.format(hourlyDistribution.driverShareRatio)
                         : '--';
                       const endLabel = entry.endMs != null ? new Date(entry.endMs).toLocaleString() : 'Sin datos';
-                      const chargedInputValue = chargedAmountDrafts[entry.job.id] ?? (chargedAmount != null ? String(chargedAmount) : '');
-                      const isSavingCharge = savingChargedAmountId === entry.job.id;
+                      const paymentDraft = paymentDrafts[entry.job.id] ?? buildPaymentDraft(entry.job);
+                      const isSavingCharge = savingPaymentJobId === entry.job.id;
                       return (
                         <div key={entry.job.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
                           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -3576,11 +3888,20 @@ export default function AdminJobs() {
                                 Detalle
                               </button>
                               <p className="text-base font-semibold text-gray-900">{displayTotalLabel}</p>
-                              {chargedAmountLabel && (
-                                <p className="text-sm text-emerald-600">Cobrado</p>
+                              {paymentTotalLabel && (
+                                <p className="text-sm text-emerald-600">{paymentMethodLabel}</p>
                               )}
-                              {chargedAmountLabel && totalValue != null && (
+                              {paymentTotalLabel && totalValue != null && (
                                 <p className="text-sm text-gray-500">Estimado: {computedTotalLabel}</p>
+                              )}
+                              {paymentSummary.cashAmount != null && (
+                                <p className="text-sm text-gray-500">Efectivo: {currencyFormatter.format(paymentSummary.cashAmount)}</p>
+                              )}
+                              {paymentSummary.transferAmount != null && (
+                                <p className="text-sm text-gray-500">Transferencia: {currencyFormatter.format(paymentSummary.transferAmount)}</p>
+                              )}
+                              {paymentSummary.unassignedAmount != null && (
+                                <p className="text-sm text-gray-500">Cobro sin metodo: {currencyFormatter.format(paymentSummary.unassignedAmount)}</p>
                               )}
                               <p className="text-sm text-gray-500">Flete: {jobValueLabel}</p>
                               <p className="text-sm text-gray-500">Chofer (hora): {driverHourShareLabel}</p>
@@ -3590,35 +3911,86 @@ export default function AdminJobs() {
                               <p className="text-sm text-gray-500">Duracion: {durationLabel}</p>
                             </div>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                            <span className="text-xs uppercase tracking-wide text-gray-400">Cobrado</span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min="0"
-                              step="0.01"
-                              placeholder="Ej: 30000"
-                              value={chargedInputValue}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setChargedAmountDrafts((prev) => ({ ...prev, [entry.job.id]: value }));
-                              }}
-                              className="w-32 rounded border px-2 py-1 text-sm"
-                            />
+                          <div className="mt-3 grid gap-2 rounded-xl border border-white bg-white p-3 text-sm sm:grid-cols-[180px_1fr_1fr_auto_auto] sm:items-end">
+                            <div>
+                              <span className="text-xs uppercase tracking-wide text-gray-400">Metodo de pago</span>
+                              <select
+                                value={paymentDraft.method}
+                                onChange={(event) => {
+                                  const nextMethod = event.target.value as JobPaymentMethod;
+                                  setPaymentDrafts((prev) => {
+                                    const current = prev[entry.job.id] ?? buildPaymentDraft(entry.job);
+                                    return {
+                                      ...prev,
+                                      [entry.job.id]: {
+                                        method: nextMethod,
+                                        cashAmount: nextMethod === 'transfer' ? '' : current.cashAmount,
+                                        transferAmount: nextMethod === 'cash' ? '' : current.transferAmount,
+                                      },
+                                    };
+                                  });
+                                }}
+                                className="mt-1 w-full rounded border px-2 py-1 text-sm"
+                              >
+                                <option value="cash">Efectivo</option>
+                                <option value="transfer">Transferencia</option>
+                                <option value="mixed">Combinado</option>
+                              </select>
+                            </div>
+                            <div>
+                              <span className="text-xs uppercase tracking-wide text-gray-400">Efectivo</span>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                placeholder="Ej: 30000"
+                                value={paymentDraft.cashAmount}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setPaymentDrafts((prev) => {
+                                    const current = prev[entry.job.id] ?? buildPaymentDraft(entry.job);
+                                    return { ...prev, [entry.job.id]: { ...current, cashAmount: value } };
+                                  });
+                                }}
+                                disabled={paymentDraft.method === 'transfer'}
+                                className="mt-1 w-full rounded border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-xs uppercase tracking-wide text-gray-400">Transferencia</span>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                placeholder="Ej: 15000"
+                                value={paymentDraft.transferAmount}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setPaymentDrafts((prev) => {
+                                    const current = prev[entry.job.id] ?? buildPaymentDraft(entry.job);
+                                    return { ...prev, [entry.job.id]: { ...current, transferAmount: value } };
+                                  });
+                                }}
+                                disabled={paymentDraft.method === 'cash'}
+                                className="mt-1 w-full rounded border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+                              />
+                            </div>
                             <button
                               type="button"
-                              onClick={() => handleSaveChargedAmount(entry.job)}
+                              onClick={() => handleSavePayment(entry.job)}
                               disabled={isSavingCharge}
-                              className="rounded border border-blue-200 px-3 py-1 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {isSavingCharge ? 'Guardando...' : 'Guardar'}
                             </button>
-                            {chargedAmount != null && (
+                            {paymentTotal != null && (
                               <button
                                 type="button"
-                                onClick={() => handleClearChargedAmount(entry.job)}
+                                onClick={() => handleClearPayment(entry.job)}
                                 disabled={isSavingCharge}
-                                className="rounded border border-gray-200 px-3 py-1 text-sm font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="rounded border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 Limpiar
                               </button>
@@ -3866,9 +4238,24 @@ export default function AdminJobs() {
                         <span className="font-medium text-gray-900">Duracion estimada:</span> {selectedJobEstimateLabel}
                       </p>
                       {canSeeMoney && (
-                        <p>
-                          <span className="font-medium text-gray-900">Cobrado:</span> {selectedJobChargedLabel}
-                        </p>
+                        <>
+                          <p>
+                            <span className="font-medium text-gray-900">Cobrado:</span> {selectedJobChargedLabel}
+                          </p>
+                          <p>
+                            <span className="font-medium text-gray-900">Metodo de pago:</span> {selectedJobPaymentMethodLabel}
+                          </p>
+                          {selectedJobPayment?.cashAmount != null && (
+                            <p>
+                              <span className="font-medium text-gray-900">Efectivo:</span> {currencyFormatter.format(selectedJobPayment.cashAmount)}
+                            </p>
+                          )}
+                          {selectedJobPayment?.transferAmount != null && (
+                            <p>
+                              <span className="font-medium text-gray-900">Transferencia:</span> {currencyFormatter.format(selectedJobPayment.transferAmount)}
+                            </p>
+                          )}
+                        </>
                       )}
                       {selectedJobDetail.clientPhone && (
                         <p>

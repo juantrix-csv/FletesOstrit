@@ -96,6 +96,14 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid chargedAmount' });
       return;
     }
+    if (body.cashAmount != null && !isNonNegativeNumber(body.cashAmount)) {
+      res.status(400).json({ error: 'Invalid cashAmount' });
+      return;
+    }
+    if (body.transferAmount != null && !isNonNegativeNumber(body.transferAmount)) {
+      res.status(400).json({ error: 'Invalid transferAmount' });
+      return;
+    }
     if (body.driverId) {
       const driver = await getDriverById(body.driverId);
       if (!driver) {

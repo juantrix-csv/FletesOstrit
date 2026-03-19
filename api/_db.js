@@ -43,6 +43,60 @@ const toJson = (value, fallback) => {
   }
 };
 
+const toMoneyOrNull = (value) => {
+  if (!Number.isFinite(value) || value < 0) return null;
+  return Number(Number(value).toFixed(2));
+};
+
+const sumMoney = (...values) => {
+  const total = values.reduce((sum, value) => sum + (value ?? 0), 0);
+  return Number(total.toFixed(2));
+};
+
+const resolvePaymentFields = ({ current = null, patch = {}, useCurrent = false } = {}) => {
+  const hasCashPatch = Object.prototype.hasOwnProperty.call(patch, 'cashAmount');
+  const hasTransferPatch = Object.prototype.hasOwnProperty.call(patch, 'transferAmount');
+  const hasChargedPatch = Object.prototype.hasOwnProperty.call(patch, 'chargedAmount');
+
+  if (hasCashPatch || hasTransferPatch) {
+    const cashAmount = hasCashPatch
+      ? toMoneyOrNull(patch.cashAmount)
+      : toMoneyOrNull(current?.cashAmount);
+    const transferAmount = hasTransferPatch
+      ? toMoneyOrNull(patch.transferAmount)
+      : toMoneyOrNull(current?.transferAmount);
+    return {
+      cashAmount,
+      transferAmount,
+      chargedAmount: cashAmount != null || transferAmount != null
+        ? sumMoney(cashAmount, transferAmount)
+        : null,
+    };
+  }
+
+  if (hasChargedPatch) {
+    return {
+      cashAmount: null,
+      transferAmount: null,
+      chargedAmount: toMoneyOrNull(patch.chargedAmount),
+    };
+  }
+
+  if (useCurrent) {
+    return {
+      cashAmount: toMoneyOrNull(current?.cashAmount),
+      transferAmount: toMoneyOrNull(current?.transferAmount),
+      chargedAmount: toMoneyOrNull(current?.chargedAmount),
+    };
+  }
+
+  return {
+    cashAmount: null,
+    transferAmount: null,
+    chargedAmount: toMoneyOrNull(patch.chargedAmount),
+  };
+};
+
 export const ensureSchema = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -63,6 +117,8 @@ export const ensureSchema = async () => {
       helpers_count INTEGER,
       estimated_duration_minutes INTEGER,
       charged_amount DOUBLE PRECISION,
+      cash_amount DOUBLE PRECISION,
+      transfer_amount DOUBLE PRECISION,
       hourly_billed_hours DOUBLE PRECISION,
       hourly_base_amount DOUBLE PRECISION,
       driver_share_amount DOUBLE PRECISION,
@@ -90,6 +146,8 @@ export const ensureSchema = async () => {
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helpers_count INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_duration_minutes INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charged_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cash_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS transfer_amount DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_billed_hours DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_base_amount DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_share_amount DOUBLE PRECISION;`;
@@ -159,6 +217,11 @@ export const computeScheduledAt = (date, time) => {
 
 const normalizeRow = (row) => {
   const distanceMeters = row.distance_meters != null ? Number(row.distance_meters) : undefined;
+  const cashAmount = row.cash_amount != null ? Number(row.cash_amount) : undefined;
+  const transferAmount = row.transfer_amount != null ? Number(row.transfer_amount) : undefined;
+  const fallbackChargedAmount = cashAmount != null || transferAmount != null
+    ? sumMoney(cashAmount ?? null, transferAmount ?? null)
+    : undefined;
   return {
     id: row.id,
     clientName: row.client_name,
@@ -174,7 +237,9 @@ const normalizeRow = (row) => {
     driverId: row.driver_id ?? undefined,
     helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
     estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
-    chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : undefined,
+    chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : fallbackChargedAmount,
+    cashAmount,
+    transferAmount,
     hourlyBilledHours: row.hourly_billed_hours != null ? Number(row.hourly_billed_hours) : undefined,
     hourlyBaseAmount: row.hourly_base_amount != null ? Number(row.hourly_base_amount) : undefined,
     driverShareAmount: row.driver_share_amount != null ? Number(row.driver_share_amount) : undefined,
@@ -333,6 +398,7 @@ export const createJob = async (job) => {
   const extraStopsJson = toJson(Array.isArray(job.extraStops) ? job.extraStops : [], []);
   const flagsJson = toJson(flags, defaultFlags);
   const timestampsJson = toJson(timestamps, {});
+  const payment = resolvePaymentFields({ patch: job });
   const shareSnapshot = await buildJobShareSnapshot({
     ...job,
     timestamps,
@@ -340,7 +406,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount,
       hourly_billed_hours, hourly_base_amount, driver_share_amount, company_share_amount, driver_share_ratio, share_source, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
@@ -361,7 +427,9 @@ export const createJob = async (job) => {
       ${job.driverId ?? null},
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
       ${Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null},
-      ${Number.isFinite(job.chargedAmount) ? job.chargedAmount : null},
+      ${payment.chargedAmount},
+      ${payment.cashAmount},
+      ${payment.transferAmount},
       ${toFiniteOrNull(shareSnapshot.hourlyBilledHours)},
       ${toFiniteOrNull(shareSnapshot.hourlyBaseAmount)},
       ${toFiniteOrNull(shareSnapshot.driverShareAmount)},
@@ -406,6 +474,16 @@ export const updateJob = async (id, patch) => {
     timestamps: patch.timestamps ? { ...current.timestamps, ...patch.timestamps } : current.timestamps,
     updatedAt: new Date().toISOString(),
   };
+  const payment = resolvePaymentFields({
+    current,
+    patch,
+    useCurrent: !Object.prototype.hasOwnProperty.call(patch, 'cashAmount')
+      && !Object.prototype.hasOwnProperty.call(patch, 'transferAmount')
+      && !Object.prototype.hasOwnProperty.call(patch, 'chargedAmount'),
+  });
+  next.chargedAmount = payment.chargedAmount;
+  next.cashAmount = payment.cashAmount;
+  next.transferAmount = payment.transferAmount;
   const pickupJson = toJson(next.pickup, {});
   const dropoffJson = toJson(next.dropoff, {});
   const extraStopsJson = toJson(Array.isArray(next.extraStops) ? next.extraStops : [], []);
@@ -454,7 +532,9 @@ export const updateJob = async (id, patch) => {
       driver_id = ${next.driverId ?? null},
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
-      charged_amount = ${Number.isFinite(next.chargedAmount) ? next.chargedAmount : null},
+      charged_amount = ${payment.chargedAmount},
+      cash_amount = ${payment.cashAmount},
+      transfer_amount = ${payment.transferAmount},
       hourly_billed_hours = ${toFiniteOrNull(shareSnapshot.hourlyBilledHours)},
       hourly_base_amount = ${toFiniteOrNull(shareSnapshot.hourlyBaseAmount)},
       driver_share_amount = ${toFiniteOrNull(shareSnapshot.driverShareAmount)},

@@ -1,4 +1,5 @@
 export type JobStatus = 'PENDING' | 'TO_PICKUP' | 'LOADING' | 'TO_DROPOFF' | 'UNLOADING' | 'DONE';
+export type JobPaymentMethod = 'cash' | 'transfer' | 'mixed';
 export interface LocationData { address: string; lat: number; lng: number; }
 export type VehicleSize = 'chico' | 'mediano' | 'grande';
 export type VehicleOwnershipType = 'owner' | 'driver';
@@ -36,6 +37,8 @@ export interface Job {
   id: string; clientName: string; clientPhone?: string | null; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
   notes?: string; helpersCount?: number; estimatedDurationMinutes?: number | null; status: JobStatus; driverId?: string | null;
   chargedAmount?: number | null;
+  cashAmount?: number | null;
+  transferAmount?: number | null;
   hourlyBilledHours?: number | null;
   hourlyBaseAmount?: number | null;
   driverShareAmount?: number | null;

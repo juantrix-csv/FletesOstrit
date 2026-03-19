@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listJobs } from '../lib/api';
+import { jobsListQueryKey, listJobs } from '../lib/api';
 import type { Job, JobStatus } from '../lib/types';
 import { getScheduledAtMs } from '../lib/utils';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -8,6 +8,7 @@ import { clearDriverSession, getDriverSession, type DriverSession } from '../lib
 import { getNetworkProfile } from '../lib/network';
 import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
 import { useGeoLocation } from '../hooks/useGeoLocation';
+import { useCachedQuery } from '../hooks/useCachedQuery';
 
 const toDateKey = (value: Date) => {
   const year = value.getFullYear();
@@ -52,11 +53,20 @@ const formatJobTime = (job: Job, scheduledAtMs: number | null) => {
 
 export default function DriverHome() {
   const navigate = useNavigate();
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<DriverSession | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
   const { coords } = useGeoLocation();
+  const { saveData } = getNetworkProfile();
+  const jobsQuery = useCachedQuery<Job[]>({
+    key: session ? jobsListQueryKey({ driverId: session.driverId }) : 'jobs:list:disabled',
+    enabled: !!session,
+    loader: () => listJobs({ driverId: session!.driverId }),
+    staleMs: 10000,
+    refreshIntervalMs: saveData ? 30000 : 15000,
+  });
+  const jobs = jobsQuery.data ?? [];
+  const loading = jobsQuery.loading;
+  const refreshing = jobsQuery.refreshing;
 
   useEffect(() => {
     const current = getDriverSession();
@@ -66,36 +76,6 @@ export default function DriverHome() {
     }
     setSession(current);
   }, [navigate]);
-
-  useEffect(() => {
-    if (!session) return;
-    let active = true;
-    setLoading(true);
-    const load = async () => {
-      if (document.visibilityState !== 'visible') return;
-      try {
-        const data = await listJobs({ driverId: session.driverId });
-        if (active) setJobs(data);
-      } catch {
-        if (active) setJobs([]);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    load();
-    const { saveData } = getNetworkProfile();
-    const intervalMs = saveData ? 30000 : 15000;
-    const id = window.setInterval(load, intervalMs);
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') load();
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => {
-      active = false;
-      clearInterval(id);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [session]);
   const activeJob = jobs.find((job) => job.status !== 'DONE' && job.status !== 'PENDING');
   useDriverLocationSync({ session, jobId: activeJob?.id ?? null, coords });
   const jobsForDay = jobs
@@ -177,6 +157,7 @@ export default function DriverHome() {
       </div>
       <div className="flex-1 overflow-y-auto space-y-3 pb-2">
         {loading && <p className="text-sm text-gray-500">Cargando fletes...</p>}
+        {!loading && refreshing && <p className="text-sm text-gray-500">Actualizando fletes...</p>}
         {!loading && jobsForDay.length === 0 && (
           <div className="rounded-2xl border border-dashed bg-white p-6 text-center text-sm text-gray-500">
             No hay viajes para este dia.

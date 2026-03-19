@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Job, JobStatus } from '../lib/types';
-import { getJob, updateJob } from '../lib/api';
+import { getJob, jobDetailQueryKey, updateJob } from '../lib/api';
 import { ArrowLeft, LocateFixed, MapPin, Phone, Route } from 'lucide-react';
 import { calculateDistance, getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { useGeoLocation } from '../hooks/useGeoLocation';
@@ -10,6 +10,7 @@ import SlideToConfirm from '../components/SlideToConfirm';
 import toast from 'react-hot-toast';
 import { getDriverSession } from '../lib/driverSession';
 import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
+import { useCachedQuery } from '../hooks/useCachedQuery';
 
 const formatAddress = (address: string, maxParts = 3) => {
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
@@ -24,13 +25,23 @@ export default function JobWorkflow() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [job, setJob] = useState<Job | null>(null);
-  const [loading, setLoading] = useState(true);
   const [showExpanded, setShowExpanded] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
   const mapRef = useRef<MapRouteHandle | null>(null);
   const { coords } = useGeoLocation();
   const [dist, setDist] = useState<number|null>(null);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const session = getDriverSession();
+  const jobQuery = useCachedQuery<Job>({
+    key: id && session ? jobDetailQueryKey(id, { driverId: session.driverId }) : 'job:detail:disabled',
+    enabled: !!id && !!session,
+    loader: () => getJob(id as string, { driverId: session!.driverId }),
+    staleMs: 10000,
+    refreshIntervalMs: 15000,
+  });
+  const loading = jobQuery.loading;
+  const refreshing = jobQuery.refreshing;
   const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
   const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
     ? job.stopIndex
@@ -47,28 +58,22 @@ export default function JobWorkflow() {
         : job.dropoff;
 
   useEffect(() => {
-    let active = true;
     if (!id) return;
-    const current = getDriverSession();
-    if (!current) {
+    if (!session) {
       navigate('/driver/login', { replace: true });
       return;
     }
-    (async () => {
-      try {
-        const data = await getJob(id, { driverId: current.driverId });
-        if (active) setJob(data);
-      } catch {
-        if (active) setJob(null);
-        toast.error('No se pudo cargar el flete');
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [id, navigate]);
+  }, [id, navigate, session]);
+
+  useEffect(() => {
+    if (jobQuery.data) {
+      setJob(jobQuery.data);
+      return;
+    }
+    if (!jobQuery.loading) {
+      setJob(null);
+    }
+  }, [jobQuery.data, jobQuery.loading]);
 
   useEffect(() => {
     setShowExpanded(false);
@@ -126,7 +131,7 @@ export default function JobWorkflow() {
     };
   }, []);
 
-  useDriverLocationSync({ session: getDriverSession(), jobId: job?.id ?? null, coords });
+  useDriverLocationSync({ session, jobId: job?.id ?? null, coords });
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
   const distanceKm = dist != null ? (dist / 1000) : null;
@@ -262,11 +267,14 @@ export default function JobWorkflow() {
       patch.timestamps = timestampsPatch;
     }
     try {
+      setActionPending(true);
       const updated = await updateJob(job.id, patch);
       setJob(updated);
       if (st === 'DONE') navigate('/driver');
     } catch {
       toast.error('No se pudo actualizar el flete');
+    } finally {
+      setActionPending(false);
     }
   };
 
@@ -274,10 +282,13 @@ export default function JobWorkflow() {
     if (!job || !hasPendingStops) return;
     const nextIndex = Math.min(stopIndex + 1, extraStopsValid.length);
     try {
+      setActionPending(true);
       const updated = await updateJob(job.id, { stopIndex: nextIndex });
       setJob(updated);
     } catch {
       toast.error('No se pudo actualizar la parada');
+    } finally {
+      setActionPending(false);
     }
   };
 
@@ -329,10 +340,10 @@ export default function JobWorkflow() {
           <button
             type="button"
             onClick={() => next('TO_PICKUP')}
-            disabled={!startAvailable}
+            disabled={!startAvailable || actionPending}
             className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
           >
-            {startAvailable ? 'Iniciar viaje' : 'Programado'}
+            {actionPending ? 'Procesando...' : startAvailable ? 'Iniciar viaje' : 'Programado'}
           </button>
           <button
             type="button"
@@ -450,10 +461,10 @@ export default function JobWorkflow() {
           <button
             type="button"
             onClick={() => next('TO_PICKUP')}
-            disabled={!startAvailable}
+            disabled={!startAvailable || actionPending}
             className="w-full rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
           >
-            {startAvailable ? 'Iniciar viaje' : 'Programado'}
+            {actionPending ? 'Procesando...' : startAvailable ? 'Iniciar viaje' : 'Programado'}
           </button>
           <button
             type="button"
@@ -467,18 +478,23 @@ export default function JobWorkflow() {
           )}
         </div>
       )}
-      {job.status === 'TO_PICKUP' && <SlideToConfirm label="Desliza para cargar" onConfirm={() => next('LOADING')} />}
-      {job.status === 'LOADING' && <SlideToConfirm label="Desliza para salir" onConfirm={() => next('TO_DROPOFF')} />}
+      {refreshing && !actionPending && (
+        <p className="text-center text-xs text-gray-500">Actualizando estado...</p>
+      )}
+      {job.status === 'TO_PICKUP' && <SlideToConfirm label="Desliza para cargar" onConfirm={() => next('LOADING')} disabled={actionPending} disabledLabel="Procesando..." />}
+      {job.status === 'LOADING' && <SlideToConfirm label="Desliza para salir" onConfirm={() => next('TO_DROPOFF')} disabled={actionPending} disabledLabel="Procesando..." />}
       {job.status === 'TO_DROPOFF' && hasPendingStops && (
         <SlideToConfirm
           label={`Desliza para continuar (Parada ${stopIndex + 1}/${extraStopsValid.length})`}
           onConfirm={advanceStop}
+          disabled={actionPending}
+          disabledLabel="Procesando..."
         />
       )}
       {job.status === 'TO_DROPOFF' && !hasPendingStops && (
-        <SlideToConfirm label="Desliza para descargar" onConfirm={() => next('UNLOADING')} />
+        <SlideToConfirm label="Desliza para descargar" onConfirm={() => next('UNLOADING')} disabled={actionPending} disabledLabel="Procesando..." />
       )}
-      {job.status === 'UNLOADING' && <SlideToConfirm label="Desliza para finalizar" onConfirm={() => next('DONE')} />}
+      {job.status === 'UNLOADING' && <SlideToConfirm label="Desliza para finalizar" onConfirm={() => next('DONE')} disabled={actionPending} disabledLabel="Procesando..." />}
       {showDetails && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
           <div className="w-full max-w-md mx-auto max-h-[85vh] overflow-y-auto rounded-t-3xl bg-slate-50 p-4 shadow-xl">
