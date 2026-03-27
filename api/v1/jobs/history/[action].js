@@ -6,6 +6,7 @@ import {
   listCompletedJobs,
   listDrivers,
 } from '../../../_db.js';
+import { getBilledHoursFromDurationMs } from '../../../../lib/billing.js';
 
 const parseTimestampMs = (value) => {
   if (!value) return null;
@@ -35,9 +36,7 @@ const csvValue = (value) => {
 };
 
 const getBilledHours = (durationMs) => {
-  if (durationMs == null) return null;
-  if (durationMs <= 0) return 0;
-  return Math.ceil(durationMs / 3600000);
+  return getBilledHoursFromDurationMs(durationMs);
 };
 
 const roundMoney = (value) => Number(Number(value).toFixed(2));
@@ -184,10 +183,10 @@ const handleExport = async (res) => {
     const durationMinutes = durationMs != null ? Math.round(durationMs / 60000) : null;
     const durationHours = durationMs != null ? Number((durationMs / 3600000).toFixed(2)) : null;
     const billedHours = getBilledHours(durationMs);
-    const totalValue = Number.isFinite(job.hourlyBaseAmount)
-      ? job.hourlyBaseAmount
-      : hourlyRate != null && billedHours != null
-        ? Number((billedHours * hourlyRate).toFixed(2))
+    const totalValue = hourlyRate != null && billedHours != null
+      ? Number((billedHours * hourlyRate).toFixed(2))
+      : Number.isFinite(job.hourlyBaseAmount)
+        ? job.hourlyBaseAmount
         : null;
     const driverShareRatio = Number.isFinite(job.driverShareRatio) ? job.driverShareRatio : null;
     const driverShareAmount = Number.isFinite(job.driverShareAmount) ? job.driverShareAmount : null;

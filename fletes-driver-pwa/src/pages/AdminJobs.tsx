@@ -50,6 +50,7 @@ import { reorderList } from '../lib/reorder';
 import { getAdminSession } from '../lib/adminSession';
 import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '../lib/queryCache';
 import { getRouteEstimate } from '../lib/routeEstimate';
+import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from '../lib/billing';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -352,13 +353,7 @@ const formatDurationMs = (ms: number) => {
 };
 
 const getBilledHours = (ms: number | null) => {
-  if (ms == null) return null;
-  if (ms <= 0) return 0;
-  const firstHourMs = 60 * 60 * 1000;
-  if (ms <= firstHourMs) return 1;
-  const halfHourMs = 30 * 60 * 1000;
-  const extraBlocks = Math.ceil((ms - firstHourMs) / halfHourMs);
-  return 1 + extraBlocks * 0.5;
+  return getBilledHoursFromDurationMs(ms);
 };
 
 type CalendarJob = {
@@ -1542,32 +1537,34 @@ export default function AdminJobs() {
     () => completedHistory.some((entry) => getJobCollectedPayment(entry.job).total != null),
     [completedHistory],
   );
+  const getEntryBilledHours = (entry: { job: Job; durationMs: number | null }) => {
+    if (entry.durationMs != null) return getBilledHours(entry.durationMs);
+    if (Number.isFinite(entry.job.estimatedDurationMinutes)) return getBilledHoursFromMinutes(entry.job.estimatedDurationMinutes as number);
+    if (Number.isFinite(entry.job.hourlyBilledHours)) return entry.job.hourlyBilledHours as number;
+    return null;
+  };
+  const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
+    const billedHours = getEntryBilledHours(entry);
+    if (hourlyRateValue != null && billedHours != null) {
+      return billedHours * hourlyRateValue;
+    }
+    if (Number.isFinite(entry.job.hourlyBaseAmount)) {
+      return entry.job.hourlyBaseAmount as number;
+    }
+    return null;
+  };
   const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
     const collectedPayment = getJobCollectedPayment(entry.job);
     if (collectedPayment.total != null) return collectedPayment.total;
     const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
-    const baseValue = Number.isFinite(entry.job.hourlyBaseAmount)
-      ? (entry.job.hourlyBaseAmount as number)
-      : hourlyRateValue != null
-        ? billedHours * hourlyRateValue
-        : null;
+    const baseValue = getEntryHourlyValue(entry);
     if (baseValue == null) return null;
     const helpersCount = entry.job.helpersCount ?? 0;
     const helpersValue = helperHourlyRateValue != null && helpersCount > 0
       ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
     return baseValue + helpersValue;
-  };
-  const getEntryBilledHours = (entry: { job: Job; durationMs: number | null }) => {
-    if (Number.isFinite(entry.job.hourlyBilledHours)) {
-      return entry.job.hourlyBilledHours as number;
-    }
-    if (entry.durationMs != null) return getBilledHours(entry.durationMs);
-    if (Number.isFinite(entry.job.estimatedDurationMinutes)) {
-      return getBilledHours((entry.job.estimatedDurationMinutes as number) * 60000);
-    }
-    return null;
   };
   const getEntryVehicle = (entry: { job: Job }) => {
     if (!entry.job.driverId) return null;
@@ -1581,21 +1578,16 @@ export default function AdminJobs() {
     if (vehicle?.ownershipType === 'driver') return driverVehicleDriverShareRatio;
     return ownerVehicleDriverShareRatio;
   };
-  const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
-    if (Number.isFinite(entry.job.hourlyBaseAmount)) {
-      return entry.job.hourlyBaseAmount as number;
-    }
-    if (hourlyRateValue == null) return null;
-    const billedHours = getEntryBilledHours(entry);
-    if (billedHours == null) return null;
-    return billedHours * hourlyRateValue;
-  };
   const getEntryHourDistribution = (entry: { job: Job; durationMs: number | null }) => {
     const hourlyValue = getEntryHourlyValue(entry);
     if (hourlyValue == null) return null;
     const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
     const vehicle = getEntryVehicle(entry);
-    if (Number.isFinite(entry.job.driverShareAmount) && Number.isFinite(entry.job.companyShareAmount)) {
+    const canUseStoredShareAmounts = Number.isFinite(entry.job.driverShareAmount)
+      && Number.isFinite(entry.job.companyShareAmount)
+      && Number.isFinite(entry.job.hourlyBaseAmount)
+      && Math.abs((entry.job.hourlyBaseAmount as number) - hourlyValue) < 0.01;
+    if (canUseStoredShareAmounts) {
       const storedDriverShare = entry.job.driverShareAmount as number;
       const storedOwnerShare = entry.job.companyShareAmount as number;
       const storedRatio = Number.isFinite(entry.job.driverShareRatio)
@@ -1640,14 +1632,13 @@ export default function AdminJobs() {
   const getJobEstimatedTotal = (job: Job) => {
     const collectedPayment = getJobCollectedPayment(job);
     if (collectedPayment.total != null) return collectedPayment.total;
-    if (hourlyRateValue == null) return null;
-    const estimatedHours = getEstimatedDurationMinutes(job) / 60;
-    if (!Number.isFinite(estimatedHours) || estimatedHours <= 0) return null;
+    const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(job));
+    if (hourlyRateValue == null || billedHours == null) return null;
     const helpersCount = job.helpersCount ?? 0;
     const helpersValue = helperHourlyRateValue != null && helpersCount > 0
-      ? estimatedHours * helperHourlyRateValue * helpersCount
+      ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
-    return estimatedHours * hourlyRateValue + helpersValue;
+    return billedHours * hourlyRateValue + helpersValue;
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';

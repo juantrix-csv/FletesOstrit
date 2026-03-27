@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { getBilledHoursFromDurationMs } from '../../lib/billing.js';
 import {
   createDriver,
   createVehicle,
@@ -88,13 +89,7 @@ const VEHICLE_SIZES = new Set(['chico', 'mediano', 'grande']);
 const isVehicleSize = (value) => typeof value === 'string' && VEHICLE_SIZES.has(value);
 
 const getBilledHours = (durationMs) => {
-  if (durationMs == null) return null;
-  if (durationMs <= 0) return 0;
-  const firstHourMs = 60 * 60 * 1000;
-  if (durationMs <= firstHourMs) return 1;
-  const halfHourMs = 30 * 60 * 1000;
-  const extraBlocks = Math.ceil((durationMs - firstHourMs) / halfHourMs);
-  return 1 + extraBlocks * 0.5;
+  return getBilledHoursFromDurationMs(durationMs);
 };
 
 app.use(cors());

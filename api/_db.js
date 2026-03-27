@@ -1,4 +1,5 @@
 import { sql } from '@vercel/postgres';
+import { getBilledHoursFromDurationMs } from '../lib/billing.js';
 
 const BA_UTC_OFFSET_HOURS = 3;
 
@@ -273,9 +274,7 @@ const getBilledHoursFromTimestamps = (timestamps) => {
     ?? parseTimestampMs(timestamps?.endTripAt)
     ?? null;
   if (startMs == null || endMs == null) return null;
-  const durationMs = Math.max(0, endMs - startMs);
-  if (durationMs <= 0) return 0;
-  return Math.ceil(durationMs / 3600000);
+  return getBilledHoursFromDurationMs(Math.max(0, endMs - startMs));
 };
 
 const toFiniteOrNull = (value) => (Number.isFinite(value) ? value : null);
