@@ -35,6 +35,7 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
+  const [routeDurationSeconds, setRouteDurationSeconds] = useState<number | null>(null);
 
   const status = job?.status ?? 'PENDING';
   const pickup = job?.pickup ?? fallbackLocation;
@@ -91,16 +92,27 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
       { lat: target.lat, lng: target.lng },
     ];
   }, [location?.lat, location?.lng, target?.lat, target?.lng, status, pendingStops, dropoff.lat, dropoff.lng]);
+  const etaLabel = useMemo(() => {
+    if (status !== 'TO_DROPOFF' || routeDurationSeconds == null || !Number.isFinite(routeDurationSeconds)) return null;
+    const totalMinutes = Math.max(1, Math.round(routeDurationSeconds / 60));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours <= 0) return `${totalMinutes} min`;
+    if (minutes === 0) return `${hours} h`;
+    return `${hours} h ${minutes} min`;
+  }, [routeDurationSeconds, status]);
 
   useEffect(() => {
     if (routePoints.length < 2) {
       setRouteGeoJson(null);
+      setRouteDurationSeconds(null);
       return;
     }
     const origin = routePoints[0];
     const destination = routePoints[routePoints.length - 1];
     if (!isValidLocation(origin) || !isValidLocation(destination)) {
       setRouteGeoJson(null);
+      setRouteDurationSeconds(null);
       return;
     }
     let active = true;
@@ -109,9 +121,13 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
         const res = await fetch(buildRouteUrl(routePoints));
         if (!res.ok) throw new Error('route');
         const data = await res.json();
-        const geometry = data?.routes?.[0]?.geometry;
-        if (!geometry || !geometry.coordinates?.length) {
-          if (active) setRouteGeoJson(null);
+        const route = data?.routes?.[0];
+        const geometry = route?.geometry;
+        if (!geometry || !geometry.coordinates?.length || !Number.isFinite(route?.duration)) {
+          if (active) {
+            setRouteGeoJson(null);
+            setRouteDurationSeconds(null);
+          }
           return;
         }
         if (active) {
@@ -120,9 +136,13 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
             properties: {},
             geometry,
           });
+          setRouteDurationSeconds(Number(route.duration));
         }
       } catch {
-        if (active) setRouteGeoJson(null);
+        if (active) {
+          setRouteGeoJson(null);
+          setRouteDurationSeconds(null);
+        }
       }
     })();
     return () => {
@@ -158,7 +178,13 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
   }, [location, mapReady, operationsBaseLocation, pendingStops, target]);
 
   return (
-    <div className={cn("h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
+    <div className={cn("relative h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
+      {etaLabel && (
+        <div className="pointer-events-none absolute z-10 m-3 rounded-xl border border-emerald-200 bg-white/95 px-3 py-2 shadow-sm">
+          <p className="text-[10px] uppercase tracking-wide text-emerald-600">Tiempo estimado al destino</p>
+          <p className="text-sm font-semibold text-gray-900">{etaLabel}</p>
+        </div>
+      )}
       <Map
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
