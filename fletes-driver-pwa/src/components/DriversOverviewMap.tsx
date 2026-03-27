@@ -16,6 +16,7 @@ const MAX_BOUNDS: [[number, number], [number, number]] = [
   [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],
 ];
 const EMPTY_STOPS: Array<{ lat: number; lng: number }> = [];
+const DRIVER_LOCATION_STALE_MS = 2 * 60 * 1000;
 
 interface RoutePoint {
   lat: number;
@@ -53,6 +54,12 @@ const isValidLocation = (loc: { lat: number; lng: number }) =>
   loc.lat <= BA_BOUNDS.maxLat &&
   loc.lng >= BA_BOUNDS.minLon &&
   loc.lng <= BA_BOUNDS.maxLon;
+
+const isDisconnectedLocation = (location: DriverLocation) => {
+  const updatedAtMs = new Date(location.updatedAt).getTime();
+  if (!Number.isFinite(updatedAtMs)) return true;
+  return Date.now() - updatedAtMs > DRIVER_LOCATION_STALE_MS;
+};
 
 export default function DriversOverviewMap({ locations, drivers, jobs, className }: DriversOverviewMapProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
@@ -100,6 +107,7 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
     return map;
   }, [jobs]);
   const routeSpecs = useMemo(() => locations.flatMap((loc) => {
+    if (isDisconnectedLocation(loc)) return [];
     const activeJob = (loc.jobId ? jobsById.get(loc.jobId) : null) ?? activeJobsByDriverId.get(loc.driverId) ?? null;
     if (!activeJob || (activeJob.status !== 'TO_PICKUP' && activeJob.status !== 'TO_DROPOFF')) return [];
 
@@ -263,24 +271,44 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
           const label = driver ? driver.name : 'Conductor';
           const driverColors = getDriverColors(loc.driverId);
           const isActive = driver?.active ?? false;
+          const isDisconnected = isDisconnectedLocation(loc);
           const activeJob = (loc.jobId ? jobsById.get(loc.jobId) : null) ?? activeJobsByDriverId.get(loc.driverId) ?? null;
-          const status = activeJob ? statusMeta[activeJob.status] : null;
-          const statusLabel = status
-            ? status.label
-            : isActive
-              ? 'Disponible'
-              : 'Inactivo';
+          const status = !isDisconnected && activeJob ? statusMeta[activeJob.status] : null;
+          const statusLabel = isDisconnected
+            ? 'Desconectado'
+            : status
+              ? status.label
+              : isActive
+                ? 'Disponible'
+                : 'Inactivo';
+          const statusClassName = isDisconnected
+            ? 'bg-slate-200 text-slate-600 border-slate-300'
+            : status?.className ?? (
+              isActive
+                ? 'bg-slate-100 text-slate-700 border-slate-200'
+                : 'bg-gray-100 text-gray-500 border-gray-200'
+            );
           return (
             <Marker key={loc.driverId} latitude={loc.lat} longitude={loc.lng}>
               <div className="flex flex-col items-center">
                 <div
-                  className="h-3 w-3 rounded-full shadow border"
+                  className={cn(
+                    'relative flex h-4 w-4 items-center justify-center rounded-full border shadow',
+                    isDisconnected ? 'bg-white' : ''
+                  )}
                   style={{
-                    backgroundColor: driverColors.accent,
-                    borderColor: driverColors.border,
-                    opacity: isActive ? 1 : 0.4,
+                    backgroundColor: isDisconnected ? '#ffffff' : driverColors.accent,
+                    borderColor: isDisconnected ? '#94A3B8' : driverColors.border,
+                    opacity: isActive ? 1 : 0.6,
                   }}
-                />
+                >
+                  {isDisconnected ? (
+                    <>
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                      <span className="absolute h-0.5 w-4 rotate-45 rounded-full bg-slate-500" />
+                    </>
+                  ) : null}
+                </div>
                 <span
                   className={cn("mt-1 rounded border px-1.5 py-0.5 text-[10px] shadow", isActive ? "opacity-100" : "opacity-70")}
                   style={{
@@ -294,7 +322,7 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
                 <span
                   className={cn(
                     'mt-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold shadow-sm',
-                    status?.className ?? (isActive ? 'bg-slate-100 text-slate-700 border-slate-200' : 'bg-gray-100 text-gray-500 border-gray-200')
+                    statusClassName
                   )}
                 >
                   {statusLabel}
