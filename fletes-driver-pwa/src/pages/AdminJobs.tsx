@@ -592,6 +592,10 @@ export default function AdminJobs() {
   const [operationsBaseLocation, setOperationsBaseLocation] = useState<LocationData | null>(null);
   const [operationsBaseLocationDraft, setOperationsBaseLocationDraft] = useState<LocationData | null>(null);
   const [operationsBaseLocationKey, setOperationsBaseLocationKey] = useState(0);
+  const [isDriversMapVisible, setIsDriversMapVisible] = useState(false);
+  const [isDocumentVisible, setIsDocumentVisible] = useState(
+    () => (typeof document === 'undefined' ? true : document.visibilityState === 'visible')
+  );
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
   const [savingOwnerVehicleDriverShare, setSavingOwnerVehicleDriverShare] = useState(false);
@@ -622,6 +626,7 @@ export default function AdminJobs() {
   } | null>(null);
   const [loadingBaseTravelEstimate, setLoadingBaseTravelEstimate] = useState(false);
   const locationsLoadedRef = useRef(false);
+  const driversMapContainerRef = useRef<HTMLDivElement | null>(null);
 
   const driversById = useMemo(() => {
     const map = new Map<string, Driver>();
@@ -653,7 +658,7 @@ export default function AdminJobs() {
   const tripCostPerHourValue = useMemo(() => parseHourlyRate(tripCostPerHourInput), [tripCostPerHourInput]);
   const tripCostPerKmValue = useMemo(() => parseHourlyRate(tripCostPerKmInput), [tripCostPerKmInput]);
 
-  const loadJobs = async () => {
+  const loadJobs = async (options?: { silent?: boolean }) => {
     try {
       if (!getCachedQueryEntry<Job[]>(jobsCacheKey)) {
         setLoadingJobs(true);
@@ -661,7 +666,9 @@ export default function AdminJobs() {
       const data = await refreshCachedQuery(jobsCacheKey, () => listJobs());
       setJobs(data);
     } catch {
-      toast.error('No se pudieron cargar los fletes');
+      if (!options?.silent) {
+        toast.error('No se pudieron cargar los fletes');
+      }
     } finally {
       setLoadingJobs(false);
     }
@@ -699,6 +706,33 @@ export default function AdminJobs() {
     const id = window.setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState === 'visible');
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'drivers') {
+      setIsDriversMapVisible(false);
+      return;
+    }
+    const element = driversMapContainerRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsDriversMapVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsDriversMapVisible(entry.isIntersecting),
+      { threshold: 0.2 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [tab]);
 
   useEffect(() => {
     const unsubscribeJobs = subscribeCachedQuery(jobsCacheKey, () => {
@@ -980,9 +1014,25 @@ export default function AdminJobs() {
     loadTripCostPerHour();
     loadTripCostPerKm();
     loadOperationsBaseLocation();
-    const id = window.setInterval(loadDriverLocations, 12000);
-    return () => clearInterval(id);
   }, []);
+
+  const isDriversMapRealtimeActive = tab === 'drivers' && isDriversMapVisible && isDocumentVisible;
+
+  useEffect(() => {
+    const refreshRealtimeMap = () => {
+      void loadDriverLocations();
+      if (isDriversMapRealtimeActive) {
+        void loadJobs({ silent: true });
+      }
+    };
+
+    refreshRealtimeMap();
+    const id = window.setInterval(
+      refreshRealtimeMap,
+      isDriversMapRealtimeActive ? 2000 : 12000,
+    );
+    return () => clearInterval(id);
+  }, [isDriversMapRealtimeActive]);
 
   const addJob = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -3320,16 +3370,21 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-gray-900">Mapa general</p>
-                  <span className="text-xs text-gray-400">Actualiza cada 12s</span>
+                  <span className="text-xs text-gray-400">
+                    {isDriversMapRealtimeActive ? 'Actualiza cada 2s' : 'Actualiza cada 12s'}
+                  </span>
                 </div>
-                <div className="relative">
-                  <DriversOverviewMap locations={driverLocations} drivers={drivers} />
+                <div ref={driversMapContainerRef} className="relative">
+                  <DriversOverviewMap locations={driverLocations} drivers={drivers} jobs={jobs} />
                   {loadingLocations && (
                     <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/70 text-xs text-gray-500">
                       Cargando ubicaciones...
                     </div>
                   )}
                 </div>
+                <p className="text-xs text-gray-400">
+                  Mientras el mapa este visible, refresca ubicaciones y estados en tiempo real cada 2 segundos.
+                </p>
               </div>
 
               <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
