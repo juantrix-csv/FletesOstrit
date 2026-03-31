@@ -26,6 +26,32 @@ interface RoutePoint {
   lng: number;
 }
 
+const isValidCoordinate = (lat: number, lng: number) =>
+  Number.isFinite(lat) &&
+  Number.isFinite(lng) &&
+  lat >= -90 &&
+  lat <= 90 &&
+  lng >= -180 &&
+  lng <= 180;
+
+const isValidLocation = (loc?: { lat: number; lng: number } | null): loc is { lat: number; lng: number } =>
+  !!loc && isValidCoordinate(loc.lat, loc.lng);
+
+const buildFallbackRouteFeature = (points: RoutePoint[]): GeoJSON.Feature<GeoJSON.LineString> | null => {
+  const coordinates = points
+    .filter((point) => isValidCoordinate(point.lat, point.lng))
+    .map((point) => [point.lng, point.lat] as [number, number]);
+  if (coordinates.length < 2) return null;
+  return {
+    type: 'Feature',
+    properties: { fallback: true },
+    geometry: {
+      type: 'LineString',
+      coordinates,
+    },
+  };
+};
+
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
@@ -88,14 +114,6 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
   const driverHeading = coords?.heading ?? 0;
   const displayCoords = smoothedCoords ?? coords;
   const displayHeading = Number.isFinite(displayCoords?.heading) ? displayCoords?.heading ?? 0 : driverHeading;
-  const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
-  const isValidLocation = (loc: { lat: number; lng: number }) =>
-    Number.isFinite(loc.lat) &&
-    Number.isFinite(loc.lng) &&
-    loc.lat >= BA_BOUNDS.minLat &&
-    loc.lat <= BA_BOUNDS.maxLat &&
-    loc.lng >= BA_BOUNDS.minLon &&
-    loc.lng <= BA_BOUNDS.maxLon;
   const extraStopsValid = useMemo(
     () => extraStops.filter((stop) => isValidLocation(stop)),
     [extraStops]
@@ -220,17 +238,16 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       setRouteGeoJson(null);
       return;
     }
-    if (routePoints.length < 2) {
-      setRouteGeoJson(null);
+    const validRoutePoints = routePoints.filter((point) => isValidLocation(point));
+    if (validRoutePoints.length < 2) {
+      setRouteGeoJson(buildFallbackRouteFeature(routePoints));
       return;
     }
-    const origin = routePoints[0];
-    const targetPoint = routePoints[routePoints.length - 1];
-    if (!isValidLocation(origin) || !isValidLocation(targetPoint)) {
-      setRouteGeoJson(null);
-      return;
-    }
-    const targetKey = `${targetPoint.lat},${targetPoint.lng},${isDriving ? 'drive' : 'preview'},${status === 'TO_DROPOFF' ? clampedStopIndex : 'base'}`;
+    const origin = validRoutePoints[0];
+    const routeSignature = validRoutePoints
+      .map((point) => `${point.lat.toFixed(5)},${point.lng.toFixed(5)}`)
+      .join('|');
+    const targetKey = `${isDriving ? 'drive' : 'preview'}:${status}:${routeSignature}:${status === 'TO_DROPOFF' ? clampedStopIndex : 'base'}`;
     const now = Date.now();
     const last = lastRouteRef.current;
     if (last && last.targetKey === targetKey && now - last.at < 10000) {
@@ -241,12 +258,12 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     let active = true;
     (async () => {
       try {
-        const res = await fetch(buildRouteUrl(routePoints));
+        const res = await fetch(buildRouteUrl(validRoutePoints));
         if (!res.ok) throw new Error('route');
         const data = await res.json();
         const geometry = data?.routes?.[0]?.geometry;
         if (!geometry || !geometry.coordinates?.length) {
-          if (active) setRouteGeoJson(null);
+          if (active) setRouteGeoJson(buildFallbackRouteFeature(validRoutePoints));
           return;
         }
         if (active) {
@@ -257,7 +274,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
           });
         }
       } catch {
-        if (active) setRouteGeoJson(null);
+        if (active) setRouteGeoJson(buildFallbackRouteFeature(validRoutePoints));
       }
     })();
     return () => {
