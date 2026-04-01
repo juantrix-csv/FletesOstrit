@@ -37,21 +37,6 @@ const isValidCoordinate = (lat: number, lng: number) =>
 const isValidLocation = (loc?: { lat: number; lng: number } | null): loc is { lat: number; lng: number } =>
   !!loc && isValidCoordinate(loc.lat, loc.lng);
 
-const buildFallbackRouteFeature = (points: RoutePoint[]): GeoJSON.Feature<GeoJSON.LineString> | null => {
-  const coordinates = points
-    .filter((point) => isValidCoordinate(point.lat, point.lng))
-    .map((point) => [point.lng, point.lat] as [number, number]);
-  if (coordinates.length < 2) return null;
-  return {
-    type: 'Feature',
-    properties: { fallback: true },
-    geometry: {
-      type: 'LineString',
-      coordinates,
-    },
-  };
-};
-
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const normalizeHeading = (value: number) => ((value % 360) + 360) % 360;
@@ -240,7 +225,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     }
     const validRoutePoints = routePoints.filter((point) => isValidLocation(point));
     if (validRoutePoints.length < 2) {
-      setRouteGeoJson(buildFallbackRouteFeature(routePoints));
+      setRouteGeoJson(null);
       return;
     }
     const origin = validRoutePoints[0];
@@ -263,7 +248,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
         const data = await res.json();
         const geometry = data?.routes?.[0]?.geometry;
         if (!geometry || !geometry.coordinates?.length) {
-          if (active) setRouteGeoJson(buildFallbackRouteFeature(validRoutePoints));
+          if (active) setRouteGeoJson(null);
           return;
         }
         if (active) {
@@ -274,7 +259,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
           });
         }
       } catch {
-        if (active) setRouteGeoJson(buildFallbackRouteFeature(validRoutePoints));
+        if (active) setRouteGeoJson(null);
       }
     })();
     return () => {
