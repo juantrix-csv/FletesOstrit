@@ -11,11 +11,37 @@ const defaultFlags = {
 };
 
 const ACTIVE_JOB_STATUSES = new Set(['TO_PICKUP', 'LOADING', 'TO_DROPOFF', 'UNLOADING']);
+const LEAD_STATUSES = new Set(['NEW', 'CONTACTED', 'QUOTED', 'WON', 'LOST']);
+const LEAD_LOSS_REASONS = new Set([
+  'NO_AVAILABILITY',
+  'OUT_OF_AREA',
+  'NO_RESPONSE',
+  'PRICE',
+  'HIRED_OTHER',
+  'NOT_OUR_SERVICE',
+  'OTHER',
+]);
 const MAX_TRACK_ACCURACY_METERS = 60;
 const MIN_TRACK_DISTANCE_METERS = 6;
 const MAX_TRACK_SPEED_MPS = 45;
 const MAX_TRACK_INTERVAL_MS = 5 * 60 * 1000;
 const OWNER_ACCOUNT_DRIVER_CODE = '6666';
+const leadStatusLabels = {
+  NEW: 'Nuevo',
+  CONTACTED: 'Contactado',
+  QUOTED: 'Cotizado',
+  WON: 'Ganado',
+  LOST: 'Perdido',
+};
+const leadLossReasonLabels = {
+  NO_AVAILABILITY: 'Sin disponibilidad',
+  OUT_OF_AREA: 'Zona lejana',
+  NO_RESPONSE: 'Dejo de responder',
+  PRICE: 'Precio',
+  HIRED_OTHER: 'Eligio otra opcion',
+  NOT_OUR_SERVICE: 'No era para nosotros',
+  OTHER: 'Otro',
+};
 
 const toRadians = (value) => (value * Math.PI) / 180;
 const calculateDistanceMeters = (lat1, lng1, lat2, lng2) => {
@@ -96,6 +122,96 @@ const resolvePaymentFields = ({ current = null, patch = {}, useCurrent = false }
     transferAmount: null,
     chargedAmount: toMoneyOrNull(patch.chargedAmount),
   };
+};
+
+const normalizeLeadStatus = (value) => (LEAD_STATUSES.has(value) ? value : 'NEW');
+
+const normalizeLeadLossReason = (value) => (LEAD_LOSS_REASONS.has(value) ? value : null);
+
+const sanitizeLeadHistory = (history) => {
+  if (!Array.isArray(history)) return [];
+  return history
+    .map((entry, index) => {
+      const createdAt = typeof entry?.createdAt === 'string' ? entry.createdAt : new Date().toISOString();
+      const status = normalizeLeadStatus(entry?.status);
+      const lossReason = normalizeLeadLossReason(entry?.lossReason);
+      const type = entry?.type === 'CREATED' ? 'CREATED' : 'UPDATED';
+      const message = typeof entry?.message === 'string' && entry.message.trim()
+        ? entry.message.trim()
+        : type === 'CREATED'
+          ? 'Lead creado'
+          : 'Lead actualizado';
+      return {
+        id: typeof entry?.id === 'string' && entry.id.trim() ? entry.id : `history-${createdAt}-${index}`,
+        type,
+        message,
+        status,
+        lossReason,
+        note: typeof entry?.note === 'string' && entry.note.trim() ? entry.note.trim() : null,
+        createdAt,
+      };
+    })
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+};
+
+const buildLeadHistoryEntry = ({
+  type = 'UPDATED',
+  status = 'NEW',
+  lossReason = null,
+  note = null,
+  message,
+  createdAt = new Date().toISOString(),
+} = {}) => ({
+  id: `lead-history-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
+  type,
+  message: typeof message === 'string' && message.trim()
+    ? message.trim()
+    : type === 'CREATED'
+      ? 'Lead creado'
+      : 'Lead actualizado',
+  status: normalizeLeadStatus(status),
+  lossReason: normalizeLeadLossReason(lossReason),
+  note: typeof note === 'string' && note.trim() ? note.trim() : null,
+  createdAt,
+});
+
+const formatLeadStatusLabel = (status) => leadStatusLabels[normalizeLeadStatus(status)] ?? 'Nuevo';
+
+const formatLeadLossReasonLabel = (reason) => leadLossReasonLabels[reason] ?? 'Otro';
+
+const buildLeadChangeMessage = ({ current = null, next, historyNote = null }) => {
+  const changes = [];
+  if (!current) {
+    changes.push(`Lead creado como ${formatLeadStatusLabel(next.status)}`);
+  } else {
+    if (current.status !== next.status) {
+      changes.push(`Estado: ${formatLeadStatusLabel(current.status)} -> ${formatLeadStatusLabel(next.status)}`);
+    }
+    if ((current.lossReason ?? null) !== (next.lossReason ?? null)) {
+      const nextReasonLabel = next.lossReason ? formatLeadLossReasonLabel(next.lossReason) : 'sin motivo';
+      changes.push(`Motivo: ${nextReasonLabel}`);
+    }
+    if ((current.requestedDate ?? null) !== (next.requestedDate ?? null) || (current.requestedTime ?? null) !== (next.requestedTime ?? null)) {
+      changes.push('Fecha solicitada actualizada');
+    }
+    if ((current.originZone ?? null) !== (next.originZone ?? null) || (current.destinationZone ?? null) !== (next.destinationZone ?? null)) {
+      changes.push('Zona actualizada');
+    }
+    if ((current.clientName ?? null) !== (next.clientName ?? null) || (current.clientPhone ?? null) !== (next.clientPhone ?? null)) {
+      changes.push('Datos del cliente actualizados');
+    }
+    if ((current.description ?? null) !== (next.description ?? null)) {
+      changes.push('Descripcion actualizada');
+    }
+    if ((current.notes ?? null) !== (next.notes ?? null)) {
+      changes.push('Notas generales actualizadas');
+    }
+  }
+  if (typeof historyNote === 'string' && historyNote.trim()) {
+    changes.push(`Seguimiento: ${historyNote.trim()}`);
+  }
+  if (changes.length === 0) return 'Lead actualizado';
+  return changes.join('. ');
 };
 
 export const ensureSchema = async () => {
@@ -202,6 +318,38 @@ export const ensureSchema = async () => {
       value JSONB
     );
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS leads (
+      id TEXT PRIMARY KEY,
+      client_name TEXT NOT NULL,
+      client_phone TEXT,
+      description TEXT,
+      requested_date TEXT,
+      requested_time TEXT,
+      origin_zone TEXT,
+      destination_zone TEXT,
+      status TEXT NOT NULL,
+      loss_reason TEXT,
+      notes TEXT,
+      history JSONB NOT NULL,
+      closed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS client_phone TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS description TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS requested_date TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS requested_time TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS origin_zone TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS destination_zone TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS loss_reason TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS history JSONB;`;
+  await sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS closed_at TEXT;`;
+  await sql`UPDATE leads SET history = '[]'::jsonb WHERE history IS NULL;`;
+  await sql`ALTER TABLE leads ALTER COLUMN history SET DEFAULT '[]'::jsonb;`;
+  await sql`ALTER TABLE leads ALTER COLUMN history SET NOT NULL;`;
 };
 
 export const computeScheduledAt = (date, time) => {
@@ -587,6 +735,171 @@ export const setSetting = async (key, value) => {
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
   `;
   return getSetting(key);
+};
+
+const normalizeLeadRow = (row) => ({
+  id: row.id,
+  clientName: row.client_name,
+  clientPhone: row.client_phone ?? null,
+  description: row.description ?? null,
+  requestedDate: row.requested_date ?? null,
+  requestedTime: row.requested_time ?? null,
+  originZone: row.origin_zone ?? null,
+  destinationZone: row.destination_zone ?? null,
+  status: normalizeLeadStatus(row.status),
+  lossReason: normalizeLeadLossReason(row.loss_reason),
+  notes: row.notes ?? null,
+  history: sanitizeLeadHistory(row.history),
+  closedAt: row.closed_at ?? null,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export const listLeads = async () => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM leads ORDER BY updated_at DESC, created_at DESC`;
+  return rows.map(normalizeLeadRow);
+};
+
+export const getLeadById = async (id) => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM leads WHERE id = ${id}`;
+  if (rows.length === 0) return null;
+  return normalizeLeadRow(rows[0]);
+};
+
+export const createLead = async (lead) => {
+  await ensureSchema();
+  const createdAt = lead.createdAt ?? new Date().toISOString();
+  const updatedAt = lead.updatedAt ?? createdAt;
+  const status = normalizeLeadStatus(lead.status);
+  const lossReason = status === 'LOST' ? normalizeLeadLossReason(lead.lossReason) : null;
+  const closedAt = status === 'WON' || status === 'LOST' ? (lead.closedAt ?? updatedAt) : null;
+  const notes = typeof lead.notes === 'string' && lead.notes.trim() ? lead.notes.trim() : null;
+  const history = sanitizeLeadHistory(lead.history);
+  const initialHistory = history.length > 0
+    ? history
+    : [buildLeadHistoryEntry({
+      type: 'CREATED',
+      status,
+      lossReason,
+      note: notes,
+      message: buildLeadChangeMessage({
+        next: {
+          ...lead,
+          status,
+          lossReason,
+          notes,
+        },
+      }),
+      createdAt,
+    })];
+
+  await sql`
+    INSERT INTO leads (
+      id, client_name, client_phone, description, requested_date, requested_time, origin_zone, destination_zone,
+      status, loss_reason, notes, history, closed_at, created_at, updated_at
+    ) VALUES (
+      ${lead.id},
+      ${lead.clientName},
+      ${lead.clientPhone ?? null},
+      ${lead.description ?? null},
+      ${lead.requestedDate ?? null},
+      ${lead.requestedTime ?? null},
+      ${lead.originZone ?? null},
+      ${lead.destinationZone ?? null},
+      ${status},
+      ${lossReason},
+      ${notes},
+      ${toJson(initialHistory, [])}::jsonb,
+      ${closedAt},
+      ${createdAt},
+      ${updatedAt}
+    )
+  `;
+
+  return getLeadById(lead.id);
+};
+
+export const updateLead = async (id, patch) => {
+  const current = await getLeadById(id);
+  if (!current) return null;
+
+  const nextStatus = Object.prototype.hasOwnProperty.call(patch, 'status')
+    ? normalizeLeadStatus(patch.status)
+    : current.status;
+  const nextLossReason = nextStatus === 'LOST'
+    ? (
+      Object.prototype.hasOwnProperty.call(patch, 'lossReason')
+        ? normalizeLeadLossReason(patch.lossReason)
+        : current.lossReason
+    )
+    : null;
+  const updatedAt = new Date().toISOString();
+  const next = {
+    ...current,
+    ...patch,
+    clientPhone: Object.prototype.hasOwnProperty.call(patch, 'clientPhone') ? (patch.clientPhone ?? null) : current.clientPhone,
+    description: Object.prototype.hasOwnProperty.call(patch, 'description') ? (patch.description ?? null) : current.description,
+    requestedDate: Object.prototype.hasOwnProperty.call(patch, 'requestedDate') ? (patch.requestedDate ?? null) : current.requestedDate,
+    requestedTime: Object.prototype.hasOwnProperty.call(patch, 'requestedTime') ? (patch.requestedTime ?? null) : current.requestedTime,
+    originZone: Object.prototype.hasOwnProperty.call(patch, 'originZone') ? (patch.originZone ?? null) : current.originZone,
+    destinationZone: Object.prototype.hasOwnProperty.call(patch, 'destinationZone') ? (patch.destinationZone ?? null) : current.destinationZone,
+    status: nextStatus,
+    lossReason: nextLossReason,
+    notes: Object.prototype.hasOwnProperty.call(patch, 'notes') ? (patch.notes ?? null) : current.notes,
+    updatedAt,
+  };
+  const shouldBeClosed = next.status === 'WON' || next.status === 'LOST';
+  next.closedAt = shouldBeClosed
+    ? (current.closedAt ?? updatedAt)
+    : null;
+  const historyMessage = buildLeadChangeMessage({
+    current,
+    next,
+    historyNote: patch.historyNote,
+  });
+  const hasHistoryChange = historyMessage !== 'Lead actualizado'
+    || (typeof patch.historyNote === 'string' && patch.historyNote.trim().length > 0);
+  const nextHistory = hasHistoryChange
+    ? [
+      ...sanitizeLeadHistory(current.history),
+      buildLeadHistoryEntry({
+        type: 'UPDATED',
+        status: next.status,
+        lossReason: next.lossReason,
+        note: typeof patch.historyNote === 'string' ? patch.historyNote : null,
+        message: historyMessage,
+        createdAt: updatedAt,
+      }),
+    ]
+    : sanitizeLeadHistory(current.history);
+
+  await sql`
+    UPDATE leads SET
+      client_name = ${next.clientName},
+      client_phone = ${next.clientPhone ?? null},
+      description = ${next.description ?? null},
+      requested_date = ${next.requestedDate ?? null},
+      requested_time = ${next.requestedTime ?? null},
+      origin_zone = ${next.originZone ?? null},
+      destination_zone = ${next.destinationZone ?? null},
+      status = ${next.status},
+      loss_reason = ${next.lossReason},
+      notes = ${next.notes ?? null},
+      history = ${toJson(nextHistory, [])}::jsonb,
+      closed_at = ${next.closedAt ?? null},
+      updated_at = ${next.updatedAt}
+    WHERE id = ${id}
+  `;
+
+  return getLeadById(id);
+};
+
+export const deleteLead = async (id) => {
+  await ensureSchema();
+  const result = await sql`DELETE FROM leads WHERE id = ${id}`;
+  return result.rowCount > 0;
 };
 
 const normalizeLocationRow = (row) => ({

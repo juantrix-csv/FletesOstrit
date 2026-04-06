@@ -1,4 +1,4 @@
-import type { Driver, DriverLocation, Job, LocationData, Vehicle } from './types';
+import type { Driver, DriverLocation, Job, Lead, LocationData, Vehicle } from './types';
 import { invalidateCachedQueries, setCachedQueryData, updateMatchingCachedQueries } from './queryCache';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
@@ -157,6 +157,27 @@ const invalidateVehicleCaches = () => {
   invalidateCachedQueries((key) => key.startsWith('vehicles:list'));
 };
 
+const syncUpdatedLeadCaches = (lead: Lead) => {
+  updateMatchingCachedQueries<Lead[]>(
+    (key) => key.startsWith('leads:list'),
+    (leads) => {
+      const withoutLead = leads.filter((item) => item.id !== lead.id);
+      const previousIndex = leads.findIndex((item) => item.id === lead.id);
+      if (previousIndex === -1) return [lead, ...withoutLead];
+      const next = [...withoutLead];
+      next.splice(previousIndex, 0, lead);
+      return next;
+    },
+  );
+};
+
+const syncDeletedLeadCaches = (leadId: string) => {
+  updateMatchingCachedQueries<Lead[]>(
+    (key) => key.startsWith('leads:list'),
+    (leads) => leads.filter((lead) => lead.id !== leadId),
+  );
+};
+
 const patchLocationInList = (locations: DriverLocation[], updatedLocation: DriverLocation) => {
   const withoutCurrent = locations.filter((location) => location.driverId !== updatedLocation.driverId);
   return [updatedLocation, ...withoutCurrent].sort(
@@ -179,6 +200,7 @@ export const driversListQueryKey = () => 'drivers:list';
 export const vehiclesListQueryKey = () => 'vehicles:list';
 export const driverLocationsListQueryKey = () => 'driver-locations:list';
 export const operationsBaseLocationQueryKey = () => 'settings:operations-base-location';
+export const leadsListQueryKey = () => 'leads:list';
 
 export const listJobs = (opts?: { driverId?: string; driverCode?: string }) => {
   const qs = toQueryString(opts);
@@ -252,6 +274,25 @@ export const deleteVehicle = async (id: string) => {
   await runRequest<void>(`/vehicles/${id}`, { method: 'DELETE' });
   invalidateVehicleCaches();
   invalidateDriverCaches();
+};
+
+export const listLeads = () => fetchJson<Lead[]>('/leads');
+
+export const createLead = async (lead: Lead) => {
+  const created = await fetchJson<Lead>('/leads', { method: 'POST', body: JSON.stringify(lead) });
+  invalidateCachedQueries((key) => key.startsWith('leads:list'));
+  return created;
+};
+
+export const updateLead = async (id: string, patch: Partial<Lead> & { historyNote?: string | null }) => {
+  const updated = await fetchJson<Lead>(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  syncUpdatedLeadCaches(updated);
+  return updated;
+};
+
+export const deleteLead = async (id: string) => {
+  await runRequest<void>(`/leads/${id}`, { method: 'DELETE' });
+  syncDeletedLeadCaches(id);
 };
 
 export const listDriverLocations = () => fetchJson<DriverLocation[]>('/driver-locations');

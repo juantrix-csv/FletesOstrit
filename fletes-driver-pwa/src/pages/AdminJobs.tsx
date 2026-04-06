@@ -8,6 +8,7 @@ import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
+import AdminLeads from '../components/AdminLeads';
 import type { Driver, DriverLocation, Job, JobPaymentMethod, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
 import {
   createDriver,
@@ -364,7 +365,7 @@ type CalendarJob = {
   durationMinutes: number;
 };
 
-type AdminTab = 'jobs' | 'drivers' | 'calendar' | 'analytics' | 'settings';
+type AdminTab = 'jobs' | 'leads' | 'drivers' | 'calendar' | 'analytics' | 'settings';
 type MapSelectionTarget = 'pickup' | 'dropoff' | 'extra';
 
 interface MapTargetSelectorProps {
@@ -428,6 +429,9 @@ const resolveAdminTab = (value?: string | null): AdminTab | null => {
     case 'driver':
     case 'conductores':
       return 'drivers';
+    case 'leads':
+    case 'lead':
+      return 'leads';
     case 'calendar':
     case 'calendario':
       return 'calendar';
@@ -3349,6 +3353,10 @@ export default function AdminJobs() {
                 </p>
               </div>
             </div>
+          )}
+
+          {tab === 'leads' && (
+            <AdminLeads canDelete={isOwner} />
           )}
 
           {tab === 'drivers' && (

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { BarChart3, CalendarDays, Menu, Package, Settings, Truck, Users } from 'lucide-react';
+import { BarChart3, CalendarDays, Menu, Package, Phone, Settings, Truck, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { clearAdminSession, getAdminSession } from '../lib/adminSession';
 
 const navItems = [
   { key: 'jobs', label: 'Fletes', to: '/admin?tab=jobs', Icon: Package },
+  { key: 'leads', label: 'Leads', to: '/admin?tab=leads', Icon: Phone },
   { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers', Icon: Users },
   { key: 'calendar', label: 'Calendario', to: '/admin?tab=calendar', Icon: CalendarDays },
   { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics', Icon: BarChart3 },
@@ -17,9 +18,9 @@ const bottomItems = [
 
 const resolveActiveTab = (loc: string, search: string) => {
   const param = new URLSearchParams(search).get('tab');
-  if (param === 'jobs' || param === 'drivers' || param === 'calendar' || param === 'analytics' || param === 'settings') return param;
+  if (param === 'jobs' || param === 'leads' || param === 'drivers' || param === 'calendar' || param === 'analytics' || param === 'settings') return param;
   const pathTab = loc.split('/')[2];
-  if (pathTab === 'jobs' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics' || pathTab === 'settings') return pathTab;
+  if (pathTab === 'jobs' || pathTab === 'leads' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics' || pathTab === 'settings') return pathTab;
   return 'jobs';
 };
 
@@ -33,8 +34,8 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const visibleNavItems = isOwner ? navItems : navItems.filter((item) => item.key !== 'analytics');
   const visibleBottomItems = isOwner ? bottomItems : [];
   const allowedTabs = new Set(isOwner
-    ? ['jobs', 'drivers', 'calendar', 'analytics', 'settings']
-    : ['jobs', 'drivers', 'calendar']
+    ? ['jobs', 'leads', 'drivers', 'calendar', 'analytics', 'settings']
+    : ['jobs', 'leads', 'drivers', 'calendar']
   );
   const resolvedTab = resolveActiveTab(loc.pathname, loc.search);
   const activeTab = allowedTabs.has(resolvedTab) ? resolvedTab : 'jobs';
