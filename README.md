@@ -99,6 +99,7 @@ Frontend:
   - `deploy/systemd/fletes-ostrit-autodeploy.service`
   - `deploy/systemd/fletes-ostrit-autodeploy.timer`
 - El timer revisa `origin/main`, hace `fetch + reset --hard`, reinstala dependencias, rebuild y reinicia `fletes-ostrit-api`.
+- Si el deploy nuevo falla en build, restart o healthcheck, el script vuelve automaticamente al commit anterior y reintenta el arranque.
 
 ## Deploy en Vercel
 - El frontend se builda desde `fletes-driver-pwa/dist` (ver `vercel.json`).
