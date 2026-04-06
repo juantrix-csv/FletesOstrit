@@ -93,6 +93,7 @@ Frontend:
 
 ## VPS / Auto Deploy
 - El VPS corre el frontend compilado con Nginx y la API con `node server/index.js`.
+- En VPS con Postgres local, usa `POSTGRES_USE_PG_POOL=1`.
 - El script versionado de deploy es `scripts/deploy-vps.sh`.
 - Para auto deploy por polling se usan las unidades:
   - `deploy/systemd/fletes-ostrit-autodeploy.service`

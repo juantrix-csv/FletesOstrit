@@ -1,5 +1,33 @@
-import { sql } from '@vercel/postgres';
+import { sql as vercelSql } from '@vercel/postgres';
+import pg from 'pg';
 import { getBilledHoursFromDurationMs } from '../lib/billing.js';
+
+const { Pool } = pg;
+
+const shouldUseLocalPg = () => {
+  if (process.env.POSTGRES_USE_PG_POOL === '1') return true;
+  const connectionString = process.env.POSTGRES_URL ?? '';
+  return connectionString.includes('@127.0.0.1:') || connectionString.includes('@localhost:');
+};
+
+const createPgSqlTag = () => {
+  const pool = new Pool({
+    connectionString: process.env.POSTGRES_URL,
+  });
+
+  return async (strings, ...values) => {
+    let text = '';
+    for (let index = 0; index < strings.length; index += 1) {
+      text += strings[index];
+      if (index < values.length) {
+        text += `$${index + 1}`;
+      }
+    }
+    return pool.query(text, values);
+  };
+};
+
+const sql = shouldUseLocalPg() ? createPgSqlTag() : vercelSql;
 
 const BA_UTC_OFFSET_HOURS = 3;
 
