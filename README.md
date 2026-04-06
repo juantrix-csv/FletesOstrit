@@ -91,6 +91,14 @@ Frontend:
 - Backend: `http://localhost:4000`
 - Seed demo: definido en `docker-compose.yml` (`SEED_DEMO=1`)
 
+## VPS / Auto Deploy
+- El VPS corre el frontend compilado con Nginx y la API con `node server/index.js`.
+- El script versionado de deploy es `scripts/deploy-vps.sh`.
+- Para auto deploy por polling se usan las unidades:
+  - `deploy/systemd/fletes-ostrit-autodeploy.service`
+  - `deploy/systemd/fletes-ostrit-autodeploy.timer`
+- El timer revisa `origin/main`, hace `fetch + reset --hard`, reinstala dependencias, rebuild y reinicia `fletes-ostrit-api`.
+
 ## Deploy en Vercel
 - El frontend se builda desde `fletes-driver-pwa/dist` (ver `vercel.json`).
 - Funciones en `/api` usan `@vercel/postgres` (requiere `POSTGRES_URL`).
