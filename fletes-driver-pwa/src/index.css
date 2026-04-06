@@ -11,11 +11,6 @@ body {
   overflow: hidden;
 }
 
-.leaflet-container img {
-  max-width: none;
-  max-height: none;
-}
-
 .driver-marker {
   background: transparent;
   border: none;

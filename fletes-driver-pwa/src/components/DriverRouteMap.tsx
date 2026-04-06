@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
-import maplibregl from 'maplibre-gl';
+import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
+import mapboxgl from 'mapbox-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
+import MapboxFallback from './MapboxFallback';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { DriverLocation, Job, LocationData } from '../lib/types';
-import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
+import { MAP_STYLE, MAPBOX_ACCESS_TOKEN, applyMapPalette, hasMapboxAccessToken } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -17,10 +18,8 @@ interface RoutePoint {
 }
 
 const buildRouteUrl = (points: RoutePoint[]) => {
-  const coords = points.map((point) => `${point.lng},${point.lat}`).join(';');
-  const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coords}`);
-  url.searchParams.set('overview', 'full');
-  url.searchParams.set('geometries', 'geojson');
+  const url = new URL('/api/route', window.location.origin);
+  url.searchParams.set('points', points.map((point) => `${point.lat},${point.lng}`).join('|'));
   return url.toString();
 };
 
@@ -121,9 +120,8 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
         const res = await fetch(buildRouteUrl(routePoints));
         if (!res.ok) throw new Error('route');
         const data = await res.json();
-        const route = data?.routes?.[0];
-        const geometry = route?.geometry;
-        if (!geometry || !geometry.coordinates?.length || !Number.isFinite(route?.duration)) {
+        const geometry = data?.geometry;
+        if (!geometry || !geometry.coordinates?.length || !Number.isFinite(data?.durationSeconds)) {
           if (active) {
             setRouteGeoJson(null);
             setRouteDurationSeconds(null);
@@ -136,7 +134,7 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
             properties: {},
             geometry,
           });
-          setRouteDurationSeconds(Number(route.duration));
+          setRouteDurationSeconds(Number(data.durationSeconds));
         }
       } catch {
         if (active) {
@@ -172,13 +170,17 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
       map.easeTo({ center: [points[0][0], points[0][1]], zoom: 13, duration: 400 });
       return;
     }
-    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+    const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
     points.slice(1).forEach((point) => bounds.extend(point));
     map.fitBounds(bounds, { padding: 80, duration: 500 });
   }, [location, mapReady, operationsBaseLocation, pendingStops, target]);
 
+  if (!hasMapboxAccessToken()) {
+    return <MapboxFallback className={cn('h-[360px]', className)} />;
+  }
+
   return (
-    <div className={cn("relative h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
+    <div className={cn('relative h-[360px] w-full overflow-hidden rounded-xl border bg-white', className)}>
       {etaLabel && (
         <div className="pointer-events-none absolute z-10 m-3 rounded-xl border border-emerald-200 bg-white/95 px-3 py-2 shadow-sm">
           <p className="text-[10px] uppercase tracking-wide text-emerald-600">Tiempo estimado al destino</p>
@@ -188,6 +190,7 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
       <Map
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
+        mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
         mapStyle={MAP_STYLE}
         onLoad={() => {
           setMapReady(true);
@@ -232,9 +235,10 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
         {target && (
           <Marker latitude={target.lat} longitude={target.lng}>
             <div className={cn(
-              "h-3 w-3 rounded-full shadow",
-              status === 'PENDING' || status === 'TO_PICKUP' || status === 'LOADING' ? "bg-green-600" : "bg-red-600"
-            )} />
+              'h-3 w-3 rounded-full shadow',
+              status === 'PENDING' || status === 'TO_PICKUP' || status === 'LOADING' ? 'bg-green-600' : 'bg-red-600'
+            )}
+            />
           </Marker>
         )}
         <OperationsBaseMarker location={operationsBaseLocation} />

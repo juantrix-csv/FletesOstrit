@@ -6,9 +6,17 @@ REPO_DIR="${REPO_DIR:-/opt/fletes-ostrit}"
 APP_USER="${APP_USER:-fletes}"
 BRANCH="${BRANCH:-main}"
 APP_SERVICE="${APP_SERVICE:-fletes-ostrit-api}"
+ENV_FILE="${ENV_FILE:-/etc/fletes-ostrit.env}"
 HEALTHCHECK_API_URL="${HEALTHCHECK_API_URL:-http://127.0.0.1/api/v1/health}"
 HEALTHCHECK_JOBS_URL="${HEALTHCHECK_JOBS_URL:-http://127.0.0.1/api/v1/jobs}"
 RESTART_WAIT_SECONDS="${RESTART_WAIT_SECONDS:-5}"
+
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
 
 exec 9>"${LOCK_FILE}"
 if ! flock -n 9; then

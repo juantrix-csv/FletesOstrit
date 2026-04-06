@@ -13,10 +13,6 @@ export const buildReverseUrl = (lat: number, lng: number, origin?: string) => {
   const url = new URL('/api/reverse-geocode', origin ?? getDefaultOrigin());
   url.searchParams.set('lat', String(lat));
   url.searchParams.set('lon', String(lng));
-  url.searchParams.set('format', 'jsonv2');
-  url.searchParams.set('zoom', '18');
-  url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('accept-language', 'es');
   return url.toString();
 };
 

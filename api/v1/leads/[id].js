@@ -1,6 +1,6 @@
 import { deleteLead, getLeadById, updateLead } from '../../_db.js';
 
-const ALLOWED_STATUSES = new Set(['NEW', 'CONTACTED', 'QUOTED', 'WON', 'LOST']);
+const ALLOWED_STATUSES = new Set(['LOST']);
 const ALLOWED_LOSS_REASONS = new Set([
   'NO_AVAILABILITY',
   'OUT_OF_AREA',
@@ -10,6 +10,8 @@ const ALLOWED_LOSS_REASONS = new Set([
   'NOT_OUR_SERVICE',
   'OTHER',
 ]);
+const ALLOWED_REQUESTED_SLOTS = new Set(['NOW', 'TODAY', 'TOMORROW', 'THIS_WEEK', 'UNSPECIFIED']);
+const ALLOWED_JOB_TYPES = new Set(['FLETE_SIMPLE', 'MUDANZA', 'CON_AYUDANTE', 'RETIRO_ENTREGA', 'UNSPECIFIED']);
 
 const parseBody = (req) => {
   if (!req.body) return {};
@@ -53,11 +55,17 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid lossReason' });
       return;
     }
+    if (Object.prototype.hasOwnProperty.call(body, 'requestedSlot') && body.requestedSlot != null && !ALLOWED_REQUESTED_SLOTS.has(body.requestedSlot)) {
+      res.status(400).json({ error: 'Invalid requestedSlot' });
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'jobType') && body.jobType != null && !ALLOWED_JOB_TYPES.has(body.jobType)) {
+      res.status(400).json({ error: 'Invalid jobType' });
+      return;
+    }
     if (
       !isNullableString(body.clientPhone)
       || !isNullableString(body.description)
-      || !isNullableString(body.requestedDate)
-      || !isNullableString(body.requestedTime)
       || !isNullableString(body.originZone)
       || !isNullableString(body.destinationZone)
       || !isNullableString(body.notes)

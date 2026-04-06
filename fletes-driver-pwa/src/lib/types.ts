@@ -1,6 +1,6 @@
 export type JobStatus = 'PENDING' | 'TO_PICKUP' | 'LOADING' | 'TO_DROPOFF' | 'UNLOADING' | 'DONE';
 export type JobPaymentMethod = 'cash' | 'transfer' | 'mixed';
-export type LeadStatus = 'NEW' | 'CONTACTED' | 'QUOTED' | 'WON' | 'LOST';
+export type LeadStatus = 'LOST';
 export type LeadLossReason =
   | 'NO_AVAILABILITY'
   | 'OUT_OF_AREA'
@@ -9,6 +9,8 @@ export type LeadLossReason =
   | 'HIRED_OTHER'
   | 'NOT_OUR_SERVICE'
   | 'OTHER';
+export type LeadRequestedSlot = 'NOW' | 'TODAY' | 'TOMORROW' | 'THIS_WEEK' | 'UNSPECIFIED';
+export type LeadJobType = 'FLETE_SIMPLE' | 'MUDANZA' | 'CON_AYUDANTE' | 'RETIRO_ENTREGA' | 'UNSPECIFIED';
 export interface LocationData { address: string; lat: number; lng: number; }
 export type VehicleSize = 'chico' | 'mediano' | 'grande';
 export type VehicleOwnershipType = 'owner' | 'driver';
@@ -56,10 +58,10 @@ export interface Lead {
   clientName: string;
   clientPhone?: string | null;
   description?: string | null;
-  requestedDate?: string | null;
-  requestedTime?: string | null;
+  requestedSlot?: LeadRequestedSlot | null;
   originZone?: string | null;
   destinationZone?: string | null;
+  jobType?: LeadJobType | null;
   status: LeadStatus;
   lossReason?: LeadLossReason | null;
   notes?: string | null;

@@ -6,7 +6,7 @@ import { clearAdminSession, getAdminSession } from '../lib/adminSession';
 
 const navItems = [
   { key: 'jobs', label: 'Fletes', to: '/admin?tab=jobs', Icon: Package },
-  { key: 'leads', label: 'Leads', to: '/admin?tab=leads', Icon: Phone },
+  { key: 'leads', label: 'Perdidas', to: '/admin?tab=leads', Icon: Phone },
   { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers', Icon: Users },
   { key: 'calendar', label: 'Calendario', to: '/admin?tab=calendar', Icon: CalendarDays },
   { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics', Icon: BarChart3 },

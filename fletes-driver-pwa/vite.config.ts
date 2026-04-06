@@ -41,29 +41,9 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      '/api/v1': {
+      '/api': {
         target: process.env.VITE_PROXY_TARGET || 'http://localhost:4000',
         changeOrigin: true,
-      },
-      '/api/geocode': {
-        target: 'https://nominatim.openstreetmap.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/geocode/, '/search'),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('User-Agent', 'FletesDriverPWA/1.0 (local dev)');
-          });
-        },
-      },
-      '/api/reverse-geocode': {
-        target: 'https://nominatim.openstreetmap.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/reverse-geocode/, '/reverse'),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('User-Agent', 'FletesDriverPWA/1.0 (local dev)');
-          });
-        },
       },
     },
   },

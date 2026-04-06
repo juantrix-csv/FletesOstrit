@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { LocationData } from '../lib/types';
 
-interface NominatimResult {
-  place_id: number;
+interface GeocodeResult {
+  place_id: number | string;
   display_name: string;
   lat: string;
   lon: string;
@@ -40,7 +40,7 @@ const buildSearchUrl = (query: string) => {
 
 export default function AddressAutocomplete({ label, placeholder, onSelect, selected }: AddressAutocompleteProps) {
   const [query, setQuery] = useState('');
-  const [options, setOptions] = useState<NominatimResult[]>([]);
+  const [options, setOptions] = useState<GeocodeResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -63,7 +63,7 @@ export default function AddressAutocomplete({ label, placeholder, onSelect, sele
         setLoading(true);
         const res = await fetch(buildSearchUrl(trimmed), { signal: controller.signal });
         if (!res.ok) throw new Error('Search failed');
-        const data = (await res.json()) as NominatimResult[];
+        const data = (await res.json()) as GeocodeResult[];
         setOptions(data);
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
@@ -92,7 +92,7 @@ export default function AddressAutocomplete({ label, placeholder, onSelect, sele
     onSelect(null);
   };
 
-  const handleSelect = (item: NominatimResult) => {
+  const handleSelect = (item: GeocodeResult) => {
     const location: LocationData = {
       address: item.display_name,
       lat: Number(item.lat),

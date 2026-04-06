@@ -1,5 +1,5 @@
 import { Home } from 'lucide-react';
-import { Marker } from 'react-map-gl/maplibre';
+import { Marker } from 'react-map-gl/mapbox';
 import type { LocationData } from '../lib/types';
 
 interface OperationsBaseMarkerProps {

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import MapGL, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
-import maplibregl from 'maplibre-gl';
+import MapGL, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
+import mapboxgl from 'mapbox-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
+import MapboxFallback from './MapboxFallback';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { Driver, DriverLocation, Job, JobStatus } from '../lib/types';
-import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
+import { MAP_STYLE, MAPBOX_ACCESS_TOKEN, applyMapPalette, hasMapboxAccessToken } from '../lib/mapStyle';
 import { calculateDistance, cn } from '../lib/utils';
 import { getDriverColors } from '../lib/driverColors';
 
@@ -40,10 +41,8 @@ const statusMeta: Record<JobStatus, { label: string; className: string }> = {
 };
 
 const buildRouteUrl = (points: RoutePoint[]) => {
-  const coords = points.map((point) => `${point.lng},${point.lat}`).join(';');
-  const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coords}`);
-  url.searchParams.set('overview', 'full');
-  url.searchParams.set('geometries', 'geojson');
+  const url = new URL('/api/route', window.location.origin);
+  url.searchParams.set('points', points.map((point) => `${point.lat},${point.lng}`).join('|'));
   return url.toString();
 };
 
@@ -159,7 +158,7 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
       lastViewportKeyRef.current = viewportKey;
       return;
     }
-    const bounds = new maplibregl.LngLatBounds(
+    const bounds = new mapboxgl.LngLatBounds(
       points[0],
       points[0]
     );
@@ -198,7 +197,7 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
           const res = await fetch(buildRouteUrl(route.points));
           if (!res.ok) throw new Error('route');
           const data = await res.json();
-          const geometry = data?.routes?.[0]?.geometry;
+          const geometry = data?.geometry;
           if (!geometry || !geometry.coordinates?.length) throw new Error('route');
           const feature: GeoJSON.Feature<GeoJSON.LineString> = {
             type: 'Feature',
@@ -229,11 +228,16 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
     };
   }, [routeSpecs]);
 
+  if (!hasMapboxAccessToken()) {
+    return <MapboxFallback className={cn('aspect-[2/1] min-h-[240px]', className)} />;
+  }
+
   return (
-    <div className={cn("aspect-[2/1] w-full min-h-[240px] overflow-hidden rounded-xl border bg-white", className)}>
+    <div className={cn('aspect-[2/1] w-full min-h-[240px] overflow-hidden rounded-xl border bg-white', className)}>
       <MapGL
         ref={mapRef}
         initialViewState={initialViewState}
+        mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
         mapStyle={MAP_STYLE}
         onLoad={() => {
           setMapReady(true);
@@ -310,7 +314,7 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
                   ) : null}
                 </div>
                 <span
-                  className={cn("mt-1 rounded border px-1.5 py-0.5 text-[10px] shadow", isActive ? "opacity-100" : "opacity-70")}
+                  className={cn('mt-1 rounded border px-1.5 py-0.5 text-[10px] shadow', isActive ? 'opacity-100' : 'opacity-70')}
                   style={{
                     backgroundColor: driverColors.background,
                     borderColor: driverColors.border,

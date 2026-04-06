@@ -8,11 +8,8 @@ type RouteEstimate = {
 const estimateCache = new Map<string, RouteEstimate>();
 
 const buildRouteEstimateUrl = (origin: LocationData, destination: LocationData) => {
-  const coords = `${origin.lng},${origin.lat};${destination.lng},${destination.lat}`;
-  const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coords}`);
-  url.searchParams.set('overview', 'false');
-  url.searchParams.set('alternatives', 'false');
-  url.searchParams.set('steps', 'false');
+  const url = new URL('/api/route', window.location.origin);
+  url.searchParams.set('points', `${origin.lat},${origin.lng}|${destination.lat},${destination.lng}`);
   return url.toString();
 };
 
@@ -29,13 +26,12 @@ export const getRouteEstimate = async (origin: LocationData, destination: Locati
     const res = await fetch(buildRouteEstimateUrl(origin, destination));
     if (!res.ok) throw new Error('route-estimate');
     const data = await res.json();
-    const route = data?.routes?.[0];
-    if (!route || !Number.isFinite(route.distance) || !Number.isFinite(route.duration)) {
+    if (!Number.isFinite(data?.distanceMeters) || !Number.isFinite(data?.durationSeconds)) {
       return null;
     }
     const estimate = {
-      distanceMeters: Number(route.distance),
-      durationSeconds: Number(route.duration),
+      distanceMeters: Number(data.distanceMeters),
+      durationSeconds: Number(data.durationSeconds),
     };
     estimateCache.set(key, estimate);
     return estimate;

@@ -7,7 +7,6 @@ describe('buildReverseUrl', () => {
     expect(url.pathname).toBe('/api/reverse-geocode');
     expect(url.searchParams.get('lat')).toBe('-34.9');
     expect(url.searchParams.get('lon')).toBe('-57.95');
-    expect(url.searchParams.get('format')).toBe('jsonv2');
   });
 });
 

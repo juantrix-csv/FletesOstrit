@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Marker, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre';
-import maplibregl from 'maplibre-gl';
+import Map, { Marker, type MapMouseEvent, type MapRef } from 'react-map-gl/mapbox';
+import mapboxgl from 'mapbox-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
+import MapboxFallback from './MapboxFallback';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { LocationData } from '../lib/types';
 import { reverseGeocodeLocation } from '../lib/geocode';
-import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
+import { MAP_STYLE, MAPBOX_ACCESS_TOKEN, applyMapPalette, hasMapboxAccessToken } from '../lib/mapStyle';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -70,7 +71,7 @@ export default function MapLocationPicker({
     }
 
     if (points.length >= 2) {
-      const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
+      const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
       points.slice(1).forEach((point) => bounds.extend(point));
       map.fitBounds(bounds, { padding: 70, duration: 450 });
       return;
@@ -96,7 +97,7 @@ export default function MapLocationPicker({
     mapRef.current.easeTo({ center: [focusLocation.lng, focusLocation.lat], zoom: 13.5, duration: 450 });
   }, [focusLocation?.lat, focusLocation?.lng, focusValid, mapReady]);
 
-  const handleClick = async (event: MapLayerMouseEvent) => {
+  const handleClick = async (event: MapMouseEvent) => {
     const { lng, lat } = event.lngLat;
     if (!isWithinBounds(lat, lng)) return;
     const requestId = ++requestIdRef.current;
@@ -106,11 +107,16 @@ export default function MapLocationPicker({
     onSelect(active, location);
   };
 
+  if (!hasMapboxAccessToken()) {
+    return <MapboxFallback className={cn('h-[240px]', className)} />;
+  }
+
   return (
-    <div className={cn("h-[240px] w-full overflow-hidden rounded border bg-white", className)}>
+    <div className={cn('h-[240px] w-full overflow-hidden rounded border bg-white', className)}>
       <Map
         ref={mapRef}
         initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 11.5 }}
+        mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
         mapStyle={MAP_STYLE}
         onClick={handleClick}
         onLoad={() => {
@@ -131,17 +137,17 @@ export default function MapLocationPicker({
       >
         {pickup && (
           <Marker latitude={pickup.lat} longitude={pickup.lng}>
-            <div className={cn("h-3 w-3 rounded-full bg-green-600 shadow", active === 'pickup' ? "ring-2 ring-green-200" : "ring-2 ring-white")} />
+            <div className={cn('h-3 w-3 rounded-full bg-green-600 shadow', active === 'pickup' ? 'ring-2 ring-green-200' : 'ring-2 ring-white')} />
           </Marker>
         )}
         {dropoff && (
           <Marker latitude={dropoff.lat} longitude={dropoff.lng}>
-            <div className={cn("h-3 w-3 rounded-full bg-red-600 shadow", active === 'dropoff' ? "ring-2 ring-red-200" : "ring-2 ring-white")} />
+            <div className={cn('h-3 w-3 rounded-full bg-red-600 shadow', active === 'dropoff' ? 'ring-2 ring-red-200' : 'ring-2 ring-white')} />
           </Marker>
         )}
         {extraStops.map((stop, index) => (
           <Marker key={`${stop.lat}-${stop.lng}-${index}`} latitude={stop.lat} longitude={stop.lng}>
-            <div className={cn("h-2.5 w-2.5 rounded-full bg-amber-500 shadow", active === 'extra' && index === extraStops.length - 1 ? "ring-2 ring-amber-200" : "ring-2 ring-white")} />
+            <div className={cn('h-2.5 w-2.5 rounded-full bg-amber-500 shadow', active === 'extra' && index === extraStops.length - 1 ? 'ring-2 ring-amber-200' : 'ring-2 ring-white')} />
           </Marker>
         ))}
         {focusValid && focusLocation && (
