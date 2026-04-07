@@ -2,12 +2,12 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
 import mapboxgl from 'mapbox-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
-import MapboxFallback from './MapboxFallback';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import { calculateDistance, cn } from '../lib/utils';
 import type { Job, LocationData } from '../lib/types';
-import { MAP_STYLE, MAPBOX_ACCESS_TOKEN, applyMapPalette, hasMapboxAccessToken } from '../lib/mapStyle';
+import { applyMapPalette } from '../lib/mapStyle';
+import { useMapProviderFallback } from '../lib/mapProvider';
 
 const EMPTY_STOPS: LocationData[] = [];
 
@@ -69,6 +69,7 @@ const getFitPadding = (map: mapboxgl.Map) => {
 const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mode }, ref) => {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
   const { coords } = useGeoLocation();
+  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const lastRouteRef = useRef<{ lat: number; lng: number; targetKey: string; at: number } | null>(null);
   const smoothRef = useRef<{
@@ -456,22 +457,19 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     );
   }
 
-  if (!hasMapboxAccessToken()) {
-    return <MapboxFallback className={cn('min-h-[400px] h-[400px]', className)} />;
-  }
-
   return (
     <div className={cn('w-full min-h-[400px] h-[400px] rounded-xl overflow-hidden', className)}>
       <Map
         ref={mapRef}
         initialViewState={{ latitude: center[0], longitude: center[1], zoom: 13 }}
-        mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
-        mapStyle={MAP_STYLE}
+        mapboxAccessToken={mapboxAccessToken}
+        mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);
           const map = mapRef.current?.getMap();
           if (map) applyMapPalette(map);
         }}
+        onError={handleMapError}
         reuseMaps
         attributionControl={false}
         interactive={isDriving}

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import MapGL, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
 import mapboxgl from 'mapbox-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
-import MapboxFallback from './MapboxFallback';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { Driver, DriverLocation, Job, JobStatus } from '../lib/types';
-import { MAP_STYLE, MAPBOX_ACCESS_TOKEN, applyMapPalette, hasMapboxAccessToken } from '../lib/mapStyle';
+import { applyMapPalette } from '../lib/mapStyle';
+import { useMapProviderFallback } from '../lib/mapProvider';
 import { calculateDistance, cn } from '../lib/utils';
 import { getDriverColors } from '../lib/driverColors';
 
@@ -62,6 +62,7 @@ const isDisconnectedLocation = (location: DriverLocation) => {
 
 export default function DriversOverviewMap({ locations, drivers, jobs, className }: DriversOverviewMapProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
+  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const hasFitRef = useRef(false);
@@ -228,22 +229,19 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
     };
   }, [routeSpecs]);
 
-  if (!hasMapboxAccessToken()) {
-    return <MapboxFallback className={cn('aspect-[2/1] min-h-[240px]', className)} />;
-  }
-
   return (
     <div className={cn('aspect-[2/1] w-full min-h-[240px] overflow-hidden rounded-xl border bg-white', className)}>
       <MapGL
         ref={mapRef}
         initialViewState={initialViewState}
-        mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
-        mapStyle={MAP_STYLE}
+        mapboxAccessToken={mapboxAccessToken}
+        mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);
           const map = mapRef.current?.getMap();
           if (map) applyMapPalette(map);
         }}
+        onError={handleMapError}
         maxBounds={MAX_BOUNDS}
         reuseMaps
         attributionControl={false}

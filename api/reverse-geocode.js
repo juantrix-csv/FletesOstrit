@@ -3,6 +3,19 @@ import {
   hasMapboxAccessToken,
   normalizeMapboxReverseGeocodeResult,
 } from './_mapbox.js';
+import {
+  buildOpenMapsReverseGeocodeUrl,
+  getOpenMapsRequestOptions,
+  normalizeOpenMapsReverseGeocodeResult,
+} from './_openmaps.js';
+
+const readJsonSafe = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -23,30 +36,37 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (!hasMapboxAccessToken()) {
-    res.status(500).json({ error: 'Missing Mapbox access token' });
-    return;
-  }
-
   try {
-    const response = await fetch(buildMapboxReverseGeocodeUrl(lat, lon));
-    if (!response.ok) {
+    if (hasMapboxAccessToken()) {
+      try {
+        const response = await fetch(buildMapboxReverseGeocodeUrl(lat, lon));
+        const data = await readJsonSafe(response);
+
+        if (response.ok && !data?.message) {
+          if (!Array.isArray(data?.features) || data.features.length === 0) {
+            res.status(200).json({ display_name: null });
+            return;
+          }
+
+          res.status(200).json(normalizeMapboxReverseGeocodeResult(data));
+          return;
+        }
+      } catch {
+        // Fall back to OpenStreetMap providers on upstream Mapbox failures.
+      }
+    }
+
+    const fallbackResponse = await fetch(
+      buildOpenMapsReverseGeocodeUrl(lat, lon),
+      getOpenMapsRequestOptions()
+    );
+    if (!fallbackResponse.ok) {
       res.status(502).json({ error: 'Reverse geocode failed' });
       return;
     }
 
-    const data = await response.json();
-    if (!Array.isArray(data?.features) || data.features.length === 0) {
-      res.status(200).json({ display_name: null });
-      return;
-    }
-
-    if (data?.message) {
-      res.status(502).json({ error: 'Reverse geocode failed', detail: data.message });
-      return;
-    }
-
-    res.status(200).json(normalizeMapboxReverseGeocodeResult(data));
+    const fallbackData = await readJsonSafe(fallbackResponse);
+    res.status(200).json(normalizeOpenMapsReverseGeocodeResult(fallbackData));
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

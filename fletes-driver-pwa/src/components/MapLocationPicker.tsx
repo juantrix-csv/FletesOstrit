@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Marker, type MapMouseEvent, type MapRef } from 'react-map-gl/mapbox';
 import mapboxgl from 'mapbox-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
-import MapboxFallback from './MapboxFallback';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { LocationData } from '../lib/types';
 import { reverseGeocodeLocation } from '../lib/geocode';
-import { MAP_STYLE, MAPBOX_ACCESS_TOKEN, applyMapPalette, hasMapboxAccessToken } from '../lib/mapStyle';
+import { applyMapPalette } from '../lib/mapStyle';
+import { useMapProviderFallback } from '../lib/mapProvider';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -41,6 +41,7 @@ export default function MapLocationPicker({
   className,
 }: MapLocationPickerProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
+  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
   const activeLocation = active === 'pickup'
     ? pickup
     : active === 'dropoff'
@@ -107,23 +108,20 @@ export default function MapLocationPicker({
     onSelect(active, location);
   };
 
-  if (!hasMapboxAccessToken()) {
-    return <MapboxFallback className={cn('h-[240px]', className)} />;
-  }
-
   return (
     <div className={cn('h-[240px] w-full overflow-hidden rounded border bg-white', className)}>
       <Map
         ref={mapRef}
         initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 11.5 }}
-        mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
-        mapStyle={MAP_STYLE}
+        mapboxAccessToken={mapboxAccessToken}
+        mapStyle={mapStyle}
         onClick={handleClick}
         onLoad={() => {
           setMapReady(true);
           const map = mapRef.current?.getMap();
           if (map) applyMapPalette(map);
         }}
+        onError={handleMapError}
         maxBounds={[
           [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
           [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],

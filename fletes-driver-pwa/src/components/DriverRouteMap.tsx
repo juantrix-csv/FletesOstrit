@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
 import mapboxgl from 'mapbox-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
-import MapboxFallback from './MapboxFallback';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { DriverLocation, Job, LocationData } from '../lib/types';
-import { MAP_STYLE, MAPBOX_ACCESS_TOKEN, applyMapPalette, hasMapboxAccessToken } from '../lib/mapStyle';
+import { applyMapPalette } from '../lib/mapStyle';
+import { useMapProviderFallback } from '../lib/mapProvider';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -31,6 +31,7 @@ interface DriverRouteMapProps {
 
 export default function DriverRouteMap({ location, job, className }: DriverRouteMapProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
+  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -175,10 +176,6 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
     map.fitBounds(bounds, { padding: 80, duration: 500 });
   }, [location, mapReady, operationsBaseLocation, pendingStops, target]);
 
-  if (!hasMapboxAccessToken()) {
-    return <MapboxFallback className={cn('h-[360px]', className)} />;
-  }
-
   return (
     <div className={cn('relative h-[360px] w-full overflow-hidden rounded-xl border bg-white', className)}>
       {etaLabel && (
@@ -190,13 +187,14 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
       <Map
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
-        mapboxAccessToken={MAPBOX_ACCESS_TOKEN}
-        mapStyle={MAP_STYLE}
+        mapboxAccessToken={mapboxAccessToken}
+        mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);
           const map = mapRef.current?.getMap();
           if (map) applyMapPalette(map);
         }}
+        onError={handleMapError}
         maxBounds={[
           [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
           [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],

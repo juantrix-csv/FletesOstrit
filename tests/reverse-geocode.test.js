@@ -68,3 +68,35 @@ test('reverse-geocode returns data on success', async () => {
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { display_name: 'Test' });
 });
+
+test('reverse-geocode uses OpenStreetMap fallback when Mapbox token is missing', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.MAPBOX_ACCESS_TOKEN;
+  delete process.env.MAPBOX_ACCESS_TOKEN;
+
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        display_name: 'Fallback Street 123',
+      }),
+    };
+  };
+
+  const req = { method: 'GET', query: { lat: '-34.9', lon: '-57.95' } };
+  const res = createRes();
+  await handler(req, res);
+
+  globalThis.fetch = originalFetch;
+  if (originalApiKey == null) {
+    delete process.env.MAPBOX_ACCESS_TOKEN;
+  } else {
+    process.env.MAPBOX_ACCESS_TOKEN = originalApiKey;
+  }
+
+  assert.equal(fetchCount, 1);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { display_name: 'Fallback Street 123' });
+});

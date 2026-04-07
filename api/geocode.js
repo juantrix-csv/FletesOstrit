@@ -3,6 +3,19 @@ import {
   hasMapboxAccessToken,
   normalizeMapboxGeocodeResults,
 } from './_mapbox.js';
+import {
+  buildOpenMapsGeocodeUrl,
+  getOpenMapsRequestOptions,
+  normalizeOpenMapsGeocodeResults,
+} from './_openmaps.js';
+
+const readJsonSafe = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -16,30 +29,38 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (!hasMapboxAccessToken()) {
-    res.status(500).json({ error: 'Missing Mapbox access token' });
-    return;
-  }
-
   try {
-    const response = await fetch(buildMapboxGeocodeUrl(q, req.query || {}));
-    if (!response.ok) {
+    if (hasMapboxAccessToken()) {
+      try {
+        const response = await fetch(buildMapboxGeocodeUrl(q, req.query || {}));
+        const data = await readJsonSafe(response);
+
+        if (response.ok && !data?.message) {
+          if (!Array.isArray(data?.features) || data.features.length === 0) {
+            res.status(200).json([]);
+            return;
+          }
+
+          res.status(200).json(normalizeMapboxGeocodeResults(data));
+          return;
+        }
+      } catch {
+        // Fall back to OpenStreetMap providers on upstream Mapbox failures.
+      }
+    }
+
+    const fallbackResponse = await fetch(
+      buildOpenMapsGeocodeUrl(q, req.query || {}),
+      getOpenMapsRequestOptions()
+    );
+    if (!fallbackResponse.ok) {
       res.status(502).json({ error: 'Geocode failed' });
       return;
     }
 
-    const data = await response.json();
-    if (!Array.isArray(data?.features) || data.features.length === 0) {
-      res.status(200).json([]);
-      return;
-    }
-
-    if (data?.message) {
-      res.status(502).json({ error: 'Geocode failed', detail: data.message });
-      return;
-    }
-
-    res.status(200).json(normalizeMapboxGeocodeResults(data));
+    const fallbackData = await readJsonSafe(fallbackResponse);
+    const normalized = normalizeOpenMapsGeocodeResults(fallbackData);
+    res.status(200).json(normalized);
   } catch {
     res.status(500).json({ error: 'Server error' });
   }
