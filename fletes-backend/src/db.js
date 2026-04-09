@@ -20,6 +20,11 @@ db.exec(`
     pickup TEXT NOT NULL,
     dropoff TEXT NOT NULL,
     extraStops TEXT,
+    stopIndex INTEGER,
+    distanceMeters REAL,
+    lastTrackLat REAL,
+    lastTrackLng REAL,
+    lastTrackAt INTEGER,
     notes TEXT,
     driverId TEXT,
     helpersCount INTEGER,
@@ -51,6 +56,21 @@ const ensureJobsColumns = () => {
   if (!columns.includes('extraStops')) {
     db.exec('ALTER TABLE jobs ADD COLUMN extraStops TEXT;');
   }
+  if (!columns.includes('stopIndex')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN stopIndex INTEGER;');
+  }
+  if (!columns.includes('distanceMeters')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN distanceMeters REAL;');
+  }
+  if (!columns.includes('lastTrackLat')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN lastTrackLat REAL;');
+  }
+  if (!columns.includes('lastTrackLng')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN lastTrackLng REAL;');
+  }
+  if (!columns.includes('lastTrackAt')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN lastTrackAt INTEGER;');
+  }
   if (!columns.includes('description')) {
     db.exec('ALTER TABLE jobs ADD COLUMN description TEXT;');
   }
@@ -65,6 +85,13 @@ const ensureJobsColumns = () => {
   }
 };
 
+const ensureDriversColumns = () => {
+  const columns = db.prepare('PRAGMA table_info(drivers)').all().map((col) => col.name);
+  if (!columns.includes('vehicleId')) {
+    db.exec('ALTER TABLE drivers ADD COLUMN vehicleId TEXT;');
+  }
+};
+
 ensureJobsColumns();
 
 db.exec(`
@@ -73,7 +100,20 @@ db.exec(`
     name TEXT NOT NULL,
     code TEXT NOT NULL UNIQUE,
     phone TEXT,
+    vehicleId TEXT,
     active INTEGER NOT NULL DEFAULT 1,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS vehicles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    size TEXT NOT NULL,
+    costPerKm REAL NOT NULL,
+    fixedMonthlyCost REAL NOT NULL,
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   );
@@ -92,11 +132,29 @@ db.exec(`
   );
 `);
 
+ensureDriversColumns();
+
 const defaultFlags = {
   nearPickupSent: false,
   arrivedPickupSent: false,
   nearDropoffSent: false,
   arrivedDropoffSent: false,
+};
+
+const ACTIVE_JOB_STATUSES = new Set(['TO_PICKUP', 'LOADING', 'TO_DROPOFF', 'UNLOADING']);
+const MAX_TRACK_ACCURACY_METERS = 60;
+const MIN_TRACK_DISTANCE_METERS = 6;
+const MAX_TRACK_SPEED_MPS = 45;
+const MAX_TRACK_INTERVAL_MS = 5 * 60 * 1000;
+
+const toRadians = (value) => (value * Math.PI) / 180;
+const calculateDistanceMeters = (lat1, lng1, lat2, lng2) => {
+  const R = 6371e3;
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
 const parseJson = (value, fallback) => {
@@ -157,6 +215,11 @@ const toRow = (job) => ({
   pickup: JSON.stringify(job.pickup),
   dropoff: JSON.stringify(job.dropoff),
   extraStops: JSON.stringify(normalizeExtraStops(job.extraStops)),
+  stopIndex: Number.isInteger(job.stopIndex) && job.stopIndex >= 0 ? job.stopIndex : 0,
+  distanceMeters: Number.isFinite(job.distanceMeters) ? job.distanceMeters : 0,
+  lastTrackLat: Number.isFinite(job.lastTrackLat) ? job.lastTrackLat : null,
+  lastTrackLng: Number.isFinite(job.lastTrackLng) ? job.lastTrackLng : null,
+  lastTrackAt: Number.isFinite(job.lastTrackAt) ? job.lastTrackAt : null,
   notes: job.notes ?? null,
   driverId: job.driverId ?? null,
   helpersCount: Number.isFinite(job.helpersCount) ? job.helpersCount : null,
@@ -180,6 +243,12 @@ const fromRow = (row) => ({
   pickup: parseJson(row.pickup, null),
   dropoff: parseJson(row.dropoff, null),
   extraStops: parseJson(row.extraStops, []),
+  stopIndex: Number.isInteger(row.stopIndex) ? row.stopIndex : undefined,
+  distanceMeters: Number.isFinite(row.distanceMeters) ? row.distanceMeters : undefined,
+  distanceKm: Number.isFinite(row.distanceMeters) ? row.distanceMeters / 1000 : undefined,
+  lastTrackLat: Number.isFinite(row.lastTrackLat) ? row.lastTrackLat : undefined,
+  lastTrackLng: Number.isFinite(row.lastTrackLng) ? row.lastTrackLng : undefined,
+  lastTrackAt: Number.isFinite(row.lastTrackAt) ? row.lastTrackAt : undefined,
   notes: row.notes ?? undefined,
   driverId: row.driverId ?? undefined,
   helpersCount: Number.isFinite(row.helpersCount) ? row.helpersCount : undefined,
@@ -197,11 +266,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, description, pickup, dropoff, extraStops, notes, driverId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @notes, @driverId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -215,6 +284,11 @@ const updateStmt = db.prepare(`
     pickup = @pickup,
     dropoff = @dropoff,
     extraStops = @extraStops,
+    stopIndex = @stopIndex,
+    distanceMeters = @distanceMeters,
+    lastTrackLat = @lastTrackLat,
+    lastTrackLng = @lastTrackLng,
+    lastTrackAt = @lastTrackAt,
     notes = @notes,
     driverId = @driverId,
     helpersCount = @helpersCount,
@@ -321,6 +395,7 @@ const toDriverRow = (driver) => ({
   name: driver.name,
   code: driver.code,
   phone: driver.phone ?? null,
+  vehicleId: driver.vehicleId ?? null,
   active: driver.active ? 1 : 0,
   createdAt: driver.createdAt,
   updatedAt: driver.updatedAt,
@@ -331,6 +406,7 @@ const fromDriverRow = (row) => ({
   name: row.name,
   code: row.code,
   phone: row.phone ?? undefined,
+  vehicleId: row.vehicleId ?? undefined,
   active: row.active === 1,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -338,9 +414,9 @@ const fromDriverRow = (row) => ({
 
 const insertDriverStmt = db.prepare(`
   INSERT INTO drivers (
-    id, name, code, phone, active, createdAt, updatedAt
+    id, name, code, phone, vehicleId, active, createdAt, updatedAt
   ) VALUES (
-    @id, @name, @code, @phone, @active, @createdAt, @updatedAt
+    @id, @name, @code, @phone, @vehicleId, @active, @createdAt, @updatedAt
   );
 `);
 
@@ -349,6 +425,7 @@ const updateDriverStmt = db.prepare(`
     name = @name,
     code = @code,
     phone = @phone,
+    vehicleId = @vehicleId,
     active = @active,
     createdAt = @createdAt,
     updatedAt = @updatedAt
@@ -402,6 +479,85 @@ export const deleteDriver = (id) => {
   return info.changes > 0;
 };
 
+const toVehicleRow = (vehicle) => ({
+  id: vehicle.id,
+  name: vehicle.name,
+  size: vehicle.size,
+  costPerKm: Number.isFinite(vehicle.costPerKm) ? vehicle.costPerKm : 0,
+  fixedMonthlyCost: Number.isFinite(vehicle.fixedMonthlyCost) ? vehicle.fixedMonthlyCost : 0,
+  createdAt: vehicle.createdAt,
+  updatedAt: vehicle.updatedAt,
+});
+
+const fromVehicleRow = (row) => ({
+  id: row.id,
+  name: row.name,
+  size: row.size,
+  costPerKm: Number.isFinite(row.costPerKm) ? row.costPerKm : 0,
+  fixedMonthlyCost: Number.isFinite(row.fixedMonthlyCost) ? row.fixedMonthlyCost : 0,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const insertVehicleStmt = db.prepare(`
+  INSERT INTO vehicles (
+    id, name, size, costPerKm, fixedMonthlyCost, createdAt, updatedAt
+  ) VALUES (
+    @id, @name, @size, @costPerKm, @fixedMonthlyCost, @createdAt, @updatedAt
+  );
+`);
+
+const updateVehicleStmt = db.prepare(`
+  UPDATE vehicles SET
+    name = @name,
+    size = @size,
+    costPerKm = @costPerKm,
+    fixedMonthlyCost = @fixedMonthlyCost,
+    createdAt = @createdAt,
+    updatedAt = @updatedAt
+  WHERE id = @id;
+`);
+
+export const listVehicles = () => {
+  const rows = db.prepare('SELECT * FROM vehicles ORDER BY createdAt DESC').all();
+  return rows.map(fromVehicleRow);
+};
+
+export const getVehicleById = (id) => {
+  const row = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(id);
+  return row ? fromVehicleRow(row) : null;
+};
+
+export const createVehicle = (vehicle) => {
+  const createdAt = vehicle.createdAt ?? new Date().toISOString();
+  const updatedAt = vehicle.updatedAt ?? createdAt;
+  const row = toVehicleRow({
+    ...vehicle,
+    createdAt,
+    updatedAt,
+  });
+  insertVehicleStmt.run(row);
+  return getVehicleById(vehicle.id);
+};
+
+export const updateVehicle = (id, patch) => {
+  const current = getVehicleById(id);
+  if (!current) return null;
+  const next = {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+  updateVehicleStmt.run(toVehicleRow(next));
+  return getVehicleById(id);
+};
+
+export const deleteVehicle = (id) => {
+  db.prepare('UPDATE drivers SET vehicleId = NULL WHERE vehicleId = ?').run(id);
+  const info = db.prepare('DELETE FROM vehicles WHERE id = ?').run(id);
+  return info.changes > 0;
+};
+
 const toLocationRow = (location) => ({
   driverId: location.driverId,
   lat: location.lat,
@@ -424,6 +580,22 @@ const fromLocationRow = (row) => ({
   updatedAt: row.updatedAt,
 });
 
+const getJobTrackStmt = db.prepare(`
+  SELECT status, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt
+  FROM jobs
+  WHERE id = ?
+`);
+const updateJobTrackPointStmt = db.prepare(`
+  UPDATE jobs
+  SET lastTrackLat = ?, lastTrackLng = ?, lastTrackAt = ?
+  WHERE id = ?
+`);
+const updateJobTrackDistanceStmt = db.prepare(`
+  UPDATE jobs
+  SET distanceMeters = ?, lastTrackLat = ?, lastTrackLng = ?, lastTrackAt = ?
+  WHERE id = ?
+`);
+
 const upsertLocationStmt = db.prepare(`
   INSERT INTO driver_locations (
     driverId, lat, lng, accuracy, heading, speed, jobId, updatedAt
@@ -440,9 +612,52 @@ const upsertLocationStmt = db.prepare(`
     updatedAt = excluded.updatedAt;
 `);
 
+const recordJobLocation = ({ jobId, lat, lng, accuracy, recordedAt }) => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const job = getJobTrackStmt.get(jobId);
+  if (!job || !ACTIVE_JOB_STATUSES.has(job.status)) return null;
+
+  const nowMs = Number.isFinite(recordedAt) ? Number(recordedAt) : Date.now();
+  const lastAt = Number.isFinite(job.lastTrackAt) ? Number(job.lastTrackAt) : null;
+  const lastLat = Number.isFinite(job.lastTrackLat) ? Number(job.lastTrackLat) : null;
+  const lastLng = Number.isFinite(job.lastTrackLng) ? Number(job.lastTrackLng) : null;
+  const distanceMeters = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) : 0;
+  const accuracyValue = Number.isFinite(accuracy) ? accuracy : null;
+  const accuracyOk = accuracyValue == null || accuracyValue <= MAX_TRACK_ACCURACY_METERS;
+
+  if (lastAt == null || lastLat == null || lastLng == null || nowMs - lastAt > MAX_TRACK_INTERVAL_MS) {
+    updateJobTrackPointStmt.run(lat, lng, nowMs, jobId);
+    return { distanceMeters };
+  }
+
+  const elapsedMs = nowMs - lastAt;
+  if (elapsedMs <= 0 || !accuracyOk) return { distanceMeters };
+
+  const distance = calculateDistanceMeters(lastLat, lastLng, lat, lng);
+  if (distance < MIN_TRACK_DISTANCE_METERS) {
+    updateJobTrackPointStmt.run(lat, lng, nowMs, jobId);
+    return { distanceMeters };
+  }
+
+  const speed = distance / (elapsedMs / 1000);
+  if (speed > MAX_TRACK_SPEED_MPS) return { distanceMeters };
+
+  const nextDistance = distanceMeters + distance;
+  updateJobTrackDistanceStmt.run(nextDistance, lat, lng, nowMs, jobId);
+  return { distanceMeters: nextDistance };
+};
+
 export const upsertDriverLocation = (location) => {
   const updatedAt = location.updatedAt ?? new Date().toISOString();
   upsertLocationStmt.run(toLocationRow({ ...location, updatedAt }));
+  if (location.jobId) {
+    recordJobLocation({
+      jobId: location.jobId,
+      lat: location.lat,
+      lng: location.lng,
+      accuracy: location.accuracy,
+    });
+  }
   return getDriverLocation(location.driverId);
 };
 

@@ -1,10 +1,12 @@
-import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { BarChart3, CalendarDays, Package, Settings, Truck, Users } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { BarChart3, CalendarDays, Menu, Package, Phone, Settings, Truck, Users } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { clearAdminSession, getAdminSession } from '../lib/adminSession';
 
 const navItems = [
   { key: 'jobs', label: 'Fletes', to: '/admin?tab=jobs', Icon: Package },
+  { key: 'leads', label: 'Perdidas', to: '/admin?tab=leads', Icon: Phone },
   { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers', Icon: Users },
   { key: 'calendar', label: 'Calendario', to: '/admin?tab=calendar', Icon: CalendarDays },
   { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics', Icon: BarChart3 },
@@ -16,19 +18,69 @@ const bottomItems = [
 
 const resolveActiveTab = (loc: string, search: string) => {
   const param = new URLSearchParams(search).get('tab');
-  if (param === 'jobs' || param === 'drivers' || param === 'calendar' || param === 'analytics' || param === 'settings') return param;
+  if (param === 'jobs' || param === 'leads' || param === 'drivers' || param === 'calendar' || param === 'analytics' || param === 'settings') return param;
   const pathTab = loc.split('/')[2];
-  if (pathTab === 'jobs' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics' || pathTab === 'settings') return pathTab;
+  if (pathTab === 'jobs' || pathTab === 'leads' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics' || pathTab === 'settings') return pathTab;
   return 'jobs';
 };
 
 export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
-  const activeTab = resolveActiveTab(loc.pathname, loc.search);
+  const navigate = useNavigate();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const session = getAdminSession();
+  const isOwner = session?.role === 'owner';
+  const roleLabel = session?.role === 'owner' ? 'Dueno' : session?.role === 'assistant' ? 'Asistente' : 'Sin sesion';
+  const visibleNavItems = isOwner ? navItems : navItems.filter((item) => item.key !== 'analytics');
+  const visibleBottomItems = isOwner ? bottomItems : [];
+  const allowedTabs = new Set(isOwner
+    ? ['jobs', 'leads', 'drivers', 'calendar', 'analytics', 'settings']
+    : ['jobs', 'leads', 'drivers', 'calendar']
+  );
+  const resolvedTab = resolveActiveTab(loc.pathname, loc.search);
+  const activeTab = allowedTabs.has(resolvedTab) ? resolvedTab : 'jobs';
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [loc.pathname, loc.search]);
+
+  const handleLogout = () => {
+    clearAdminSession();
+    navigate('/admin/login', { replace: true });
+  };
 
   return (
     <div className="flex h-[100dvh] min-h-screen bg-slate-100">
-      <aside className="fixed left-0 top-0 flex h-full w-72 flex-col border-r border-slate-900/40 bg-slate-950 text-slate-100">
+      <div className="fixed left-0 right-0 top-0 z-40 flex h-14 items-center justify-between border-b border-slate-900/40 bg-slate-950 px-4 text-slate-100 md:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-800 text-slate-200"
+        >
+          <Menu size={18} />
+        </button>
+        <div className="text-center">
+          <p className="text-sm font-semibold">Fletes Ostrit</p>
+          <p className="text-[10px] text-slate-400">Panel Admin</p>
+        </div>
+        <div className="w-9" />
+      </div>
+
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Cerrar menu"
+          onClick={() => setMobileOpen(false)}
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+        />
+      )}
+
+      <aside
+        className={cn(
+          "fixed left-0 top-0 z-50 flex h-full w-72 flex-col border-r border-slate-900/40 bg-slate-950 text-slate-100 transition-transform duration-200 md:translate-x-0",
+          mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+      >
         <div className="flex items-center gap-3 px-5 py-6">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow">
             <Truck size={20} />
@@ -39,7 +91,7 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </div>
         <nav className="mt-3 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = activeTab === item.key;
             const Icon = item.Icon;
             return (
@@ -66,7 +118,7 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
           })}
         </nav>
         <nav className="space-y-1 border-t border-slate-900/60 px-3 py-4">
-          {bottomItems.map((item) => {
+          {visibleBottomItems.map((item) => {
             const isActive = activeTab === item.key;
             const Icon = item.Icon;
             return (
@@ -92,10 +144,23 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
             );
           })}
         </nav>
+        <div className="border-t border-slate-900/60 px-3 py-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-2">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">Sesion</p>
+            <p className="text-sm font-semibold text-slate-100">{roleLabel}</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-3 w-full rounded-xl border border-slate-800 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900"
+          >
+            Cerrar sesion
+          </button>
+        </div>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col pl-72">
-        <main className="flex-1 min-h-0 overflow-y-auto px-8 py-8">
+      <div className="flex min-h-screen flex-1 flex-col pt-14 md:pt-0 md:pl-72">
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 py-4 md:px-8 md:py-8">
           <div className="mx-auto w-full max-w-[1500px]">
             {children}
           </div>

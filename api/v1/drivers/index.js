@@ -1,4 +1,4 @@
-import { createDriver, getDriverByCode, listDrivers } from '../../_db.js';
+import { createDriver, getDriverByCode, getVehicleById, listDrivers } from '../../_db.js';
 
 const parseBody = (req) => {
   if (!req.body) return {};
@@ -45,6 +45,19 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Missing code' });
       return;
     }
+    let vehicleId = null;
+    if (body.vehicleId != null) {
+      if (!isNonEmptyString(body.vehicleId)) {
+        res.status(400).json({ error: 'Invalid vehicle' });
+        return;
+      }
+      const vehicle = await getVehicleById(body.vehicleId);
+      if (!vehicle) {
+        res.status(400).json({ error: 'Invalid vehicle' });
+        return;
+      }
+      vehicleId = vehicle.id;
+    }
     const normalizedCode = body.code.trim().toUpperCase();
     const exists = await getDriverByCode(normalizedCode);
     if (exists) {
@@ -56,6 +69,7 @@ export default async function handler(req, res) {
       name: body.name,
       code: normalizedCode,
       phone: body.phone,
+      vehicleId,
       active: body.active ?? true,
       createdAt: body.createdAt,
       updatedAt: body.updatedAt,

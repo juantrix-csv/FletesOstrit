@@ -3,11 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "node server/index.js",
+    "dev:server": "node --watch server/index.js",
     "build": "npm --prefix fletes-driver-pwa run build",
     "test:api": "node --test tests/*.test.js"
   },
   "dependencies": {
-    "@vercel/postgres": "^0.10.0"
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
   },
   "engines": {
     "node": "20.x"

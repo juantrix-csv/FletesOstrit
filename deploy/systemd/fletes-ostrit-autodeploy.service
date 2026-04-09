@@ -1,0 +1,8 @@
+[Unit]
+Description=Fletes Ostrit auto deploy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/fletes-ostrit/scripts/deploy-vps.sh

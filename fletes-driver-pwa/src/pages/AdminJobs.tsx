@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
 import { Flag, MapPin, MoreVertical } from 'lucide-react';
@@ -8,31 +8,50 @@ import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
-import type { Driver, DriverLocation, Job, JobStatus, LocationData } from '../lib/types';
+import AdminLeads from '../components/AdminLeads';
+import type { Driver, DriverLocation, Job, JobPaymentMethod, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
 import {
   createDriver,
   createJob,
+  createVehicle,
   deleteDriver,
   deleteJob,
+  deleteVehicle,
   downloadJobsHistory,
+  driverLocationsListQueryKey,
+  driversListQueryKey,
   getFixedMonthlyCost,
   getHelperHourlyRate,
   getHourlyRate,
+  getDriverVehicleDriverShare,
+  jobsListQueryKey,
+  getOwnerVehicleDriverShare,
+  getOperationsBaseLocation,
   getTripCostPerHour,
   getTripCostPerKm,
   listDriverLocations,
   listDrivers,
   listJobs,
+  listVehicles,
   setFixedMonthlyCost,
+  setDriverVehicleDriverShare,
   setHelperHourlyRate,
   setHourlyRate,
+  setOwnerVehicleDriverShare,
+  setOperationsBaseLocation as saveOperationsBaseLocation,
   setTripCostPerHour,
   setTripCostPerKm,
   updateDriver,
   updateJob,
+  vehiclesListQueryKey,
 } from '../lib/api';
 import { calculateDistance, cn, formatDuration, getScheduledAtMs } from '../lib/utils';
+import { getDriverColors } from '../lib/driverColors';
 import { reorderList } from '../lib/reorder';
+import { getAdminSession } from '../lib/adminSession';
+import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '../lib/queryCache';
+import { getRouteEstimate } from '../lib/routeEstimate';
+import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from '../lib/billing';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -41,6 +60,7 @@ const currencyFormatter = new Intl.NumberFormat('es-AR', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,
 });
+const formatCurrencyTick = (value: number) => currencyFormatter.format(Math.round(value)).replace(/\u00A0/g, ' ');
 const percentFormatter = new Intl.NumberFormat('es-AR', { style: 'percent', minimumFractionDigits: 0, maximumFractionDigits: 1 });
 const decimalFormatter = new Intl.NumberFormat('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 1 });
 const monthFormatter = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' });
@@ -52,6 +72,18 @@ const calendarStartHour = 6;
 const calendarEndHour = 22;
 const calendarHourHeight = 56;
 const calendarHours = Array.from({ length: calendarEndHour - calendarStartHour }, (_, index) => calendarStartHour + index);
+const vehicleSizeLabels: Record<'chico' | 'mediano' | 'grande', string> = {
+  chico: 'Chico',
+  mediano: 'Mediano',
+  grande: 'Grande',
+};
+const vehicleOwnershipLabels: Record<VehicleOwnershipType, string> = {
+  owner: 'Del dueno',
+  driver: 'Del chofer',
+};
+const OWNER_ACCOUNT_DRIVER_CODE = '6666';
+const EXTERNAL_DRIVER_COMPANY_HOURLY_MARGIN = 10000;
+const SCHEDULING_ASSISTANT_COST_PER_JOB = 4000;
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 const addDays = (date: Date, offset: number) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset);
@@ -102,12 +134,12 @@ const formatJobRangeForDay = (start: Date, end: Date, day: Date) => {
   return `${timeFormatter.format(overlap.rangeStart)}-${timeFormatter.format(overlap.rangeEnd)}`;
 };
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const getMinutesIntoDay = (date: Date) => date.getHours() * 60 + date.getMinutes();
 const getEventBlockStyle = (start: Date, end: Date, day: Date) => {
   const overlap = getDayOverlapRange(start, end, day);
   if (!overlap) return null;
-  const startMinutes = getMinutesIntoDay(overlap.rangeStart);
-  const endMinutes = getMinutesIntoDay(overlap.rangeEnd);
+  const dayStart = startOfDay(day);
+  const startMinutes = (overlap.rangeStart.getTime() - dayStart.getTime()) / 60000;
+  const endMinutes = (overlap.rangeEnd.getTime() - dayStart.getTime()) / 60000;
   const minMinutes = calendarStartHour * 60;
   const maxMinutes = calendarEndHour * 60;
   const clampedStart = clampNumber(startMinutes, minMinutes, maxMinutes);
@@ -116,6 +148,73 @@ const getEventBlockStyle = (start: Date, end: Date, day: Date) => {
   const top = ((clampedStart - minMinutes) / 60) * calendarHourHeight;
   const height = Math.max(24, ((clampedEnd - clampedStart) / 60) * calendarHourHeight);
   return { top, height };
+};
+const calendarEventGutter = 4;
+const buildDayLayout = (items: CalendarJob[], day: Date) => {
+  const layout = new Map<string, { column: number; columns: number }>();
+  const events = items
+    .map((item) => {
+      const overlap = getDayOverlapRange(item.start, item.end, day);
+      if (!overlap) return null;
+      return {
+        key: item.job.id,
+        startMs: overlap.rangeStart.getTime(),
+        endMs: overlap.rangeEnd.getTime(),
+      };
+    })
+    .filter((event): event is { key: string; startMs: number; endMs: number } => event != null)
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+  let group: typeof events = [];
+  let groupEnd = Number.NEGATIVE_INFINITY;
+  const flushGroup = () => {
+    if (group.length === 0) return;
+    const columnEnds: number[] = [];
+    group.forEach((event) => {
+      let columnIndex = columnEnds.findIndex((end) => event.startMs >= end);
+      if (columnIndex === -1) {
+        columnIndex = columnEnds.length;
+        columnEnds.push(event.endMs);
+      } else {
+        columnEnds[columnIndex] = event.endMs;
+      }
+      layout.set(event.key, { column: columnIndex, columns: 1 });
+    });
+    const columns = columnEnds.length;
+    group.forEach((event) => {
+      const entry = layout.get(event.key);
+      if (entry) entry.columns = columns;
+    });
+    group = [];
+  };
+  events.forEach((event) => {
+    if (group.length === 0) {
+      group = [event];
+      groupEnd = event.endMs;
+      return;
+    }
+    if (event.startMs < groupEnd) {
+      group.push(event);
+      groupEnd = Math.max(groupEnd, event.endMs);
+      return;
+    }
+    flushGroup();
+    group = [event];
+    groupEnd = event.endMs;
+  });
+  flushGroup();
+  return layout;
+};
+const getEventColumnStyle = (layoutEntry?: { column: number; columns: number }) => {
+  const column = layoutEntry?.column ?? 0;
+  const columns = layoutEntry?.columns ?? 1;
+  const gutter = columns > 2 ? 2 : calendarEventGutter;
+  const columnWidth = 100 / columns;
+  const left = columnWidth * column;
+  const right = columnWidth * (columns - column - 1);
+  return {
+    left: `calc(${left}% + ${gutter}px)`,
+    right: `calc(${right}% + ${gutter}px)`,
+  };
 };
 
 const parseHourlyRate = (value: string) => {
@@ -133,6 +232,120 @@ const parseDurationHours = (value: string) => {
   const parsed = Number.parseFloat(normalized);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return parsed;
+};
+const parsePercentageInput = (value: string) => {
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  const parsed = Number.parseFloat(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return null;
+  return parsed;
+};
+const formatRatioAsPercentInput = (ratio: number) => {
+  const percent = ratio * 100;
+  if (!Number.isFinite(percent)) return '';
+  return percent.toFixed(2).replace(/\.?0+$/, '');
+};
+const clampRatio = (value: number) => Math.min(1, Math.max(0, value));
+const roundMoney = (value: number) => Number(value.toFixed(2));
+
+type PaymentMethodView = JobPaymentMethod | 'unassigned' | 'none';
+type PaymentDraft = {
+  method: JobPaymentMethod;
+  cashAmount: string;
+  transferAmount: string;
+};
+type PaymentStatusView = 'paid' | 'pending';
+
+const toStoredMoney = (value?: number | null) => (Number.isFinite(value) ? Number(value) : null);
+
+const getJobCollectedPayment = (job: Job) => {
+  const cashAmount = toStoredMoney(job.cashAmount);
+  const transferAmount = toStoredMoney(job.transferAmount);
+  const hasBreakdown = cashAmount != null || transferAmount != null;
+  const chargedAmount = toStoredMoney(job.chargedAmount);
+  const cashPositive = cashAmount != null && cashAmount > 0;
+  const transferPositive = transferAmount != null && transferAmount > 0;
+  let method: PaymentMethodView = 'none';
+
+  if (hasBreakdown) {
+    if (cashPositive && transferPositive) method = 'mixed';
+    else if (cashPositive) method = 'cash';
+    else if (transferPositive) method = 'transfer';
+    else if (cashAmount != null && transferAmount != null) method = 'mixed';
+    else if (cashAmount != null) method = 'cash';
+    else if (transferAmount != null) method = 'transfer';
+  } else if (chargedAmount != null) {
+    method = 'unassigned';
+  }
+
+  return {
+    cashAmount,
+    transferAmount,
+    chargedAmount,
+    unassignedAmount: hasBreakdown ? null : chargedAmount,
+    total: hasBreakdown ? roundMoney((cashAmount ?? 0) + (transferAmount ?? 0)) : chargedAmount,
+    method,
+  };
+};
+
+const getPaymentMethodLabel = (method: PaymentMethodView) => {
+  switch (method) {
+    case 'cash':
+      return 'Efectivo';
+    case 'transfer':
+      return 'Transferencia';
+    case 'mixed':
+      return 'Combinado';
+    case 'unassigned':
+      return 'Sin definir';
+    default:
+      return 'Sin cargar';
+  }
+};
+
+const getPaymentStatusMeta = (payment?: ReturnType<typeof getJobCollectedPayment> | null) => {
+  const status: PaymentStatusView = payment?.total != null ? 'paid' : 'pending';
+  if (status === 'paid') {
+    return {
+      status,
+      label: 'Cobrado',
+      className: 'bg-emerald-100 text-emerald-700',
+      helperText: 'El cobro ya quedo registrado y analiticas lo toma automaticamente.',
+    };
+  }
+  return {
+    status,
+    label: 'Pendiente',
+    className: 'bg-amber-100 text-amber-700',
+    helperText: 'Todavia no figura como cobrado en analiticas.',
+  };
+};
+
+const buildPaymentDraft = (job: Job): PaymentDraft => {
+  const payment = getJobCollectedPayment(job);
+  if (payment.method === 'transfer') {
+    return {
+      method: 'transfer',
+      cashAmount: '',
+      transferAmount: payment.transferAmount != null ? String(payment.transferAmount) : '',
+    };
+  }
+  if (payment.method === 'mixed') {
+    return {
+      method: 'mixed',
+      cashAmount: payment.cashAmount != null ? String(payment.cashAmount) : '',
+      transferAmount: payment.transferAmount != null ? String(payment.transferAmount) : '',
+    };
+  }
+  return {
+    method: 'cash',
+    cashAmount: payment.cashAmount != null
+      ? String(payment.cashAmount)
+      : payment.unassignedAmount != null
+        ? String(payment.unassignedAmount)
+        : '',
+    transferAmount: '',
+  };
 };
 
 const parseTimestampMs = (value?: string) => {
@@ -163,9 +376,7 @@ const formatDurationMs = (ms: number) => {
 };
 
 const getBilledHours = (ms: number | null) => {
-  if (ms == null) return null;
-  if (ms <= 0) return 0;
-  return Math.ceil(ms / 3600000);
+  return getBilledHoursFromDurationMs(ms);
 };
 
 type CalendarJob = {
@@ -176,7 +387,57 @@ type CalendarJob = {
   durationMinutes: number;
 };
 
-type AdminTab = 'jobs' | 'drivers' | 'calendar' | 'analytics' | 'settings';
+type AdminTab = 'jobs' | 'leads' | 'drivers' | 'calendar' | 'analytics' | 'settings';
+type MapSelectionTarget = 'pickup' | 'dropoff' | 'extra';
+
+interface MapTargetSelectorProps {
+  value: MapSelectionTarget;
+  onChange: (target: MapSelectionTarget) => void;
+  size?: 'xs' | 'sm';
+  className?: string;
+}
+
+function MapTargetSelector({ value, onChange, size = 'sm', className }: MapTargetSelectorProps) {
+  const buttonClassName = size === 'xs' ? 'px-2 py-1 text-[10px]' : 'px-2 py-1 text-xs';
+
+  return (
+    <div className={cn('grid w-full gap-2 sm:w-auto sm:grid-cols-3 sm:gap-2 md:flex md:flex-wrap md:items-center', className)}>
+      <button
+        type="button"
+        onClick={() => onChange('pickup')}
+        className={cn(
+          'rounded border',
+          buttonClassName,
+          value === 'pickup' ? 'border-green-600 bg-green-600 text-white' : 'bg-white text-gray-600'
+        )}
+      >
+        Origen
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('dropoff')}
+        className={cn(
+          'rounded border',
+          buttonClassName,
+          value === 'dropoff' ? 'border-red-600 bg-red-600 text-white' : 'bg-white text-gray-600'
+        )}
+      >
+        Destino
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange('extra')}
+        className={cn(
+          'rounded border',
+          buttonClassName,
+          value === 'extra' ? 'border-amber-500 bg-amber-500 text-white' : 'bg-white text-gray-600'
+        )}
+      >
+        Parada
+      </button>
+    </div>
+  );
+}
 
 const resolveAdminTab = (value?: string | null): AdminTab | null => {
   if (!value) return null;
@@ -190,6 +451,9 @@ const resolveAdminTab = (value?: string | null): AdminTab | null => {
     case 'driver':
     case 'conductores':
       return 'drivers';
+    case 'leads':
+    case 'lead':
+      return 'leads';
     case 'calendar':
     case 'calendario':
       return 'calendar';
@@ -208,6 +472,7 @@ const resolveAdminTab = (value?: string | null): AdminTab | null => {
 
 type EditJobDraft = {
   clientName: string;
+  clientPhone: string;
   description: string;
   scheduledDate: string;
   scheduledTime: string;
@@ -218,6 +483,7 @@ type EditJobDraft = {
 
 const emptyEditDraft: EditJobDraft = {
   clientName: '',
+  clientPhone: '',
   description: '',
   scheduledDate: '',
   scheduledTime: '',
@@ -243,6 +509,8 @@ const isValidLocation = (loc?: LocationData | null) =>
   !!loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
 
 const getJobDistanceKm = (job: Job) => {
+  if (Number.isFinite(job.distanceKm)) return job.distanceKm as number;
+  if (Number.isFinite(job.distanceMeters)) return (job.distanceMeters as number) / 1000;
   const points = [job.pickup, ...(job.extraStops ?? []), job.dropoff].filter(isValidLocation);
   if (points.length < 2) return null;
   let meters = 0;
@@ -264,19 +532,50 @@ const getStatusBadge = (status: JobStatus) => {
 };
 
 export default function AdminJobs() {
+  const navigate = useNavigate();
   const { section } = useParams<{ section?: string }>();
   const [searchParams] = useSearchParams();
-  const tab = useMemo<AdminTab>(() => (
+  const adminRole = getAdminSession()?.role ?? null;
+  const isOwner = adminRole === 'owner';
+  const canSeeMoney = isOwner;
+  const resolvedTab = useMemo<AdminTab>(() => (
     resolveAdminTab(searchParams.get('tab')) ?? resolveAdminTab(section) ?? 'jobs'
   ), [searchParams, section]);
+  const tab = useMemo<AdminTab>(() => {
+    if (!isOwner && (resolvedTab === 'analytics' || resolvedTab === 'settings')) {
+      return 'jobs';
+    }
+    return resolvedTab;
+  }, [isOwner, resolvedTab]);
+  const jobsCacheKey = jobsListQueryKey();
+  const driversCacheKey = driversListQueryKey();
+  const vehiclesCacheKey = vehiclesListQueryKey();
+  const locationsCacheKey = driverLocationsListQueryKey();
+  const jobsCacheEntry = getCachedQueryEntry<Job[]>(jobsCacheKey);
+  const driversCacheEntry = getCachedQueryEntry<Driver[]>(driversCacheKey);
+  const vehiclesCacheEntry = getCachedQueryEntry<Vehicle[]>(vehiclesCacheKey);
+  const locationsCacheEntry = getCachedQueryEntry<DriverLocation[]>(locationsCacheKey);
+  useEffect(() => {
+    if (!adminRole) {
+      navigate('/admin/login', { replace: true });
+    }
+  }, [adminRole, navigate]);
+  useEffect(() => {
+    if (!isOwner && (resolvedTab === 'analytics' || resolvedTab === 'settings')) {
+      navigate('/admin?tab=jobs', { replace: true });
+    }
+  }, [isOwner, navigate, resolvedTab]);
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [loadingJobs, setLoadingJobs] = useState(true);
-  const [loadingDrivers, setLoadingDrivers] = useState(true);
-  const [loadingLocations, setLoadingLocations] = useState(true);
+  const [jobs, setJobs] = useState<Job[]>(() => jobsCacheEntry?.data ?? []);
+  const [drivers, setDrivers] = useState<Driver[]>(() => driversCacheEntry?.data ?? []);
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() => vehiclesCacheEntry?.data ?? []);
+  const [loadingJobs, setLoadingJobs] = useState(() => !jobsCacheEntry);
+  const [loadingDrivers, setLoadingDrivers] = useState(() => !driversCacheEntry);
+  const [loadingVehicles, setLoadingVehicles] = useState(() => !vehiclesCacheEntry);
+  const [loadingLocations, setLoadingLocations] = useState(() => !locationsCacheEntry);
+  const [savingJob, setSavingJob] = useState(false);
   const [open, setOpen] = useState(false);
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
@@ -284,12 +583,28 @@ export default function AdminJobs() {
   const [extraStopDraft, setExtraStopDraft] = useState<LocationData | null>(null);
   const [extraStopKey, setExtraStopKey] = useState(0);
   const [draggedStopIndex, setDraggedStopIndex] = useState<number | null>(null);
-  const [mapTarget, setMapTarget] = useState<'pickup' | 'dropoff' | 'extra'>('pickup');
+  const [mapTarget, setMapTarget] = useState<MapSelectionTarget>('pickup');
+  const [editPickup, setEditPickup] = useState<LocationData | null>(null);
+  const [editDropoff, setEditDropoff] = useState<LocationData | null>(null);
+  const [editExtraStops, setEditExtraStops] = useState<LocationData[]>([]);
+  const [editExtraStopDraft, setEditExtraStopDraft] = useState<LocationData | null>(null);
+  const [editExtraStopKey, setEditExtraStopKey] = useState(0);
+  const [editDraggedStopIndex, setEditDraggedStopIndex] = useState<number | null>(null);
+  const [editMapTarget, setEditMapTarget] = useState<MapSelectionTarget>('pickup');
   const [driverName, setDriverName] = useState('');
   const [driverCode, setDriverCode] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   const [driverModalOpen, setDriverModalOpen] = useState(false);
-  const [driverLocations, setDriverLocations] = useState<DriverLocation[]>([]);
+  const [savingDriver, setSavingDriver] = useState(false);
+  const [settlingDriverId, setSettlingDriverId] = useState<string | null>(null);
+  const [driverDebtDrafts, setDriverDebtDrafts] = useState<Record<string, string>>({});
+  const [vehicleName, setVehicleName] = useState('');
+  const [vehicleSize, setVehicleSize] = useState<'chico' | 'mediano' | 'grande'>('mediano');
+  const [vehicleOwnershipType, setVehicleOwnershipType] = useState<VehicleOwnershipType>('owner');
+  const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
+  const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
+  const [savingVehicle, setSavingVehicle] = useState(false);
+  const [driverLocations, setDriverLocations] = useState<DriverLocation[]>(() => locationsCacheEntry?.data ?? []);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedMapJobId, setSelectedMapJobId] = useState<string | null>(null);
@@ -297,16 +612,28 @@ export default function AdminJobs() {
   const [mapSearchLocation, setMapSearchLocation] = useState<LocationData | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState('');
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
+  const [ownerVehicleDriverShareInput, setOwnerVehicleDriverShareInput] = useState('');
+  const [driverVehicleDriverShareInput, setDriverVehicleDriverShareInput] = useState('');
   const [fixedMonthlyCostInput, setFixedMonthlyCostInput] = useState('');
   const [tripCostPerHourInput, setTripCostPerHourInput] = useState('');
   const [tripCostPerKmInput, setTripCostPerKmInput] = useState('');
+  const [operationsBaseLocation, setOperationsBaseLocation] = useState<LocationData | null>(null);
+  const [operationsBaseLocationDraft, setOperationsBaseLocationDraft] = useState<LocationData | null>(null);
+  const [operationsBaseLocationKey, setOperationsBaseLocationKey] = useState(0);
+  const [isDriversMapVisible, setIsDriversMapVisible] = useState(false);
+  const [isDocumentVisible, setIsDocumentVisible] = useState(
+    () => (typeof document === 'undefined' ? true : document.visibilityState === 'visible')
+  );
   const [savingHourlyRate, setSavingHourlyRate] = useState(false);
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
+  const [savingOwnerVehicleDriverShare, setSavingOwnerVehicleDriverShare] = useState(false);
+  const [savingDriverVehicleDriverShare, setSavingDriverVehicleDriverShare] = useState(false);
   const [savingFixedMonthlyCost, setSavingFixedMonthlyCost] = useState(false);
   const [savingTripCostPerHour, setSavingTripCostPerHour] = useState(false);
   const [savingTripCostPerKm, setSavingTripCostPerKm] = useState(false);
-  const [chargedAmountDrafts, setChargedAmountDrafts] = useState<Record<string, string>>({});
-  const [savingChargedAmountId, setSavingChargedAmountId] = useState<string | null>(null);
+  const [savingOperationsBaseLocation, setSavingOperationsBaseLocation] = useState(false);
+  const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
+  const [savingPaymentJobId, setSavingPaymentJobId] = useState<string | null>(null);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditJobDraft>(emptyEditDraft);
   const [savingEditId, setSavingEditId] = useState<string | null>(null);
@@ -314,26 +641,62 @@ export default function AdminJobs() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending'>('all');
   const [dateFilter, setDateFilter] = useState('');
   const [driverFilter, setDriverFilter] = useState('');
+  const [baseTravelEstimate, setBaseTravelEstimate] = useState<{
+    tripMinutes: number | null;
+    tripKm: number | null;
+    pickupMinutes: number | null;
+    pickupKm: number | null;
+    dropoffMinutes: number | null;
+    dropoffKm: number | null;
+    farthestPoint: 'pickup' | 'dropoff';
+    farthestMinutes: number | null;
+    farthestKm: number | null;
+  } | null>(null);
+  const [loadingBaseTravelEstimate, setLoadingBaseTravelEstimate] = useState(false);
   const locationsLoadedRef = useRef(false);
+  const driversMapContainerRef = useRef<HTMLDivElement | null>(null);
 
   const driversById = useMemo(() => {
     const map = new Map<string, Driver>();
     drivers.forEach((driver) => map.set(driver.id, driver));
     return map;
   }, [drivers]);
+  const vehiclesById = useMemo(() => {
+    const map = new Map<string, Vehicle>();
+    vehicles.forEach((vehicle) => map.set(vehicle.id, vehicle));
+    return map;
+  }, [vehicles]);
   const hourlyRateValue = useMemo(() => parseHourlyRate(hourlyRateInput), [hourlyRateInput]);
   const helperHourlyRateValue = useMemo(() => parseHourlyRate(helperHourlyRateInput), [helperHourlyRateInput]);
+  const ownerVehicleDriverSharePercentValue = useMemo(
+    () => parsePercentageInput(ownerVehicleDriverShareInput),
+    [ownerVehicleDriverShareInput],
+  );
+  const driverVehicleDriverSharePercentValue = useMemo(
+    () => parsePercentageInput(driverVehicleDriverShareInput),
+    [driverVehicleDriverShareInput],
+  );
+  const ownerVehicleDriverShareRatio = ownerVehicleDriverSharePercentValue != null
+    ? clampRatio(ownerVehicleDriverSharePercentValue / 100)
+    : (1 / 3);
+  const driverVehicleDriverShareRatio = driverVehicleDriverSharePercentValue != null
+    ? clampRatio(driverVehicleDriverSharePercentValue / 100)
+    : (2 / 3);
   const fixedMonthlyCostValue = useMemo(() => parseHourlyRate(fixedMonthlyCostInput), [fixedMonthlyCostInput]);
   const tripCostPerHourValue = useMemo(() => parseHourlyRate(tripCostPerHourInput), [tripCostPerHourInput]);
   const tripCostPerKmValue = useMemo(() => parseHourlyRate(tripCostPerKmInput), [tripCostPerKmInput]);
 
-  const loadJobs = async () => {
+  const loadJobs = async (options?: { silent?: boolean }) => {
     try {
-      setLoadingJobs(true);
-      const data = await listJobs();
+      if (!getCachedQueryEntry<Job[]>(jobsCacheKey)) {
+        setLoadingJobs(true);
+      }
+      const data = await refreshCachedQuery(jobsCacheKey, () => listJobs());
       setJobs(data);
     } catch {
-      toast.error('No se pudieron cargar los fletes');
+      if (!options?.silent) {
+        toast.error('No se pudieron cargar los fletes');
+      }
     } finally {
       setLoadingJobs(false);
     }
@@ -341,8 +704,10 @@ export default function AdminJobs() {
 
   const loadDrivers = async () => {
     try {
-      setLoadingDrivers(true);
-      const data = await listDrivers();
+      if (!getCachedQueryEntry<Driver[]>(driversCacheKey)) {
+        setLoadingDrivers(true);
+      }
+      const data = await refreshCachedQuery(driversCacheKey, () => listDrivers());
       setDrivers(data);
     } catch {
       toast.error('No se pudieron cargar los conductores');
@@ -351,10 +716,89 @@ export default function AdminJobs() {
     }
   };
 
+  const loadVehicles = async () => {
+    try {
+      if (!getCachedQueryEntry<Vehicle[]>(vehiclesCacheKey)) {
+        setLoadingVehicles(true);
+      }
+      const data = await refreshCachedQuery(vehiclesCacheKey, () => listVehicles());
+      setVehicles(data);
+    } catch {
+      toast.error('No se pudieron cargar los vehiculos');
+    } finally {
+      setLoadingVehicles(false);
+    }
+  };
+
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState === 'visible');
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (tab !== 'drivers') {
+      setIsDriversMapVisible(false);
+      return;
+    }
+    const element = driversMapContainerRef.current;
+    if (!element) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsDriversMapVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsDriversMapVisible(entry.isIntersecting),
+      { threshold: 0.2 },
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [tab]);
+
+  useEffect(() => {
+    const unsubscribeJobs = subscribeCachedQuery(jobsCacheKey, () => {
+      const entry = getCachedQueryEntry<Job[]>(jobsCacheKey);
+      if (entry) {
+        setJobs(entry.data);
+      }
+      setLoadingJobs(false);
+    });
+    const unsubscribeDrivers = subscribeCachedQuery(driversCacheKey, () => {
+      const entry = getCachedQueryEntry<Driver[]>(driversCacheKey);
+      if (entry) {
+        setDrivers(entry.data);
+      }
+      setLoadingDrivers(false);
+    });
+    const unsubscribeVehicles = subscribeCachedQuery(vehiclesCacheKey, () => {
+      const entry = getCachedQueryEntry<Vehicle[]>(vehiclesCacheKey);
+      if (entry) {
+        setVehicles(entry.data);
+      }
+      setLoadingVehicles(false);
+    });
+    const unsubscribeLocations = subscribeCachedQuery(locationsCacheKey, () => {
+      const entry = getCachedQueryEntry<DriverLocation[]>(locationsCacheKey);
+      if (entry) {
+        setDriverLocations(entry.data);
+      }
+      setLoadingLocations(false);
+    });
+
+    return () => {
+      unsubscribeJobs();
+      unsubscribeDrivers();
+      unsubscribeVehicles();
+      unsubscribeLocations();
+    };
+  }, [driversCacheKey, jobsCacheKey, locationsCacheKey, vehiclesCacheKey]);
 
 
   useEffect(() => {
@@ -370,10 +814,10 @@ export default function AdminJobs() {
 
   const loadDriverLocations = async () => {
     try {
-      if (!locationsLoadedRef.current) {
+      if (!locationsLoadedRef.current && !getCachedQueryEntry<DriverLocation[]>(locationsCacheKey)) {
         setLoadingLocations(true);
       }
-      const data = await listDriverLocations();
+      const data = await refreshCachedQuery(locationsCacheKey, () => listDriverLocations());
       setDriverLocations(data);
     } catch {
       // Keep last known positions on transient errors.
@@ -400,6 +844,28 @@ export default function AdminJobs() {
       setHelperHourlyRateInput(data.hourlyRate != null ? String(data.hourlyRate) : '');
     } catch {
       toast.error('No se pudo cargar el precio hora del ayudante');
+    }
+  };
+
+  const loadOwnerVehicleDriverShare = async () => {
+    try {
+      const data = await getOwnerVehicleDriverShare();
+      setOwnerVehicleDriverShareInput(
+        data.value != null ? formatRatioAsPercentInput(data.value) : '',
+      );
+    } catch {
+      toast.error('No se pudo cargar el reparto (vehiculo del dueno)');
+    }
+  };
+
+  const loadDriverVehicleDriverShare = async () => {
+    try {
+      const data = await getDriverVehicleDriverShare();
+      setDriverVehicleDriverShareInput(
+        data.value != null ? formatRatioAsPercentInput(data.value) : '',
+      );
+    } catch {
+      toast.error('No se pudo cargar el reparto (vehiculo del chofer)');
     }
   };
 
@@ -430,6 +896,16 @@ export default function AdminJobs() {
     }
   };
 
+  const loadOperationsBaseLocation = async () => {
+    try {
+      const data = await getOperationsBaseLocation();
+      setOperationsBaseLocation(data.location ?? null);
+      setOperationsBaseLocationDraft(data.location ?? null);
+    } catch {
+      toast.error('No se pudo cargar la base operativa');
+    }
+  };
+
   const addExtraStop = (location: LocationData | null) => {
     if (!location) return;
     setExtraStops((prev) => [...prev, location]);
@@ -447,18 +923,144 @@ export default function AdminJobs() {
     setDraggedStopIndex(null);
   };
 
+  const handleCreateMapSelect = (kind: MapSelectionTarget, location: LocationData) => {
+    if (kind === 'pickup') {
+      setPickup(location);
+      return;
+    }
+    if (kind === 'dropoff') {
+      setDropoff(location);
+      return;
+    }
+    setExtraStops((prev) => [...prev, location]);
+    setExtraStopDraft(null);
+    setExtraStopKey((prev) => prev + 1);
+  };
+
+  const addEditExtraStop = (location: LocationData | null) => {
+    if (!location) return;
+    setEditExtraStops((prev) => [...prev, location]);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
+  };
+
+  const removeEditExtraStop = (index: number) => {
+    setEditExtraStops((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const handleReorderEditStop = (targetIndex: number) => {
+    if (editDraggedStopIndex == null || editDraggedStopIndex === targetIndex) return;
+    setEditExtraStops((prev) => reorderList(prev, editDraggedStopIndex, targetIndex));
+    setEditDraggedStopIndex(null);
+  };
+
+  const handleEditMapSelect = (kind: MapSelectionTarget, location: LocationData) => {
+    if (kind === 'pickup') {
+      setEditPickup(location);
+      return;
+    }
+    if (kind === 'dropoff') {
+      setEditDropoff(location);
+      return;
+    }
+    setEditExtraStops((prev) => [...prev, location]);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
+  };
+
+  useEffect(() => {
+    let active = true;
+    if (!open || !pickup || !dropoff) {
+      setBaseTravelEstimate(null);
+      setLoadingBaseTravelEstimate(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLoadingBaseTravelEstimate(true);
+    (async () => {
+      const tripRoutePromise = getRouteEstimate(pickup, dropoff);
+      const pickupRoutePromise = operationsBaseLocation
+        ? getRouteEstimate(operationsBaseLocation, pickup)
+        : Promise.resolve(null);
+      const dropoffRoutePromise = operationsBaseLocation
+        ? getRouteEstimate(operationsBaseLocation, dropoff)
+        : Promise.resolve(null);
+      const [tripRoute, pickupRoute, dropoffRoute] = await Promise.all([
+        tripRoutePromise,
+        pickupRoutePromise,
+        dropoffRoutePromise,
+      ]);
+      if (!active) return;
+
+      if (!tripRoute && !pickupRoute && !dropoffRoute) {
+        setBaseTravelEstimate(null);
+        setLoadingBaseTravelEstimate(false);
+        return;
+      }
+
+      const tripMinutes = tripRoute ? Math.max(1, Math.round(tripRoute.durationSeconds / 60)) : null;
+      const tripKm = tripRoute ? tripRoute.distanceMeters / 1000 : null;
+      const pickupMinutes = pickupRoute ? Math.max(1, Math.round(pickupRoute.durationSeconds / 60)) : null;
+      const pickupKm = pickupRoute ? pickupRoute.distanceMeters / 1000 : null;
+      const dropoffMinutes = dropoffRoute ? Math.max(1, Math.round(dropoffRoute.durationSeconds / 60)) : null;
+      const dropoffKm = dropoffRoute ? dropoffRoute.distanceMeters / 1000 : null;
+      const farthestPoint = (pickupRoute?.durationSeconds ?? 0) >= (dropoffRoute?.durationSeconds ?? 0)
+        ? 'pickup'
+        : 'dropoff';
+
+      setBaseTravelEstimate({
+        tripMinutes,
+        tripKm,
+        pickupMinutes,
+        pickupKm,
+        dropoffMinutes,
+        dropoffKm,
+        farthestPoint,
+        farthestMinutes: farthestPoint === 'pickup' ? pickupMinutes : dropoffMinutes,
+        farthestKm: farthestPoint === 'pickup' ? pickupKm : dropoffKm,
+      });
+      setLoadingBaseTravelEstimate(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [dropoff, open, operationsBaseLocation, pickup]);
+
   useEffect(() => {
     loadJobs();
     loadDrivers();
+    loadVehicles();
     loadDriverLocations();
     loadHourlyRate();
     loadHelperHourlyRate();
+    loadOwnerVehicleDriverShare();
+    loadDriverVehicleDriverShare();
     loadFixedMonthlyCost();
     loadTripCostPerHour();
     loadTripCostPerKm();
-    const id = window.setInterval(loadDriverLocations, 12000);
-    return () => clearInterval(id);
+    loadOperationsBaseLocation();
   }, []);
+
+  const isDriversMapRealtimeActive = tab === 'drivers' && isDriversMapVisible && isDocumentVisible;
+
+  useEffect(() => {
+    const refreshRealtimeMap = () => {
+      void loadDriverLocations();
+      if (isDriversMapRealtimeActive) {
+        void loadJobs({ silent: true });
+      }
+    };
+
+    refreshRealtimeMap();
+    const id = window.setInterval(
+      refreshRealtimeMap,
+      isDriversMapRealtimeActive ? 2000 : 12000,
+    );
+    return () => clearInterval(id);
+  }, [isDriversMapRealtimeActive]);
 
   const addJob = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -469,6 +1071,7 @@ export default function AdminJobs() {
     const fd = new FormData(e.currentTarget);
     const scheduledDate = String(fd.get('scheduledDate') || '');
     const scheduledTime = String(fd.get('scheduledTime') || '');
+    const clientPhone = String(fd.get('clientPhone') || '').trim();
     const description = String(fd.get('description') || '').trim();
     const estimatedDurationRaw = String(fd.get('estimatedDurationHours') || '').trim();
     const estimatedHours = parseDurationHours(estimatedDurationRaw);
@@ -486,9 +1089,11 @@ export default function AdminJobs() {
     const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
     const driverIdValue = String(fd.get('driverId') || '').trim();
     try {
+      setSavingJob(true);
       await createJob({
         id: uuidv4(),
         clientName: String(fd.get('cn') || ''),
+        clientPhone: clientPhone || undefined,
         description: description || undefined,
         estimatedDurationMinutes,
         scheduledDate,
@@ -516,6 +1121,8 @@ export default function AdminJobs() {
       await loadJobs();
     } catch {
       toast.error('No se pudo crear el flete');
+    } finally {
+      setSavingJob(false);
     }
   };
 
@@ -542,6 +1149,7 @@ export default function AdminJobs() {
     setEditingJobId(job.id);
     setEditDraft({
       clientName: job.clientName ?? '',
+      clientPhone: job.clientPhone ?? '',
       description: job.description ?? '',
       scheduledDate: job.scheduledDate ?? '',
       scheduledTime: job.scheduledTime ?? '',
@@ -549,17 +1157,35 @@ export default function AdminJobs() {
       helpersCount: Number.isFinite(job.helpersCount) ? String(job.helpersCount) : '',
       driverId: job.driverId ?? '',
     });
+    setEditPickup(job.pickup ?? null);
+    setEditDropoff(job.dropoff ?? null);
+    setEditExtraStops(job.extraStops ?? []);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
+    setEditDraggedStopIndex(null);
+    setEditMapTarget('pickup');
   };
 
   const cancelEditJob = () => {
     setEditingJobId(null);
     setEditDraft(emptyEditDraft);
+    setEditPickup(null);
+    setEditDropoff(null);
+    setEditExtraStops([]);
+    setEditExtraStopDraft(null);
+    setEditExtraStopKey((prev) => prev + 1);
+    setEditDraggedStopIndex(null);
+    setEditMapTarget('pickup');
   };
 
   const handleSaveEditJob = async (job: Job) => {
     const clientName = editDraft.clientName.trim();
     if (!clientName) {
       toast.error('Nombre del cliente requerido');
+      return;
+    }
+    if (!editPickup || !editDropoff) {
+      toast.error('Selecciona origen y destino (lista o mapa)');
       return;
     }
     if (!editDraft.scheduledDate || !editDraft.scheduledTime) {
@@ -577,13 +1203,18 @@ export default function AdminJobs() {
       toast.error('Cantidad de ayudantes invalida');
       return;
     }
+    const clientPhone = editDraft.clientPhone.trim();
     try {
       setSavingEditId(job.id);
       const updated = await updateJob(job.id, {
         clientName,
+        clientPhone: clientPhone || null,
         description: editDraft.description.trim() || undefined,
         scheduledDate: editDraft.scheduledDate,
         scheduledTime: editDraft.scheduledTime,
+        pickup: editPickup,
+        dropoff: editDropoff,
+        extraStops: editExtraStops.length > 0 ? editExtraStops : [],
         estimatedDurationMinutes: Math.max(1, Math.round(estimatedHours * 60)),
         helpersCount: helpersCountRaw ? helpersCount : undefined,
         driverId: editDraft.driverId ? editDraft.driverId : null,
@@ -605,6 +1236,7 @@ export default function AdminJobs() {
       return;
     }
     try {
+      setSavingDriver(true);
       const created = await createDriver({
         id: uuidv4(),
         name: driverName.trim(),
@@ -622,6 +1254,59 @@ export default function AdminJobs() {
       toast.success('Conductor creado');
     } catch {
       toast.error('No se pudo crear el conductor');
+    } finally {
+      setSavingDriver(false);
+    }
+  };
+
+  const handleCreateVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!vehicleName.trim()) {
+      toast.error('Nombre del vehiculo obligatorio');
+      return;
+    }
+    const costPerKm = parseMoneyInput(vehicleCostPerKmInput);
+    if (vehicleCostPerKmInput.trim() && costPerKm == null) {
+      toast.error('Gasto por km invalido');
+      return;
+    }
+    if (!vehicleCostPerKmInput.trim()) {
+      toast.error('Gasto por km obligatorio');
+      return;
+    }
+    const fixedMonthlyCost = parseMoneyInput(vehicleFixedMonthlyInput);
+    if (vehicleFixedMonthlyInput.trim() && fixedMonthlyCost == null) {
+      toast.error('Gasto fijo mensual invalido');
+      return;
+    }
+    if (!vehicleFixedMonthlyInput.trim()) {
+      toast.error('Gasto fijo mensual obligatorio');
+      return;
+    }
+    try {
+      setSavingVehicle(true);
+      const now = new Date().toISOString();
+      const created = await createVehicle({
+        id: uuidv4(),
+        name: vehicleName.trim(),
+        size: vehicleSize,
+        ownershipType: vehicleOwnershipType,
+        costPerKm: costPerKm as number,
+        fixedMonthlyCost: fixedMonthlyCost as number,
+        createdAt: now,
+        updatedAt: now,
+      });
+      setVehicles((prev) => [created, ...prev]);
+      setVehicleName('');
+      setVehicleSize('mediano');
+      setVehicleOwnershipType('owner');
+      setVehicleCostPerKmInput('');
+      setVehicleFixedMonthlyInput('');
+      toast.success('Vehiculo creado');
+    } catch {
+      toast.error('No se pudo crear el vehiculo');
+    } finally {
+      setSavingVehicle(false);
     }
   };
 
@@ -634,6 +1319,42 @@ export default function AdminJobs() {
     }
   };
 
+  const handleSettleDriverDebt = async (driver: Driver) => {
+    const draftValue = (driverDebtDrafts[driver.id] ?? '').trim();
+    const parsedAmount = parseMoneyInput(draftValue);
+    if (!draftValue || parsedAmount == null || parsedAmount <= 0) {
+      toast.error('Carga un monto valido para liquidar');
+      return;
+    }
+
+    const debtSummary = driverDebtSummaryById.get(driver.id);
+    const outstandingDebt = debtSummary?.outstandingDebt ?? 0;
+    if (parsedAmount > outstandingDebt + 0.01) {
+      toast.error('El monto supera la deuda pendiente');
+      return;
+    }
+
+    try {
+      setSettlingDriverId(driver.id);
+      const currentSettledAmount = Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : 0;
+      const updated = await updateDriver(driver.id, {
+        ownerDebtSettledAmount: roundMoney(currentSettledAmount + parsedAmount),
+        ownerDebtSettledAt: new Date().toISOString(),
+      });
+      setDrivers((prev) => prev.map((item) => (item.id === driver.id ? updated : item)));
+      setDriverDebtDrafts((prev) => {
+        const next = { ...prev };
+        delete next[driver.id];
+        return next;
+      });
+      toast.success('Liquidacion registrada');
+    } catch {
+      toast.error('No se pudo registrar la liquidacion');
+    } finally {
+      setSettlingDriverId(null);
+    }
+  };
+
   const handleDeleteDriver = async (id: string) => {
     try {
       await deleteDriver(id);
@@ -641,6 +1362,27 @@ export default function AdminJobs() {
       await loadJobs();
     } catch {
       toast.error('No se pudo eliminar el conductor');
+    }
+  };
+
+  const handleDeleteVehicle = async (id: string) => {
+    try {
+      await deleteVehicle(id);
+      setVehicles((prev) => prev.filter((vehicle) => vehicle.id !== id));
+      setDrivers((prev) => prev.map((driver) => (driver.vehicleId === id ? { ...driver, vehicleId: null } : driver)));
+      toast.success('Vehiculo eliminado');
+    } catch {
+      toast.error('No se pudo eliminar el vehiculo');
+    }
+  };
+
+  const handleAssignVehicle = async (driver: Driver, vehicleId: string) => {
+    const nextVehicleId = vehicleId || null;
+    try {
+      const updated = await updateDriver(driver.id, { vehicleId: nextVehicleId });
+      setDrivers((prev) => prev.map((item) => (item.id === driver.id ? updated : item)));
+    } catch {
+      toast.error('No se pudo asignar el vehiculo');
     }
   };
 
@@ -682,6 +1424,48 @@ export default function AdminJobs() {
       toast.error('No se pudo guardar el precio hora ayudante');
     } finally {
       setSavingHelperHourlyRate(false);
+    }
+  };
+
+  const handleSaveOwnerVehicleDriverShare = async () => {
+    const parsedPercent = parsePercentageInput(ownerVehicleDriverShareInput);
+    if (ownerVehicleDriverShareInput.trim() && parsedPercent == null) {
+      toast.error('El reparto debe estar entre 0 y 100');
+      return;
+    }
+    const ratio = parsedPercent != null ? parsedPercent / 100 : null;
+    try {
+      setSavingOwnerVehicleDriverShare(true);
+      const saved = await setOwnerVehicleDriverShare(ratio);
+      setOwnerVehicleDriverShareInput(
+        saved.value != null ? formatRatioAsPercentInput(saved.value) : '',
+      );
+      toast.success('Reparto de vehiculo del dueno actualizado');
+    } catch {
+      toast.error('No se pudo guardar el reparto de vehiculo del dueno');
+    } finally {
+      setSavingOwnerVehicleDriverShare(false);
+    }
+  };
+
+  const handleSaveDriverVehicleDriverShare = async () => {
+    const parsedPercent = parsePercentageInput(driverVehicleDriverShareInput);
+    if (driverVehicleDriverShareInput.trim() && parsedPercent == null) {
+      toast.error('El reparto debe estar entre 0 y 100');
+      return;
+    }
+    const ratio = parsedPercent != null ? parsedPercent / 100 : null;
+    try {
+      setSavingDriverVehicleDriverShare(true);
+      const saved = await setDriverVehicleDriverShare(ratio);
+      setDriverVehicleDriverShareInput(
+        saved.value != null ? formatRatioAsPercentInput(saved.value) : '',
+      );
+      toast.success('Reparto de vehiculo del chofer actualizado');
+    } catch {
+      toast.error('No se pudo guardar el reparto de vehiculo del chofer');
+    } finally {
+      setSavingDriverVehicleDriverShare(false);
     }
   };
 
@@ -739,21 +1523,57 @@ export default function AdminJobs() {
     }
   };
 
-  const handleSaveChargedAmount = async (job: Job) => {
-    const raw = chargedAmountDrafts[job.id] ?? (job.chargedAmount != null ? String(job.chargedAmount) : '');
-    const parsed = parseMoneyInput(raw);
-    if (raw.trim() && parsed == null) {
-      toast.error('Monto cobrado invalido');
+  const handleSaveOperationsBaseLocation = async () => {
+    try {
+      setSavingOperationsBaseLocation(true);
+      const saved = await saveOperationsBaseLocation(operationsBaseLocationDraft);
+      setOperationsBaseLocation(saved.location ?? null);
+      setOperationsBaseLocationDraft(saved.location ?? null);
+      toast.success(operationsBaseLocationDraft ? 'Base operativa actualizada' : 'Base operativa eliminada');
+    } catch {
+      toast.error('No se pudo guardar la base operativa');
+    } finally {
+      setSavingOperationsBaseLocation(false);
+    }
+  };
+
+  const handleSavePayment = async (job: Job) => {
+    const draft = paymentDrafts[job.id] ?? buildPaymentDraft(job);
+    const parsedCashAmount = parseMoneyInput(draft.cashAmount);
+    const parsedTransferAmount = parseMoneyInput(draft.transferAmount);
+
+    if (draft.cashAmount.trim() && parsedCashAmount == null) {
+      toast.error('Monto en efectivo invalido');
       return;
     }
+    if (draft.transferAmount.trim() && parsedTransferAmount == null) {
+      toast.error('Monto en transferencia invalido');
+      return;
+    }
+
+    const cashAmount = draft.method === 'transfer' ? null : (draft.cashAmount.trim() ? parsedCashAmount : null);
+    const transferAmount = draft.method === 'cash' ? null : (draft.transferAmount.trim() ? parsedTransferAmount : null);
+    const total = cashAmount != null || transferAmount != null
+      ? roundMoney((cashAmount ?? 0) + (transferAmount ?? 0))
+      : null;
+
+    if (draft.method === 'mixed' && total == null) {
+      toast.error('Carga al menos un monto para el cobro combinado');
+      return;
+    }
+
     try {
-      setSavingChargedAmountId(job.id);
-      const updated = await updateJob(job.id, { chargedAmount: raw.trim() ? parsed : null });
+      setSavingPaymentJobId(job.id);
+      const updated = await updateJob(job.id, {
+        chargedAmount: total,
+        cashAmount,
+        transferAmount,
+      });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
-      setChargedAmountDrafts((prev) => {
+      setPaymentDrafts((prev) => {
         const next = { ...prev };
-        if (raw.trim()) {
-          next[job.id] = String(parsed);
+        if (total != null) {
+          next[job.id] = buildPaymentDraft(updated);
         } else {
           delete next[job.id];
         }
@@ -763,16 +1583,20 @@ export default function AdminJobs() {
     } catch {
       toast.error('No se pudo actualizar el cobro');
     } finally {
-      setSavingChargedAmountId(null);
+      setSavingPaymentJobId(null);
     }
   };
 
-  const handleClearChargedAmount = async (job: Job) => {
+  const handleClearPayment = async (job: Job) => {
     try {
-      setSavingChargedAmountId(job.id);
-      const updated = await updateJob(job.id, { chargedAmount: null });
+      setSavingPaymentJobId(job.id);
+      const updated = await updateJob(job.id, {
+        chargedAmount: null,
+        cashAmount: null,
+        transferAmount: null,
+      });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
-      setChargedAmountDrafts((prev) => {
+      setPaymentDrafts((prev) => {
         const next = { ...prev };
         delete next[job.id];
         return next;
@@ -781,7 +1605,7 @@ export default function AdminJobs() {
     } catch {
       toast.error('No se pudo eliminar el cobro');
     } finally {
-      setSavingChargedAmountId(null);
+      setSavingPaymentJobId(null);
     }
   };
 
@@ -824,15 +1648,136 @@ export default function AdminJobs() {
     return map;
   }, [jobs]);
   const hasChargeOverrides = useMemo(
-    () => completedHistory.some((entry) => entry.job.chargedAmount != null),
+    () => completedHistory.some((entry) => getJobCollectedPayment(entry.job).total != null),
     [completedHistory],
   );
+  const getEntryBilledHours = (entry: { job: Job; durationMs: number | null }) => {
+    if (entry.durationMs != null) return getBilledHours(entry.durationMs);
+    if (Number.isFinite(entry.job.estimatedDurationMinutes)) return getBilledHoursFromMinutes(entry.job.estimatedDurationMinutes as number);
+    if (Number.isFinite(entry.job.hourlyBilledHours)) return entry.job.hourlyBilledHours as number;
+    return null;
+  };
+  const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
+    const billedHours = getEntryBilledHours(entry);
+    if (hourlyRateValue != null && billedHours != null) {
+      return billedHours * hourlyRateValue;
+    }
+    if (Number.isFinite(entry.job.hourlyBaseAmount)) {
+      return entry.job.hourlyBaseAmount as number;
+    }
+    return null;
+  };
   const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
-    if (entry.job.chargedAmount != null) return entry.job.chargedAmount;
-    if (hourlyRateValue == null || entry.durationMs == null) return null;
-    const billedHours = getBilledHours(entry.durationMs);
+    const collectedPayment = getJobCollectedPayment(entry.job);
+    if (collectedPayment.total != null) return collectedPayment.total;
+    const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
+    const baseValue = getEntryHourlyValue(entry);
+    if (baseValue == null) return null;
     const helpersCount = entry.job.helpersCount ?? 0;
+    const helpersValue = helperHourlyRateValue != null && helpersCount > 0
+      ? billedHours * helperHourlyRateValue * helpersCount
+      : 0;
+    return baseValue + helpersValue;
+  };
+  const getEntryVehicle = (entry: { job: Job }) => {
+    if (!entry.job.driverId) return null;
+    const driver = driversById.get(entry.job.driverId);
+    if (!driver?.vehicleId) return null;
+    return vehiclesById.get(driver.vehicleId) ?? null;
+  };
+  const isOwnerAccountDriver = (driver: Driver | null) => String(driver?.code ?? '').trim() === OWNER_ACCOUNT_DRIVER_CODE;
+  const isExternalDriver = (driver: Driver | null) => !!driver && !isOwnerAccountDriver(driver);
+  const getDriverShareRatioByVehicle = (vehicle: Vehicle | null, driver: Driver | null) => {
+    if (isOwnerAccountDriver(driver)) return 0;
+    if (vehicle?.ownershipType === 'driver') return driverVehicleDriverShareRatio;
+    return ownerVehicleDriverShareRatio;
+  };
+  const getEntryCompanyHourlyMargin = (
+    entry: { job: Job; durationMs: number | null },
+    hourlyValue: number,
+    driver: Driver | null,
+  ) => {
+    if (!isExternalDriver(driver)) return hourlyValue;
+    const billedHours = getEntryBilledHours(entry);
+    if (billedHours == null) return hourlyValue;
+    return Math.min(hourlyValue, billedHours * EXTERNAL_DRIVER_COMPANY_HOURLY_MARGIN);
+  };
+  const getSchedulingAssistantCost = () => SCHEDULING_ASSISTANT_COST_PER_JOB;
+  const getEntryHourDistribution = (entry: { job: Job; durationMs: number | null }) => {
+    const hourlyValue = getEntryHourlyValue(entry);
+    if (hourlyValue == null) return null;
+    const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
+    const vehicle = getEntryVehicle(entry);
+    if (isExternalDriver(driver)) {
+      const ownerShare = getEntryCompanyHourlyMargin(entry, hourlyValue, driver);
+      const driverShare = Math.max(0, hourlyValue - ownerShare);
+      return {
+        hourlyValue,
+        driverShare,
+        ownerShare,
+        driverShareRatio: hourlyValue > 0 ? driverShare / hourlyValue : 0,
+        vehicle,
+      };
+    }
+    const canUseStoredShareAmounts = Number.isFinite(entry.job.driverShareAmount)
+      && Number.isFinite(entry.job.companyShareAmount)
+      && Number.isFinite(entry.job.hourlyBaseAmount)
+      && Math.abs((entry.job.hourlyBaseAmount as number) - hourlyValue) < 0.01;
+    if (canUseStoredShareAmounts) {
+      const storedDriverShare = entry.job.driverShareAmount as number;
+      const storedOwnerShare = entry.job.companyShareAmount as number;
+      const storedRatio = Number.isFinite(entry.job.driverShareRatio)
+        ? (entry.job.driverShareRatio as number)
+        : hourlyValue > 0
+          ? storedDriverShare / hourlyValue
+          : 0;
+      return {
+        hourlyValue,
+        driverShare: storedDriverShare,
+        ownerShare: storedOwnerShare,
+        driverShareRatio: storedRatio,
+        vehicle,
+      };
+    }
+    const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
+    const driverShare = hourlyValue * driverShareRatio;
+    return {
+      hourlyValue,
+      driverShare,
+      ownerShare: hourlyValue - driverShare,
+      driverShareRatio,
+      vehicle,
+    };
+  };
+  const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
+    const revenue = getEntryTotal(entry);
+    if (revenue == null) return null;
+    const hourlyDistribution = getEntryHourDistribution(entry);
+    const billedHours = getEntryBilledHours(entry);
+    const baseValue = getEntryHourlyValue(entry);
+    const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
+    const helpersCount = entry.job.helpersCount ?? 0;
+    const helpersCost = helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
+      ? billedHours * helperHourlyRateValue * helpersCount
+      : 0;
+    const helperRevenue = baseValue != null ? Math.max(0, revenue - baseValue) : 0;
+    const driverCost = isExternalDriver(driver)
+      ? 0
+      : (hourlyDistribution?.driverShare ?? 0);
+    const distanceKm = jobDistanceKmById.get(entry.job.id) ?? null;
+    const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null
+      ? distanceKm * tripCostPerKmValue
+      : 0;
+    const companyHourlyMargin = hourlyDistribution?.ownerShare ?? baseValue ?? revenue;
+    return companyHourlyMargin + helperRevenue - helpersCost - fuelCost - driverCost - getSchedulingAssistantCost();
+  };
+  const getJobEstimatedTotal = (job: Job) => {
+    const collectedPayment = getJobCollectedPayment(job);
+    if (collectedPayment.total != null) return collectedPayment.total;
+    const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(job));
+    if (hourlyRateValue == null || billedHours == null) return null;
+    const helpersCount = job.helpersCount ?? 0;
     const helpersValue = helperHourlyRateValue != null && helpersCount > 0
       ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
@@ -840,6 +1785,8 @@ export default function AdminJobs() {
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
+  const ownerVehicleDriverShareLabel = percentFormatter.format(ownerVehicleDriverShareRatio);
+  const driverVehicleDriverShareLabel = percentFormatter.format(driverVehicleDriverShareRatio);
   const now = new Date();
   const currentMonthLabel = monthFormatter.format(now);
   const currentMonth = now.getMonth();
@@ -852,6 +1799,22 @@ export default function AdminJobs() {
       return endDate.getMonth() === currentMonth && endDate.getFullYear() === currentYear;
     })
   ), [completedHistory, currentMonth, currentYear]);
+  const distanceStats = useMemo(() => {
+    let total = 0;
+    let count = 0;
+    let realCount = 0;
+    completedThisMonth.forEach((entry) => {
+      const km = jobDistanceKmById.get(entry.job.id);
+      if (km == null || !Number.isFinite(km)) return;
+      total += km;
+      count += 1;
+      if (Number.isFinite(entry.job.distanceKm) || Number.isFinite(entry.job.distanceMeters)) {
+        realCount += 1;
+      }
+    });
+    const average = count > 0 ? total / count : null;
+    return { total: count > 0 ? total : null, average, count, realCount };
+  }, [completedThisMonth, jobDistanceKmById]);
   const tripsToday = useMemo(() => {
     const today = startOfDay(now);
     return completedHistory.filter((entry) => entry.endMs != null && isSameDay(new Date(entry.endMs), today)).length;
@@ -897,12 +1860,28 @@ export default function AdminJobs() {
         if (distanceKm == null || !Number.isFinite(distanceKm)) return;
         variableCost += distanceKm * tripCostPerKmValue;
       }
+      const hourlyDistribution = getEntryHourDistribution(entry);
+      if (hourlyDistribution != null) {
+        variableCost += hourlyDistribution.driverShare;
+      }
       const net = revenue - variableCost - fixedCostPerTrip;
       total += net;
       count += 1;
     });
     return { average: count > 0 ? total / count : null, count };
-  }, [completedThisMonth, fixedCostPerTrip, jobDistanceKmById, tripCostPerHourValue, tripCostPerKmValue, hourlyRateValue, helperHourlyRateValue]);
+  }, [
+    completedThisMonth,
+    fixedCostPerTrip,
+    jobDistanceKmById,
+    tripCostPerHourValue,
+    tripCostPerKmValue,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const recurringClientStats = useMemo(() => {
     const counts = new Map<string, number>();
     completedHistory.forEach((entry) => {
@@ -923,15 +1902,37 @@ export default function AdminJobs() {
   const realHourlyLabel = realHourlyStats.value != null ? `${currencyFormatter.format(realHourlyStats.value)}/h` : 'N/D';
   const netMarginLabel = netMarginStats.average != null ? currencyFormatter.format(netMarginStats.average) : 'N/D';
   const tripsPerDayLabel = Number.isFinite(tripsPerDayAvg) ? decimalFormatter.format(tripsPerDayAvg) : 'N/D';
+  const distanceTotalLabel = distanceStats.total != null ? `${decimalFormatter.format(distanceStats.total)} km` : 'N/D';
+  const distanceAvgLabel = distanceStats.average != null ? `${decimalFormatter.format(distanceStats.average)} km/viaje` : 'N/D';
   const recurringPercentLabel = recurringClientStats.percent != null
     ? percentFormatter.format(recurringClientStats.percent)
     : 'N/D';
   const fixedMonthlyCostLabel = fixedMonthlyCostValue != null
     ? currencyFormatter.format(fixedMonthlyCostValue)
     : 'Sin configurar';
+  const operationsBaseLocationLabel = operationsBaseLocation?.address ?? 'Sin configurar';
   const costPerHourLabel = tripCostPerHourValue != null ? `${currencyFormatter.format(tripCostPerHourValue)}/h` : null;
   const costPerKmLabel = tripCostPerKmValue != null ? `${currencyFormatter.format(tripCostPerKmValue)}/km` : null;
   const variableCostLabel = [costPerHourLabel, costPerKmLabel].filter(Boolean).join(' + ');
+  const farthestPointLabel = baseTravelEstimate?.farthestPoint === 'pickup' ? 'Origen' : 'Destino';
+  const farthestBaseTravelLabel = baseTravelEstimate?.farthestMinutes != null
+    ? `${baseTravelEstimate.farthestMinutes} min`
+    : 'No disponible';
+  const farthestBaseTravelDistanceLabel = baseTravelEstimate?.farthestKm != null
+    ? `${decimalFormatter.format(baseTravelEstimate.farthestKm)} km`
+    : 'N/D';
+  const pickupBaseTravelLabel = baseTravelEstimate?.pickupMinutes != null
+    ? `${baseTravelEstimate.pickupMinutes} min`
+    : 'N/D';
+  const dropoffBaseTravelLabel = baseTravelEstimate?.dropoffMinutes != null
+    ? `${baseTravelEstimate.dropoffMinutes} min`
+    : 'N/D';
+  const tripTravelLabel = baseTravelEstimate?.tripMinutes != null
+    ? `${baseTravelEstimate.tripMinutes} min`
+    : 'N/D';
+  const tripTravelDistanceLabel = baseTravelEstimate?.tripKm != null
+    ? `${decimalFormatter.format(baseTravelEstimate.tripKm)} km`
+    : 'N/D';
   const realHourlyMeta = realHourlyStats.trips > 0
     ? `Basado en ${realHourlyStats.trips} viajes y ${decimalFormatter.format(realHourlyStats.hoursTotal)} h.`
     : 'Sin tiempos suficientes.';
@@ -939,6 +1940,9 @@ export default function AdminJobs() {
     ? `Promedio ${currentMonthLabel}, ${netMarginStats.count} viajes.`
     : 'Sin datos para calcular margen.';
   const tripsPerDayMeta = `Promedio ${currentMonthLabel}. Hoy: ${tripsToday}.`;
+  const distanceMeta = distanceStats.count > 0 && distanceStats.average != null
+    ? `Promedio ${currentMonthLabel}: ${distanceAvgLabel}${distanceStats.realCount < distanceStats.count ? ` (${distanceStats.realCount} con GPS)` : ''}`
+    : `Sin datos de distancia ${currentMonthLabel}.`;
   const recurringMeta = recurringClientStats.total > 0
     ? `${recurringClientStats.recurring} de ${recurringClientStats.total} con telefono.`
     : 'Sin telefonos cargados.';
@@ -966,7 +1970,7 @@ export default function AdminJobs() {
     const series = Array.from({ length: daysInMonth }, (_, index) => {
       const day = index + 1;
       const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      return { key, day, total: 0 };
+      return { key, day, total: 0, net: 0 };
     });
     const byKey = new Map(series.map((item) => [item.key, item]));
     completedHistory.forEach((entry) => {
@@ -979,19 +1983,38 @@ export default function AdminJobs() {
       const total = getEntryTotal(entry);
       if (total == null) return;
       target.total += total;
+      const net = getEntryNetTotal(entry);
+      if (net != null) {
+        target.net += net;
+      }
     });
     let runningTotal = 0;
+    let runningNet = 0;
     return series.map((item) => {
       runningTotal += item.total;
-      return { ...item, total: runningTotal };
+      runningNet += item.net;
+      return { ...item, total: runningTotal, net: runningNet };
     });
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  }, [
+    completedHistory,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    tripCostPerKmValue,
+    jobDistanceKmById,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const dailyRevenueMaxValue = useMemo(() => {
-    const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => item.total));
+    const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => Math.max(item.total, item.net)));
     return maxValue;
   }, [dailyRevenueSeries]);
   const dailyTotalLabel = dailyRevenueSeries.length > 0
     ? currencyFormatter.format(dailyRevenueSeries[dailyRevenueSeries.length - 1].total)
+    : currencyFormatter.format(0);
+  const dailyNetLabel = dailyRevenueSeries.length > 0
+    ? currencyFormatter.format(dailyRevenueSeries[dailyRevenueSeries.length - 1].net)
     : currencyFormatter.format(0);
   const dailyRevenueScaleMax = dailyRevenueMaxValue > 0 ? dailyRevenueMaxValue : 1;
   const dailyRevenueTicks = useMemo(() => {
@@ -999,7 +2022,7 @@ export default function AdminJobs() {
     const maxValue = dailyRevenueMaxValue;
     return Array.from({ length: steps + 1 }, (_, index) => {
       const value = maxValue > 0 ? (maxValue * (steps - index)) / steps : 0;
-      return { value, label: currencyFormatter.format(value) };
+      return { value, label: formatCurrencyTick(value) };
     });
   }, [dailyRevenueMaxValue]);
   const monthlyRevenueSeries = useMemo(() => {
@@ -1008,7 +2031,7 @@ export default function AdminJobs() {
       const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const label = `${monthShortFormatter.format(date)} ${String(date.getFullYear()).slice(-2)}`;
-      return { key, label, total: 0 };
+      return { key, label, total: 0, net: 0 };
     });
     const byKey = new Map(months.map((item) => [item.key, item]));
     completedHistory.forEach((entry) => {
@@ -1020,11 +2043,25 @@ export default function AdminJobs() {
       const total = getEntryTotal(entry);
       if (total == null) return;
       target.total += total;
+      const net = getEntryNetTotal(entry);
+      if (net != null) {
+        target.net += net;
+      }
     });
     return months;
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  }, [
+    completedHistory,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    tripCostPerKmValue,
+    jobDistanceKmById,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const monthlyRevenueMaxValue = useMemo(() => {
-    const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => item.total));
+    const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => Math.max(item.total, item.net)));
     return maxValue;
   }, [monthlyRevenueSeries]);
   const yearlyTotalLabel = monthlyRevenueSeries.length > 0
@@ -1036,9 +2073,54 @@ export default function AdminJobs() {
     const maxValue = monthlyRevenueMaxValue;
     return Array.from({ length: steps + 1 }, (_, index) => {
       const value = maxValue > 0 ? (maxValue * (steps - index)) / steps : 0;
-      return { value, label: currencyFormatter.format(value) };
+      return { value, label: formatCurrencyTick(value) };
     });
   }, [monthlyRevenueMaxValue]);
+  const monthlyPaymentBreakdown = useMemo(() => {
+    const now = new Date();
+    const months = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const label = `${monthShortFormatter.format(date)} ${String(date.getFullYear()).slice(-2)}`;
+      return { key, label, cash: 0, transfer: 0, unassigned: 0, total: 0, count: 0 };
+    });
+    const byKey = new Map(months.map((item) => [item.key, item]));
+    completedHistory.forEach((entry) => {
+      if (entry.endMs == null) return;
+      const payment = getJobCollectedPayment(entry.job);
+      if (payment.total == null) return;
+      const endDate = new Date(entry.endMs);
+      const key = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}`;
+      const target = byKey.get(key);
+      if (!target) return;
+      target.cash += payment.cashAmount ?? 0;
+      target.transfer += payment.transferAmount ?? 0;
+      target.unassigned += payment.unassignedAmount ?? 0;
+      target.total += payment.total;
+      target.count += 1;
+    });
+    return months.map((item) => ({
+      ...item,
+      cash: roundMoney(item.cash),
+      transfer: roundMoney(item.transfer),
+      unassigned: roundMoney(item.unassigned),
+      total: roundMoney(item.total),
+    }));
+  }, [completedHistory]);
+  const currentMonthPaymentBreakdown = monthlyPaymentBreakdown[monthlyPaymentBreakdown.length - 1] ?? null;
+  const paymentBreakdownHasData = monthlyPaymentBreakdown.some((item) => item.total > 0);
+  const currentMonthCashLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.cash)
+    : currencyFormatter.format(0);
+  const currentMonthTransferLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.transfer)
+    : currencyFormatter.format(0);
+  const currentMonthUnassignedLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.unassigned)
+    : currencyFormatter.format(0);
+  const currentMonthCollectedLabel = currentMonthPaymentBreakdown != null
+    ? currencyFormatter.format(currentMonthPaymentBreakdown.total)
+    : currencyFormatter.format(0);
   const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null || hasChargeOverrides;
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
@@ -1078,6 +2160,81 @@ export default function AdminJobs() {
   }, [filteredJobs, selectedMapJobId]);
   const selectedDriver = selectedDriverId ? driversById.get(selectedDriverId) : null;
   const selectedLocation = selectedDriverId ? driverLocationsById.get(selectedDriverId) ?? null : null;
+  const driverDebtSummaryById = useMemo(() => {
+    const summary = new Map<string, {
+      collectedTrips: number;
+      collectedTotal: number;
+      driverKept: number;
+      grossOwnerDebt: number;
+      settledAmount: number;
+      outstandingDebt: number;
+    }>();
+
+    completedHistory.forEach((entry) => {
+      const driverId = entry.job.driverId;
+      if (!driverId) return;
+      const payment = getJobCollectedPayment(entry.job);
+      if (payment.total == null) return;
+
+      const driver = driversById.get(driverId) ?? null;
+      const hourlyDistribution = getEntryHourDistribution(entry);
+      const driverKept = isExternalDriver(driver)
+        ? Math.max(0, Math.min(payment.total, hourlyDistribution?.driverShare ?? 0))
+        : payment.total;
+      const ownerDebt = isExternalDriver(driver)
+        ? Math.max(0, payment.total - driverKept)
+        : 0;
+      const current = summary.get(driverId) ?? {
+        collectedTrips: 0,
+        collectedTotal: 0,
+        driverKept: 0,
+        grossOwnerDebt: 0,
+        settledAmount: 0,
+        outstandingDebt: 0,
+      };
+
+      current.collectedTrips += 1;
+      current.collectedTotal += payment.total;
+      current.driverKept += driverKept;
+      current.grossOwnerDebt += ownerDebt;
+      summary.set(driverId, current);
+    });
+
+    drivers.forEach((driver) => {
+      const current = summary.get(driver.id) ?? {
+        collectedTrips: 0,
+        collectedTotal: 0,
+        driverKept: 0,
+        grossOwnerDebt: 0,
+        settledAmount: 0,
+        outstandingDebt: 0,
+      };
+      const settledAmount = Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : 0;
+      current.settledAmount = settledAmount;
+      current.outstandingDebt = Math.max(0, current.grossOwnerDebt - settledAmount);
+      summary.set(driver.id, current);
+    });
+
+    return new Map(Array.from(summary.entries()).map(([driverId, item]) => ([
+      driverId,
+      {
+        collectedTrips: item.collectedTrips,
+        collectedTotal: roundMoney(item.collectedTotal),
+        driverKept: roundMoney(item.driverKept),
+        grossOwnerDebt: roundMoney(item.grossOwnerDebt),
+        settledAmount: roundMoney(item.settledAmount),
+        outstandingDebt: roundMoney(item.outstandingDebt),
+      },
+    ])));
+  }, [
+    completedHistory,
+    drivers,
+    driversById,
+    vehiclesById,
+    hourlyRateValue,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const selectedDriverJob = useMemo(() => {
     if (!selectedDriverId) return null;
     if (selectedLocation?.jobId) {
@@ -1101,6 +2258,7 @@ export default function AdminJobs() {
   }, [jobs, selectedJobId]);
   const selectedJobDriver = selectedJobDetail?.driverId ? driversById.get(selectedJobDetail.driverId) : null;
   const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
+  const editMapTargetLabel = editMapTarget === 'pickup' ? 'origen' : editMapTarget === 'dropoff' ? 'destino' : 'parada extra';
   const selectedJobDurations = useMemo(() => {
     if (!selectedJobDetail) return null;
     const tripStart = selectedJobDetail.timestamps.startTripAt ?? selectedJobDetail.timestamps.endLoadingAt;
@@ -1115,9 +2273,12 @@ export default function AdminJobs() {
   const selectedJobEstimateLabel = selectedJobDetail && Number.isFinite(selectedJobDetail.estimatedDurationMinutes)
     ? formatDurationMs((selectedJobDetail.estimatedDurationMinutes as number) * 60000)
     : 'N/D';
-  const selectedJobChargedLabel = selectedJobDetail?.chargedAmount != null
-    ? currencyFormatter.format(selectedJobDetail.chargedAmount)
+  const selectedJobPayment = selectedJobDetail ? getJobCollectedPayment(selectedJobDetail) : null;
+  const selectedJobPaymentStatus = getPaymentStatusMeta(selectedJobPayment);
+  const selectedJobChargedLabel = selectedJobPayment?.total != null
+    ? currencyFormatter.format(selectedJobPayment.total)
     : 'Sin cargar';
+  const selectedJobPaymentMethodLabel = getPaymentMethodLabel(selectedJobPayment?.method ?? 'none');
   const scheduledJobs = useMemo(() => {
     return jobs
       .map((job) => {
@@ -1164,6 +2325,55 @@ export default function AdminJobs() {
     : calendarView === 'week'
       ? `${dayFormatter.format(weekDays[0])} - ${dayFormatter.format(weekDays[6])}`
       : monthFormatter.format(calendarDate);
+  const calendarEstimateSummary = useMemo(() => {
+    const rangeStart = calendarView === 'day'
+      ? startOfDay(calendarDate)
+      : calendarView === 'week'
+        ? startOfWeek(calendarDate)
+        : startOfMonth(calendarDate);
+    const rangeEnd = calendarView === 'day'
+      ? addDays(rangeStart, 1)
+      : calendarView === 'week'
+        ? addDays(rangeStart, 7)
+        : new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 1, 1);
+    const startMs = rangeStart.getTime();
+    const endMs = rangeEnd.getTime();
+    let total = 0;
+    let missing = 0;
+    let count = 0;
+    let totalMinutes = 0;
+    let netTotal = 0;
+    scheduledJobs.forEach((item) => {
+      if (item.scheduledAt < startMs || item.scheduledAt >= endMs) return;
+      count += 1;
+      totalMinutes += item.durationMinutes;
+      const estimate = getJobEstimatedTotal(item.job);
+      if (estimate == null) {
+        missing += 1;
+        return;
+      }
+      total += estimate;
+      const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
+      const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
+      const baseValue = hourlyRateValue != null && billedHours != null
+        ? billedHours * hourlyRateValue
+        : null;
+      const helpersCount = item.job.helpersCount ?? 0;
+      const helpersCost = helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
+        ? billedHours * helperHourlyRateValue * helpersCount
+        : 0;
+      const helperRevenue = baseValue != null ? Math.max(0, estimate - baseValue) : 0;
+      const companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver)
+        ? Math.min(baseValue, billedHours * EXTERNAL_DRIVER_COMPANY_HOURLY_MARGIN)
+        : (baseValue ?? estimate);
+      const distanceKm = jobDistanceKmById.get(item.job.id) ?? null;
+      const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null
+        ? distanceKm * tripCostPerKmValue
+        : 0;
+      netTotal += companyHourlyMargin + helperRevenue - helpersCost - fuelCost - getSchedulingAssistantCost();
+    });
+    return { total, netTotal, missing, count, totalMinutes };
+  }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById, driversById]);
   const handleCalendarToday = () => setCalendarDate(new Date());
   const moveCalendar = (direction: -1 | 1) => {
     setCalendarDate((prev) => {
@@ -1174,6 +2384,7 @@ export default function AdminJobs() {
   };
   const openJobDetail = (jobId: string) => setSelectedJobId(jobId);
   const dayJobs = getDayJobs(calendarDate);
+  const dayLayout = useMemo(() => buildDayLayout(dayJobs, calendarDate), [dayJobs, calendarDate]);
   const dayBlockedHours = new Set<number>();
   dayJobs.forEach((item) => {
     const hours = getHourSlotsForDay(item.start, item.end, calendarDate);
@@ -1191,74 +2402,160 @@ export default function AdminJobs() {
   const nowWithinCalendar = nowMinutes >= calendarStartMinutes && nowMinutes <= calendarEndMinutes;
   const nowTop = nowWithinCalendar ? ((nowMinutes - calendarStartMinutes) / 60) * calendarHourHeight : null;
   const nowTimeLabel = timeFormatter.format(nowDate);
+  const calendarEstimateLabel = calendarEstimateSummary.count === 0
+    ? currencyFormatter.format(0)
+    : calendarEstimateSummary.missing > 0
+      ? 'Configura precios'
+      : currencyFormatter.format(calendarEstimateSummary.total);
+  const calendarEstimateTone = calendarEstimateSummary.missing > 0
+    ? 'border-amber-200 bg-amber-50 text-amber-700'
+    : 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  const calendarNetLabel = calendarEstimateSummary.count === 0
+    ? currencyFormatter.format(0)
+    : calendarEstimateSummary.missing > 0
+      ? 'Configura precios'
+      : currencyFormatter.format(calendarEstimateSummary.netTotal);
+  const calendarNetTone = calendarEstimateSummary.missing > 0
+    ? 'border-amber-200 bg-amber-50 text-amber-700'
+    : 'border-sky-200 bg-sky-50 text-sky-700';
+  const calendarJobsLabel = calendarEstimateSummary.count === 1
+    ? '1 flete'
+    : `${calendarEstimateSummary.count} fletes`;
+  const calendarTotalHoursLabel = `${decimalFormatter.format(calendarEstimateSummary.totalMinutes / 60)} h`;
+
+  if (!adminRole) {
+    return null;
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
       <section className="space-y-4">
           {tab === 'jobs' && (
-            <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-              <div className="flex min-h-[70vh] flex-col gap-3">
+              <div className="grid min-w-0 gap-4 overflow-x-hidden xl:grid-cols-[420px_1fr] xl:h-[calc(100dvh-4rem)]">
+                <div className="flex min-h-[70vh] min-w-0 flex-col gap-3 xl:min-h-0 xl:h-full">
                 <button onClick={() => setOpen(!open)} className="w-full rounded bg-blue-600 p-3 text-white">
                   {open ? 'Cerrar' : 'Nuevo Flete'}
                 </button>
-                {open && (
-                  <form onSubmit={addJob} className="space-y-2 rounded bg-white p-4 shadow">
-                    <input name="cn" placeholder="Cliente" className="w-full border p-2" required />
-                    <textarea
-                      name="description"
-                      placeholder="Descripcion del flete"
-                      className="w-full border p-2 text-sm"
-                      rows={2}
-                    />
-                    <input
-                      name="helpersCount"
-                      type="number"
-                      min="0"
-                      step="1"
-                      placeholder="Ayudantes requeridos"
-                      className="w-full border p-2"
-                    />
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <input name="scheduledDate" type="date" className="w-full border p-2" required />
-                      <input name="scheduledTime" type="time" className="w-full border p-2" required />
-                    </div>
-                    <input
-                      name="estimatedDurationHours"
-                      type="number"
-                      min="0.5"
-                      step="0.5"
-                      placeholder="Duracion estimada (horas)"
-                      className="w-full border p-2"
-                      required
-                    />
-                    <AddressAutocomplete label="Origen" placeholder="Buscar origen" onSelect={setPickup} selected={pickup} />
-                    <AddressAutocomplete label="Destino" placeholder="Buscar destino" onSelect={setDropoff} selected={dropoff} />
-                    <div className="rounded border bg-gray-50 p-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-medium">Paradas extra</p>
-                        <span className="text-xs text-gray-400">{extraStops.length} agregadas</span>
+                  {open && (
+                    <form onSubmit={addJob} className="space-y-4 rounded bg-white p-3 shadow sm:p-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-gray-500">
+                          Cliente
+                          <input
+                            name="cn"
+                            placeholder="Nombre del cliente"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                        <label className="text-xs text-gray-500">
+                          Telefono
+                          <input
+                            name="clientPhone"
+                            type="tel"
+                            placeholder="Telefono del cliente"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          />
+                        </label>
                       </div>
-                      <AddressAutocomplete
-                        key={extraStopKey}
-                        label="Agregar parada"
-                        placeholder="Buscar parada extra"
-                        onSelect={setExtraStopDraft}
-                        selected={extraStopDraft}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => addExtraStop(extraStopDraft)}
-                        disabled={!extraStopDraft}
-                        className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Agregar parada
-                      </button>
-                      {extraStops.length === 0 ? (
-                        <p className="text-xs text-gray-500">Sin paradas extra.</p>
-                      ) : (
-                        <div className="space-y-1">
-                          <p className="text-[11px] text-gray-400">Arrastra para reordenar.</p>
-                          {extraStops.map((stop, index) => (
+                      <label className="text-xs text-gray-500">
+                        Descripcion
+                        <textarea
+                          name="description"
+                          placeholder="Descripcion del flete"
+                          className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          rows={2}
+                        />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-gray-500">
+                          Ayudantes
+                          <input
+                            name="helpersCount"
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="Ayudantes requeridos"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          />
+                        </label>
+                        <label className="text-xs text-gray-500">
+                          Duracion estimada (horas)
+                          <input
+                            name="estimatedDurationHours"
+                            type="number"
+                            min="0.5"
+                            step="0.5"
+                            placeholder="Ej: 2.5"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-gray-500">
+                          Fecha
+                          <input
+                            name="scheduledDate"
+                            type="date"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                        <label className="text-xs text-gray-500">
+                          Hora
+                          <input
+                            name="scheduledTime"
+                            type="time"
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            required
+                          />
+                        </label>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        <div className="min-w-0">
+                          <AddressAutocomplete
+                            label="Origen"
+                            placeholder="Buscar origen"
+                            onSelect={setPickup}
+                            selected={pickup}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <AddressAutocomplete
+                            label="Destino"
+                            placeholder="Buscar destino"
+                            onSelect={setDropoff}
+                            selected={dropoff}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2 rounded border bg-gray-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-medium">Paradas extra</p>
+                          <span className="text-xs text-gray-400">{extraStops.length} agregadas</span>
+                        </div>
+                        <AddressAutocomplete
+                          key={extraStopKey}
+                          label="Agregar parada"
+                          placeholder="Buscar parada extra"
+                          onSelect={setExtraStopDraft}
+                          selected={extraStopDraft}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => addExtraStop(extraStopDraft)}
+                          disabled={!extraStopDraft}
+                          className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Agregar parada
+                        </button>
+                        {extraStops.length === 0 ? (
+                          <p className="text-xs text-gray-500">Sin paradas extra.</p>
+                        ) : (
+                          <div className="space-y-1">
+                            <p className="text-[11px] text-gray-400">Arrastra para reordenar.</p>
+                            {extraStops.map((stop, index) => (
                             <div
                               key={`${stop.lat}-${stop.lng}-${index}`}
                               draggable
@@ -1267,89 +2564,107 @@ export default function AdminJobs() {
                               onDrop={() => handleReorderStop(index)}
                               onDragEnd={() => setDraggedStopIndex(null)}
                               className={cn(
-                                "flex items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
+                                "flex min-w-0 items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
                                 draggedStopIndex === index ? "opacity-60" : "cursor-grab"
                               )}
                             >
-                              <span className="truncate">{stop.address}</span>
+                              <span className="min-w-0 flex-1 truncate">{stop.address}</span>
                               <button
                                 type="button"
                                 onClick={() => removeExtraStop(index)}
                                 className="text-amber-600"
-                              >
-                                Quitar
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <select name="driverId" className="w-full border p-2">
-                      <option value="">Sin asignar</option>
-                      {drivers.map((driver) => (
-                        <option key={driver.id} value={driver.id}>
-                          {driver.name} ({driver.code})
-                        </option>
-                      ))}
-                    </select>
-                    <div className="rounded border bg-gray-50 p-3 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-sm font-medium">Seleccion en mapa</p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setMapTarget('pickup')}
-                            className={cn(
-                              "rounded border px-2 py-1 text-xs",
-                              mapTarget === 'pickup' ? "border-green-600 bg-green-600 text-white" : "bg-white text-gray-600"
-                            )}
-                          >
-                            Origen
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMapTarget('dropoff')}
-                            className={cn(
-                              "rounded border px-2 py-1 text-xs",
-                              mapTarget === 'dropoff' ? "border-red-600 bg-red-600 text-white" : "bg-white text-gray-600"
-                            )}
-                          >
-                            Destino
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setMapTarget('extra')}
-                            className={cn(
-                              "rounded border px-2 py-1 text-xs",
-                              mapTarget === 'extra' ? "border-amber-500 bg-amber-500 text-white" : "bg-white text-gray-600"
-                            )}
-                          >
-                            Parada
-                          </button>
-                        </div>
+                                >
+                                  Quitar
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
-                      <MapLocationPicker
-                        pickup={pickup}
-                        dropoff={dropoff}
-                        extraStops={extraStops}
-                        active={mapTarget}
-                        onSelect={(kind, location) => {
-                          if (kind === 'pickup') {
-                            setPickup(location);
-                          } else if (kind === 'dropoff') {
-                            setDropoff(location);
-                          } else {
-                            setExtraStops((prev) => [...prev, location]);
-                            setExtraStopDraft(null);
-                            setExtraStopKey((prev) => prev + 1);
-                          }
-                        }}
-                      />
-                    </div>
-                    <button className="w-full rounded bg-green-600 p-2 text-white">Guardar</button>
-                  </form>
-                )}
+                      <label className="text-xs text-gray-500">
+                        Conductor
+                        <select name="driverId" className="mt-1 w-full rounded border px-3 py-2 text-sm">
+                          <option value="">Sin asignar</option>
+                          {drivers.map((driver) => (
+                            <option key={driver.id} value={driver.id}>
+                              {driver.name} ({driver.code})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="space-y-2 rounded border bg-gray-50 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-medium">Seleccion en mapa</p>
+                          <MapTargetSelector value={mapTarget} onChange={setMapTarget} />
+                        </div>
+                        <p className="text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
+                        <MapLocationPicker
+                          pickup={pickup}
+                          dropoff={dropoff}
+                          extraStops={extraStops}
+                          active={mapTarget}
+                          onSelect={handleCreateMapSelect}
+                        />
+                      </div>
+                      <div className="rounded border bg-blue-50/70 p-3 text-sm">
+                        <p className="font-semibold text-blue-900">Tiempos estimados del flete</p>
+                        {(!pickup || !dropoff) && (
+                          <p className="mt-1 text-blue-800">
+                            Completa origen y destino para estimar el tiempo entre ambos puntos.
+                          </p>
+                        )}
+                        {pickup && dropoff && loadingBaseTravelEstimate && (
+                          <p className="mt-1 text-blue-800">Calculando tiempo estimado...</p>
+                        )}
+                        {pickup && dropoff && !loadingBaseTravelEstimate && baseTravelEstimate && (
+                          <div className="mt-2 space-y-1 text-blue-900">
+                            <p className="font-semibold">
+                              Origen {'->'} Destino: {tripTravelLabel} | {tripTravelDistanceLabel}
+                            </p>
+                            {operationsBaseLocation && (
+                              <>
+                                <p className="mt-2 font-medium text-blue-800">
+                                  Referencia desde base operativa
+                                </p>
+                                <p>
+                                  <span className="font-medium">Origen:</span> {pickupBaseTravelLabel}
+                                </p>
+                                <p>
+                                  <span className="font-medium">Destino:</span> {dropoffBaseTravelLabel}
+                                </p>
+                                <p className="font-semibold">
+                                  Punto mas lejano: {farthestPointLabel} ({farthestBaseTravelLabel} | {farthestBaseTravelDistanceLabel})
+                                </p>
+                              </>
+                            )}
+                            {!operationsBaseLocation && (
+                              <p className="text-xs text-blue-700">
+                                Si configuras la base operativa en Configuracion, tambien vas a ver la ida o vuelta al punto mas lejano.
+                              </p>
+                            )}
+                            <p>
+                              <span className="font-medium">Uso:</span>{' '}
+                              <span className="text-xs text-blue-700">
+                              Informativo para decidir el precio. No se usa en ningun calculo automatico.
+                              </span>
+                            </p>
+                          </div>
+                        )}
+                        {pickup && dropoff && !loadingBaseTravelEstimate && !baseTravelEstimate && (
+                          <p className="mt-1 text-blue-800">
+                            No se pudo estimar el tiempo para este recorrido.
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={savingJob}
+                        className="w-full rounded bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        {savingJob ? 'Guardando...' : 'Guardar'}
+                      </button>
+                    </form>
+                  )}
 
                 {!loadingJobs && (
                   <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
@@ -1423,7 +2738,7 @@ export default function AdminJobs() {
                   </div>
                 )}
 
-                <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
+                <div className="flex-1 min-h-0 space-y-2 overflow-x-hidden overflow-y-auto pr-1">
                   {loadingJobs && <p className="text-sm text-gray-500">Cargando fletes...</p>}
                   {!loadingJobs && jobs?.length === 0 && <p className="text-sm text-gray-500">No hay fletes cargados.</p>}
                   {!loadingJobs && jobs?.length > 0 && filteredJobs.length === 0 && (
@@ -1439,6 +2754,9 @@ export default function AdminJobs() {
                     const estimatedLabel = Number.isFinite(job.estimatedDurationMinutes)
                       ? formatDurationMs((job.estimatedDurationMinutes as number) * 60000)
                       : 'N/D';
+                    const distanceKm = getJobDistanceKm(job);
+                    const hasRealDistance = Number.isFinite(job.distanceKm) || Number.isFinite(job.distanceMeters);
+                    const distanceLabel = distanceKm != null ? `${decimalFormatter.format(distanceKm)} km` : 'N/D';
                     const driver = job.driverId ? driversById.get(job.driverId) : null;
                     const isEditing = editingJobId === job.id;
                     const statusBadge = getStatusBadge(job.status);
@@ -1454,8 +2772,8 @@ export default function AdminJobs() {
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="font-semibold text-gray-900 truncate">{job.clientName}</p>
+                            <div className="flex min-w-0 items-center gap-2">
+                              <p className="min-w-0 flex-1 truncate font-semibold text-gray-900">{job.clientName}</p>
                               <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", statusBadge.className)}>
                                 {statusBadge.label}
                               </span>
@@ -1465,13 +2783,13 @@ export default function AdminJobs() {
                               <p className="text-xs text-gray-600">Descripcion: {job.description}</p>
                             )}
                             <div className="mt-1 space-y-1">
-                              <div className="flex items-start gap-2 text-xs text-gray-600">
+                              <div className="flex min-w-0 items-start gap-2 text-xs text-gray-600">
                                 <MapPin size={12} className="mt-0.5 text-emerald-600" />
-                                <span className="truncate">{job.pickup.address}</span>
+                                <span className="min-w-0 flex-1 truncate">{job.pickup.address}</span>
                               </div>
-                              <div className="flex items-start gap-2 text-xs text-gray-600">
+                              <div className="flex min-w-0 items-start gap-2 text-xs text-gray-600">
                                 <Flag size={12} className="mt-0.5 text-rose-600" />
-                                <span className="truncate">{job.dropoff.address}</span>
+                                <span className="min-w-0 flex-1 truncate">{job.dropoff.address}</span>
                               </div>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-500">
@@ -1479,6 +2797,9 @@ export default function AdminJobs() {
                               <span>Ayudantes: {job.helpersCount ?? 0}</span>
                               {job.extraStops && job.extraStops.length > 0 && (
                                 <span>Paradas: {job.extraStops.length}</span>
+                              )}
+                              {distanceKm != null && (
+                                <span>{hasRealDistance ? 'Km reales' : 'Km estimados'}: {distanceLabel}</span>
                               )}
                               <span>Carga: {loading}</span>
                               <span>Viaje: {trip}</span>
@@ -1538,13 +2859,13 @@ export default function AdminJobs() {
                           </div>
                         </div>
                         {!isEditing && (
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
                             <label className="text-xs text-gray-500">Conductor:</label>
                             <select
                               value={job.driverId ?? ''}
                               onClick={(event) => event.stopPropagation()}
                               onChange={(event) => handleAssignJob(job, event.target.value)}
-                              className="rounded border px-2 py-1 text-xs"
+                              className="w-full max-w-full rounded border px-2 py-1 text-xs sm:w-auto"
                             >
                               <option value="">Sin asignar</option>
                               {drivers.map((driver) => (
@@ -1558,21 +2879,30 @@ export default function AdminJobs() {
                         )}
                         {isEditing && (
                           <div className="rounded border bg-gray-50 p-3" onClick={(event) => event.stopPropagation()}>
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <label className="text-xs text-gray-500">
-                                Cliente
-                                <input
-                                  type="text"
-                                  value={editDraft.clientName}
-                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, clientName: event.target.value }))}
-                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                                />
-                              </label>
-                              <label className="text-xs text-gray-500">
-                                Fecha
-                                <input
-                                  type="date"
-                                  value={editDraft.scheduledDate}
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <label className="text-xs text-gray-500">
+                                  Cliente
+                                  <input
+                                    type="text"
+                                    value={editDraft.clientName}
+                                    onChange={(event) => setEditDraft((prev) => ({ ...prev, clientName: event.target.value }))}
+                                    className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                  />
+                                </label>
+                                <label className="text-xs text-gray-500">
+                                  Telefono
+                                  <input
+                                    type="tel"
+                                    value={editDraft.clientPhone}
+                                    onChange={(event) => setEditDraft((prev) => ({ ...prev, clientPhone: event.target.value }))}
+                                    className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                  />
+                                </label>
+                                <label className="text-xs text-gray-500">
+                                  Fecha
+                                  <input
+                                    type="date"
+                                    value={editDraft.scheduledDate}
                                   onChange={(event) => setEditDraft((prev) => ({ ...prev, scheduledDate: event.target.value }))}
                                   className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
                                 />
@@ -1624,19 +2954,98 @@ export default function AdminJobs() {
                                 </select>
                               </label>
                             </div>
-                            <label className="mt-2 block text-xs text-gray-500">
-                              Descripcion
-                              <textarea
-                                value={editDraft.description}
-                                onChange={(event) => setEditDraft((prev) => ({ ...prev, description: event.target.value }))}
-                                rows={2}
-                                className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
-                              />
-                            </label>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleSaveEditJob(job)}
+                              <label className="mt-2 block text-xs text-gray-500">
+                                Descripcion
+                                <textarea
+                                  value={editDraft.description}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, description: event.target.value }))}
+                                  rows={2}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                />
+                              </label>
+                              <div className="mt-3 space-y-2">
+                                <AddressAutocomplete
+                                  label="Origen"
+                                  placeholder="Buscar origen"
+                                  onSelect={setEditPickup}
+                                  selected={editPickup}
+                                />
+                                <AddressAutocomplete
+                                  label="Destino"
+                                  placeholder="Buscar destino"
+                                  onSelect={setEditDropoff}
+                                  selected={editDropoff}
+                                />
+                                <div className="rounded border bg-white p-2 space-y-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-xs font-medium">Paradas extra</p>
+                                    <span className="text-[10px] text-gray-400">{editExtraStops.length} agregadas</span>
+                                  </div>
+                                  <AddressAutocomplete
+                                    key={editExtraStopKey}
+                                    label="Agregar parada"
+                                    placeholder="Buscar parada extra"
+                                    onSelect={setEditExtraStopDraft}
+                                    selected={editExtraStopDraft}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => addEditExtraStop(editExtraStopDraft)}
+                                    disabled={!editExtraStopDraft}
+                                    className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-1 text-[10px] font-semibold text-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    Agregar parada
+                                  </button>
+                                  {editExtraStops.length === 0 ? (
+                                    <p className="text-[10px] text-gray-500">Sin paradas extra.</p>
+                                  ) : (
+                                    <div className="space-y-1">
+                                      <p className="text-[10px] text-gray-400">Arrastra para reordenar.</p>
+                                      {editExtraStops.map((stop, index) => (
+                                        <div
+                                          key={`${stop.lat}-${stop.lng}-${index}`}
+                                          draggable
+                                          onDragStart={() => setEditDraggedStopIndex(index)}
+                                          onDragOver={(event) => event.preventDefault()}
+                                          onDrop={() => handleReorderEditStop(index)}
+                                          onDragEnd={() => setEditDraggedStopIndex(null)}
+                                          className={cn(
+                                            "flex min-w-0 items-center justify-between gap-2 rounded bg-white px-2 py-1 text-[10px] text-gray-600",
+                                            editDraggedStopIndex === index ? "opacity-60" : "cursor-grab"
+                                          )}
+                                        >
+                                          <span className="min-w-0 flex-1 truncate">{stop.address}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeEditExtraStop(index)}
+                                            className="text-amber-600"
+                                          >
+                                            Quitar
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="rounded border bg-white p-2 space-y-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-xs font-medium">Seleccion en mapa</p>
+                                    <MapTargetSelector value={editMapTarget} onChange={setEditMapTarget} size="xs" />
+                                  </div>
+                                  <p className="text-[10px] text-gray-500">Click en el mapa para asignar {editMapTargetLabel}.</p>
+                                  <MapLocationPicker
+                                    pickup={editPickup}
+                                    dropoff={editDropoff}
+                                    extraStops={editExtraStops}
+                                    active={editMapTarget}
+                                    onSelect={handleEditMapSelect}
+                                  />
+                                </div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEditJob(job)}
                                 disabled={savingEditId === job.id}
                                 className="rounded border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
@@ -1658,8 +3067,8 @@ export default function AdminJobs() {
                 </div>
               </div>
 
-              <div className="relative min-h-[70vh] rounded-2xl border bg-white shadow-sm">
-                <div className="absolute left-4 right-4 top-4 z-10">
+              <div className="relative min-h-[70vh] min-w-0 rounded-2xl border bg-white shadow-sm xl:h-full xl:sticky xl:top-8">
+                <div className="absolute left-4 right-4 top-4 z-10 space-y-3">
                   <div className="rounded-xl bg-white/95 p-3 shadow">
                     <AddressAutocomplete
                       label="Buscar direccion"
@@ -1668,12 +3077,50 @@ export default function AdminJobs() {
                       selected={mapSearchLocation}
                     />
                   </div>
+                  {editingJobId && (
+                    <div className="rounded-xl bg-white/95 p-3 shadow">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-gray-700">Mapa de edicion</p>
+                        <MapTargetSelector value={editMapTarget} onChange={setEditMapTarget} />
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">Click en el mapa para asignar {editMapTargetLabel}.</p>
+                    </div>
+                  )}
+                  {!editingJobId && open && (
+                    <div className="rounded-xl bg-white/95 p-3 shadow">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-gray-700">Mapa de carga</p>
+                        <MapTargetSelector value={mapTarget} onChange={setMapTarget} />
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">Click en el mapa para asignar {mapTargetLabel}.</p>
+                    </div>
+                  )}
                 </div>
-                {selectedMapJob ? (
+                {editingJobId ? (
+                  <MapLocationPicker
+                    pickup={editPickup}
+                    dropoff={editDropoff}
+                    extraStops={editExtraStops}
+                    active={editMapTarget}
+                    onSelect={handleEditMapSelect}
+                    focusLocation={mapSearchLocation}
+                    className="h-full min-h-[70vh] xl:min-h-0"
+                  />
+                ) : open ? (
+                  <MapLocationPicker
+                    pickup={pickup}
+                    dropoff={dropoff}
+                    extraStops={extraStops}
+                    active={mapTarget}
+                    onSelect={handleCreateMapSelect}
+                    focusLocation={mapSearchLocation}
+                    className="h-full min-h-[70vh] xl:min-h-0"
+                  />
+                ) : selectedMapJob ? (
                   <JobRoutePreviewMap
                     job={selectedMapJob}
                     focusLocation={mapSearchLocation}
-                    className="h-full min-h-[70vh]"
+                    className="h-full min-h-[70vh] xl:min-h-0"
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-gray-500">
@@ -1687,7 +3134,7 @@ export default function AdminJobs() {
           {tab === 'calendar' && (
             <div className="space-y-4">
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-gray-400">Calendario</p>
                     <h2 className="text-lg font-semibold text-gray-900">Agenda de fletes</h2>
@@ -1718,8 +3165,38 @@ export default function AdminJobs() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-gray-700">{calendarRangeLabel}</p>
+                <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className="text-sm font-semibold text-gray-700">{calendarRangeLabel}</p>
+                    {canSeeMoney && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-gray-400">Total estimado</span>
+                        <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarEstimateTone)}>
+                          {calendarEstimateLabel}
+                        </span>
+                      </div>
+                    )}
+                    {canSeeMoney && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wide text-gray-400">Neto estimado</span>
+                        <span className={cn("rounded-full border px-2 py-0.5 text-xs font-semibold", calendarNetTone)}>
+                          {calendarNetLabel}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Fletes agendados</span>
+                      <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                        {calendarJobsLabel}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] uppercase tracking-wide text-gray-400">Horas totales</span>
+                      <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                        {calendarTotalHoursLabel}
+                      </span>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1791,16 +3268,42 @@ export default function AdminJobs() {
                           )}
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
+                            const estimateValue = getJobEstimatedTotal(item.job);
+                            const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                            const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
+                            const driverLabel = driver?.name ?? 'Sin asignar';
+                            const driverColors = getDriverColors(item.job.driverId);
+                            const layoutEntry = dayLayout.get(item.job.id);
+                            const columnStyle = getEventColumnStyle(layoutEntry);
+                            const isDense = (layoutEntry?.columns ?? 1) > 2;
                             if (!style) return null;
                             return (
                               <div
                                 key={item.job.id}
                                 onClick={() => openJobDetail(item.job.id)}
-                                className="absolute left-2 right-2 cursor-pointer rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-800 shadow-sm hover:bg-blue-100"
-                                style={{ top: style.top, height: style.height }}
+                                className={cn(
+                                  "absolute cursor-pointer rounded-lg border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                  isDense ? "pl-1 pr-1 text-[10px]" : "pl-2 pr-12 text-[11px]"
+                                )}
+                                style={{
+                                  top: style.top,
+                                  height: style.height,
+                                  ...columnStyle,
+                                  backgroundColor: driverColors.background,
+                                  borderColor: driverColors.border,
+                                  color: driverColors.text,
+                                }}
                               >
+                                {!isDense && estimateLabel && (
+                                  <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                                    {estimateLabel}
+                                  </span>
+                                )}
+                                <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
+                                  {driverLabel}
+                                </div>
                                 <div className="font-semibold truncate">{item.job.clientName}</div>
-                                <div className="text-[10px] text-blue-600">
+                                <div className={cn("truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
                                   {formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
@@ -1864,6 +3367,7 @@ export default function AdminJobs() {
                           </div>
                           {weekDays.map((day) => {
                             const items = getDayJobs(day);
+                            const dayLayoutWeek = buildDayLayout(items, day);
                             const isToday = isSameDay(day, calendarToday);
                             return (
                               <div
@@ -1889,16 +3393,42 @@ export default function AdminJobs() {
                                 )}
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
+                                  const estimateValue = getJobEstimatedTotal(item.job);
+                                  const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                  const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
+                                  const driverLabel = driver?.name ?? 'Sin asignar';
+                                  const driverColors = getDriverColors(item.job.driverId);
+                                  const layoutEntry = dayLayoutWeek.get(item.job.id);
+                                  const columnStyle = getEventColumnStyle(layoutEntry);
+                                  const isDense = (layoutEntry?.columns ?? 1) > 2;
                                   if (!style) return null;
                                   return (
                                     <div
                                       key={item.job.id}
                                       onClick={() => openJobDetail(item.job.id)}
-                                      className="absolute left-1 right-1 cursor-pointer rounded-md border border-blue-200 bg-blue-50 px-1.5 py-1 text-[10px] text-blue-800 shadow-sm hover:bg-blue-100"
-                                      style={{ top: style.top, height: style.height }}
+                                      className={cn(
+                                        "absolute cursor-pointer rounded-md border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                        isDense ? "pl-1 pr-1 text-[9px]" : "pl-1.5 pr-11 text-[10px]"
+                                      )}
+                                      style={{
+                                        top: style.top,
+                                        height: style.height,
+                                        ...columnStyle,
+                                        backgroundColor: driverColors.background,
+                                        borderColor: driverColors.border,
+                                        color: driverColors.text,
+                                      }}
                                     >
+                                      {!isDense && estimateLabel && (
+                                        <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
+                                          {estimateLabel}
+                                        </span>
+                                      )}
+                                      <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
+                                        {driverLabel}
+                                      </div>
                                       <div className="font-semibold truncate">{item.job.clientName}</div>
-                                      <div className="text-[9px] text-blue-600">
+                                      <div className={cn("truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
                                         {formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
                                     </div>
@@ -1948,15 +3478,37 @@ export default function AdminJobs() {
                               )}
                             </div>
                             <div className="mt-2 space-y-1">
-                              {items.slice(0, 3).map((item) => (
-                                <div
-                                  key={item.job.id}
-                                  onClick={() => openJobDetail(item.job.id)}
-                                  className="truncate rounded bg-gray-100 px-2 py-1 text-[10px] text-gray-700 cursor-pointer hover:bg-gray-200"
-                                >
-                                  {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
-                                </div>
-                              ))}
+                              {items.slice(0, 3).map((item) => {
+                                const estimateValue = getJobEstimatedTotal(item.job);
+                                const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
+                                const driverLabel = driver?.name ?? 'Sin asignar';
+                                const driverColors = getDriverColors(item.job.driverId);
+                                return (
+                                  <div
+                                    key={item.job.id}
+                                    onClick={() => openJobDetail(item.job.id)}
+                                    className="relative rounded border px-2 py-1 text-[9px] leading-tight cursor-pointer hover:shadow"
+                                    style={{
+                                      backgroundColor: driverColors.background,
+                                      borderColor: driverColors.border,
+                                      color: driverColors.text,
+                                    }}
+                                  >
+                                    {estimateLabel && (
+                                      <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
+                                        {estimateLabel}
+                                      </span>
+                                    )}
+                                    <div className="truncate font-semibold" style={{ color: driverColors.accent }}>
+                                      {driverLabel}
+                                    </div>
+                                    <div className="truncate">
+                                      {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                               {items.length > 3 && (
                                 <p className="text-[10px] text-gray-400">+{items.length - 3} mas</p>
                               )}
@@ -1976,12 +3528,19 @@ export default function AdminJobs() {
             </div>
           )}
 
+          {tab === 'leads' && (
+            <AdminLeads canDelete={isOwner} />
+          )}
+
           {tab === 'drivers' && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-wide text-gray-400">Conductores</p>
                   <h2 className="text-lg font-semibold text-gray-900">Gestion de conductores</h2>
+                  {canSeeMoney && (
+                    <p className="text-xs text-gray-500">La deuda con el dueno se calcula sobre fletes cobrados y es acumulada hasta registrar una liquidacion manual.</p>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -1995,13 +3554,131 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-3 shadow-sm space-y-2">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-gray-900">Mapa general</p>
-                  <span className="text-xs text-gray-400">Actualiza cada 12s</span>
+                  <span className="text-xs text-gray-400">
+                    {isDriversMapRealtimeActive ? 'Actualiza cada 2s' : 'Actualiza cada 12s'}
+                  </span>
                 </div>
-                <div className="relative">
-                  <DriversOverviewMap locations={driverLocations} drivers={drivers} />
+                <div ref={driversMapContainerRef} className="relative">
+                  <DriversOverviewMap locations={driverLocations} drivers={drivers} jobs={jobs} />
                   {loadingLocations && (
                     <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/70 text-xs text-gray-500">
                       Cargando ubicaciones...
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400">
+                  Mientras el mapa este visible, refresca ubicaciones y estados en tiempo real cada 2 segundos.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Vehiculos</p>
+                    <p className="text-sm font-semibold text-gray-900">Carga y costos</p>
+                  </div>
+                  <span className="text-xs text-gray-400">{vehicles.length} registrados</span>
+                </div>
+                <form onSubmit={handleCreateVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
+                  <div>
+                    <label className="text-xs text-gray-500">Nombre</label>
+                    <input
+                      value={vehicleName}
+                      onChange={(event) => setVehicleName(event.target.value)}
+                      placeholder="Nombre del vehiculo"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Tamano</label>
+                    <select
+                      value={vehicleSize}
+                      onChange={(event) => setVehicleSize(event.target.value as 'chico' | 'mediano' | 'grande')}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                    >
+                      <option value="chico">Chico</option>
+                      <option value="mediano">Mediano</option>
+                      <option value="grande">Grande</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Propiedad</label>
+                    <select
+                      value={vehicleOwnershipType}
+                      onChange={(event) => setVehicleOwnershipType(event.target.value as VehicleOwnershipType)}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                    >
+                      <option value="owner">Del dueno</option>
+                      <option value="driver">Del chofer</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Gasto por km</label>
+                    <input
+                      value={vehicleCostPerKmInput}
+                      onChange={(event) => setVehicleCostPerKmInput(event.target.value)}
+                      placeholder="0.00"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Gasto fijo mensual</label>
+                    <input
+                      value={vehicleFixedMonthlyInput}
+                      onChange={(event) => setVehicleFixedMonthlyInput(event.target.value)}
+                      placeholder="0.00"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="submit"
+                      disabled={savingVehicle}
+                      className="w-full rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {savingVehicle ? 'Guardando...' : 'Agregar'}
+                    </button>
+                  </div>
+                </form>
+                <div className="space-y-2">
+                  {loadingVehicles && <p className="text-sm text-gray-500">Cargando vehiculos...</p>}
+                  {!loadingVehicles && vehicles.length === 0 && (
+                    <p className="text-sm text-gray-500">No hay vehiculos cargados.</p>
+                  )}
+                  {!loadingVehicles && vehicles.length > 0 && (
+                    <div className="space-y-2">
+                      {vehicles.map((vehicle) => (
+                        <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2 text-sm">
+                          <div>
+                            <p className="font-semibold text-gray-900">{vehicle.name}</p>
+                            <p className="text-xs text-gray-500">
+                              {vehicleSizeLabels[vehicle.size]} | {vehicleOwnershipLabels[vehicle.ownershipType]}
+                            </p>
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.costPerKm)}</span> / km
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.fixedMonthlyCost)}</span> mensual
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteVehicle(vehicle.id)}
+                            className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-500"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -2013,11 +3690,30 @@ export default function AdminJobs() {
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {drivers.map((driver) => {
                     const isActive = driver.active;
+                    const assignedVehicle = driver.vehicleId ? vehiclesById.get(driver.vehicleId) : null;
+                    const driverColors = getDriverColors(driver.id);
+                    const debtSummary = driverDebtSummaryById.get(driver.id) ?? {
+                      collectedTrips: 0,
+                      collectedTotal: 0,
+                      driverKept: 0,
+                      grossOwnerDebt: 0,
+                      settledAmount: 0,
+                      outstandingDebt: 0,
+                    };
+                    const debtDraft = driverDebtDrafts[driver.id] ?? '';
+                    const isSettlingDebt = settlingDriverId === driver.id;
                     return (
-                      <div key={driver.id} className="flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm">
+                      <div
+                        key={driver.id}
+                        className="flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm"
+                        style={{ borderColor: driverColors.border }}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <p className="text-base font-semibold text-gray-900">{driver.name}</p>
+                            <div className="flex items-center gap-2">
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: driverColors.accent }} />
+                              <p className="text-base font-semibold text-gray-900">{driver.name}</p>
+                            </div>
                             <p className="text-sm font-semibold text-gray-800">
                               Codigo: <span className="font-mono">{driver.code}</span>
                             </p>
@@ -2025,6 +3721,65 @@ export default function AdminJobs() {
                             <p className="text-xs text-gray-400">
                               Ubicacion: {driverLocationsById.has(driver.id) ? 'Disponible' : 'Sin datos'}
                             </p>
+                            {canSeeMoney && (
+                              <div className="mt-2 rounded-lg border border-amber-100 bg-amber-50 px-2.5 py-2">
+                                <p className="text-[11px] uppercase tracking-wide text-amber-700">Deuda con el dueno</p>
+                                <p className="text-base font-semibold text-amber-900">{currencyFormatter.format(debtSummary.outstandingDebt)}</p>
+                                <p className="text-[11px] text-amber-800">
+                                  {debtSummary.collectedTrips} cobrados | Liquidado {currencyFormatter.format(debtSummary.settledAmount)}
+                                </p>
+                                <p className="text-[11px] text-amber-800">
+                                  Total a favor del dueno {currencyFormatter.format(debtSummary.grossOwnerDebt)}
+                                </p>
+                                <div className="mt-2 flex flex-wrap items-end gap-2">
+                                  <label className="min-w-[140px] flex-1">
+                                    <span className="text-[11px] uppercase tracking-wide text-amber-700">Monto cobrado</span>
+                                    <input
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="0"
+                                      step="0.01"
+                                      placeholder={debtSummary.outstandingDebt > 0 ? String(debtSummary.outstandingDebt) : '0'}
+                                      value={debtDraft}
+                                      onChange={(event) => {
+                                        const value = event.target.value;
+                                        setDriverDebtDrafts((prev) => ({ ...prev, [driver.id]: value }));
+                                      }}
+                                      className="mt-1 w-full rounded border border-amber-200 bg-white px-2 py-1 text-xs text-gray-700"
+                                      disabled={isSettlingDebt || debtSummary.outstandingDebt <= 0}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSettleDriverDebt(driver)}
+                                    disabled={isSettlingDebt || debtSummary.outstandingDebt <= 0}
+                                    className="rounded border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {isSettlingDebt ? 'Liquidando...' : 'Liquidar deuda'}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                            <div className="mt-2">
+                              <label className="text-[11px] uppercase tracking-wide text-gray-400">Vehiculo</label>
+                              <select
+                                value={driver.vehicleId ?? ''}
+                                onChange={(event) => handleAssignVehicle(driver, event.target.value)}
+                                className="mt-1 w-full rounded border px-2 py-1 text-xs"
+                              >
+                                <option value="">Sin asignar</option>
+                                {vehicles.map((vehicle) => (
+                                  <option key={vehicle.id} value={vehicle.id}>
+                                    {vehicle.name} ({vehicleSizeLabels[vehicle.size]}, {vehicleOwnershipLabels[vehicle.ownershipType]})
+                                  </option>
+                                ))}
+                              </select>
+                              {assignedVehicle && (
+                                <p className="mt-1 text-[11px] text-gray-500">
+                                  {currencyFormatter.format(assignedVehicle.costPerKm)} / km
+                                </p>
+                              )}
+                            </div>
                           </div>
                           <div className="flex flex-col items-end gap-2">
                             <button
@@ -2136,8 +3891,11 @@ export default function AdminJobs() {
                         >
                           Cancelar
                         </button>
-                        <button className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white">
-                          Guardar conductor
+                        <button
+                          disabled={savingDriver}
+                          className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                        >
+                          {savingDriver ? 'Guardando...' : 'Guardar conductor'}
                         </button>
                       </div>
                     </form>
@@ -2151,50 +3909,74 @@ export default function AdminJobs() {
             <div className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Ingreso por hora real</p>
-                  <p className="text-2xl font-semibold text-gray-900">{realHourlyLabel}</p>
-                  <p className="text-xs text-gray-500">{realHourlyMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Ingreso por hora real</p>
+                  <p className="text-3xl font-semibold text-gray-900">{realHourlyLabel}</p>
+                  <p className="text-sm text-gray-500">{realHourlyMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Margen neto por viaje</p>
-                  <p className="text-2xl font-semibold text-gray-900">{netMarginLabel}</p>
-                  <p className="text-xs text-gray-500">{netMarginMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Margen neto por viaje</p>
+                  <p className="text-3xl font-semibold text-gray-900">{netMarginLabel}</p>
+                  <p className="text-sm text-gray-500">{netMarginMeta}</p>
                   {variableCostLabel && (
-                    <p className="text-[11px] text-gray-400">Costos: {variableCostLabel}</p>
+                    <p className="text-sm text-gray-400">Costos: {variableCostLabel}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Viajes por dia</p>
-                  <p className="text-2xl font-semibold text-gray-900">{tripsPerDayLabel}</p>
-                  <p className="text-xs text-gray-500">{tripsPerDayMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Viajes por dia</p>
+                  <p className="text-3xl font-semibold text-gray-900">{tripsPerDayLabel}</p>
+                  <p className="text-sm text-gray-500">{tripsPerDayMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Clientes recurrentes</p>
-                  <p className="text-2xl font-semibold text-gray-900">{recurringPercentLabel}</p>
-                  <p className="text-xs text-gray-500">{recurringMeta}</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Km reales del mes</p>
+                  <p className="text-3xl font-semibold text-gray-900">{distanceTotalLabel}</p>
+                  <p className="text-sm text-gray-500">{distanceMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Costo fijo mensual</p>
-                  <p className="text-2xl font-semibold text-gray-900">{fixedMonthlyCostLabel}</p>
-                  <p className="text-xs text-gray-500">Se prorratea en el margen.</p>
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Clientes recurrentes</p>
+                  <p className="text-3xl font-semibold text-gray-900">{recurringPercentLabel}</p>
+                  <p className="text-sm text-gray-500">{recurringMeta}</p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Costo fijo mensual</p>
+                  <p className="text-3xl font-semibold text-gray-900">{fixedMonthlyCostLabel}</p>
+                  <p className="text-sm text-gray-500">Se prorratea en el margen.</p>
                 </div>
               </div>
 
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos diarios acumulados</p>
-                    <p className="text-lg font-semibold text-gray-900">Progreso del mes: {currentMonthLabel}</p>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Ingresos diarios acumulados</p>
+                    <p className="text-xl font-semibold text-gray-900">Progreso del mes: {currentMonthLabel}</p>
                   </div>
-                  {!hasMonthlyPricing && (
-                    <span className="text-xs text-amber-600">Configura precios para ver montos</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {!hasMonthlyPricing && (
+                      <span className="text-sm text-amber-600">Configura precios para ver montos</span>
+                    )}
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-3 w-3 rounded-full bg-sky-600" />
+                        Bruto
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-3 w-3 rounded-full bg-orange-500" />
+                        Neto
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-3 text-3xl font-semibold text-emerald-600">
-                  {dailyTotalLabel}
-                </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Bruto acumulado</p>
+                      <p className="text-3xl font-semibold text-sky-600">{dailyTotalLabel}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Neto acumulado</p>
+                      <p className="text-3xl font-semibold text-orange-600">{dailyNetLabel}</p>
+                    </div>
+                  </div>
                 <div className="mt-4">
-                  <svg viewBox="0 0 720 240" className="h-44 w-full">
+                  <svg viewBox="0 0 720 240" className="h-56 w-full">
                     <defs>
                       <linearGradient id="daily-line" x1="0" x2="0" y1="0" y2="1">
                         <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.4" />
@@ -2205,8 +3987,8 @@ export default function AdminJobs() {
                       const y = 20 + (150 * index) / (dailyRevenueTicks.length - 1);
                       return (
                         <g key={tick.value}>
-                          <line x1="60" y1={y} x2="700" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
-                          <text x="6" y={y + 4} fontSize="10" fill="#6b7280">
+                          <line x1={90} y1={y} x2={700} y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
+                          <text x={78} y={y + 4} fontSize="12" textAnchor="end" fill="#6b7280">
                             {tick.label}
                           </text>
                         </g>
@@ -2216,9 +3998,9 @@ export default function AdminJobs() {
                       fill="url(#daily-line)"
                       stroke="none"
                       points={[
-                        `60,170`,
+                        `90,170`,
                         ...dailyRevenueSeries.map((item, index) => {
-                          const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                          const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                           const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
                           return `${x},${y}`;
                         }),
@@ -2232,24 +4014,45 @@ export default function AdminJobs() {
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       points={dailyRevenueSeries.map((item, index) => {
-                        const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                        const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                         const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
                         return `${x},${y}`;
                       }).join(' ')}
                     />
+                    <polyline
+                      fill="none"
+                      stroke="#f97316"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={dailyRevenueSeries.map((item, index) => {
+                        const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                        const netValue = Math.max(0, item.net);
+                        const y = 20 + (150 * (1 - netValue / dailyRevenueScaleMax));
+                        return `${x},${y}`;
+                      }).join(' ')}
+                    />
                     {dailyRevenueSeries.map((item, index) => {
-                      const x = 60 + (640 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                      const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
                       const y = 20 + (150 * (1 - item.total / dailyRevenueScaleMax));
                       const showLabel = item.day === 1 || item.day % 5 === 0 || index === dailyRevenueSeries.length - 1;
                       return (
                         <g key={item.key}>
-                          <circle cx={x} cy={y} r="3.5" fill="#0284c7" />
+                          <circle cx={x} cy={y} r="4.5" fill="#0284c7" />
                           {showLabel && (
-                            <text x={x} y="208" textAnchor="middle" fontSize="9" fill="#6b7280">
+                            <text x={x} y="208" textAnchor="middle" fontSize="11" fill="#6b7280">
                               {item.day}
                             </text>
                           )}
                         </g>
+                      );
+                    })}
+                    {dailyRevenueSeries.map((item, index) => {
+                      const x = 90 + (610 * (dailyRevenueSeries.length === 1 ? 0.5 : index / (dailyRevenueSeries.length - 1)));
+                      const netValue = Math.max(0, item.net);
+                      const y = 20 + (150 * (1 - netValue / dailyRevenueScaleMax));
+                      return (
+                        <circle key={`${item.key}-net`} cx={x} cy={y} r="3.5" fill="#f97316" />
                       );
                     })}
                   </svg>
@@ -2259,18 +4062,30 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Ingresos por mes</p>
-                    <p className="text-lg font-semibold text-gray-900">Progreso de los ultimos 12 meses</p>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Ingresos por mes</p>
+                    <p className="text-xl font-semibold text-gray-900">Progreso de los ultimos 12 meses</p>
                   </div>
-                  {!hasMonthlyPricing && (
-                    <span className="text-xs text-amber-600">Configura precios para ver montos</span>
-                  )}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {!hasMonthlyPricing && (
+                      <span className="text-sm text-amber-600">Configura precios para ver montos</span>
+                    )}
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-3 w-3 rounded-full bg-emerald-600" />
+                        Bruto
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-3 w-3 rounded-full bg-orange-500" />
+                        Neto
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-3 text-3xl font-semibold text-emerald-600">
+                <div className="mt-3 text-4xl font-semibold text-emerald-600">
                   {yearlyTotalLabel}
                 </div>
                 <div className="mt-4">
-                  <svg viewBox="0 0 600 220" className="h-44 w-full">
+                  <svg viewBox="0 0 600 220" className="h-56 w-full">
                     <defs>
                       <linearGradient id="monthly-line" x1="0" x2="0" y1="0" y2="1">
                         <stop offset="0%" stopColor="#10b981" stopOpacity="0.45" />
@@ -2281,8 +4096,8 @@ export default function AdminJobs() {
                       const y = 20 + (140 * index) / (monthlyRevenueTicks.length - 1);
                       return (
                         <g key={tick.value}>
-                          <line x1="60" y1={y} x2="590" y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
-                          <text x="6" y={y + 4} fontSize="10" fill="#6b7280">
+                          <line x1={90} y1={y} x2={590} y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
+                          <text x={78} y={y + 4} fontSize="12" textAnchor="end" fill="#6b7280">
                             {tick.label}
                           </text>
                         </g>
@@ -2292,9 +4107,9 @@ export default function AdminJobs() {
                       fill="url(#monthly-line)"
                       stroke="none"
                       points={[
-                        `60,160`,
+                        `90,160`,
                         ...monthlyRevenueSeries.map((item, index) => {
-                          const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                          const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                           const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
                           return `${x},${y}`;
                         }),
@@ -2308,21 +4123,42 @@ export default function AdminJobs() {
                       strokeLinejoin="round"
                       strokeLinecap="round"
                       points={monthlyRevenueSeries.map((item, index) => {
-                        const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                        const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                         const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
                         return `${x},${y}`;
                       }).join(' ')}
                     />
+                    <polyline
+                      fill="none"
+                      stroke="#f97316"
+                      strokeWidth="2.5"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                      points={monthlyRevenueSeries.map((item, index) => {
+                        const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                        const netValue = Math.max(0, item.net);
+                        const y = 20 + (140 * (1 - netValue / monthlyRevenueScaleMax));
+                        return `${x},${y}`;
+                      }).join(' ')}
+                    />
                     {monthlyRevenueSeries.map((item, index) => {
-                      const x = 60 + (530 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                      const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
                       const y = 20 + (140 * (1 - item.total / monthlyRevenueScaleMax));
                       return (
                         <g key={item.key}>
-                          <circle cx={x} cy={y} r="5" fill="#059669" />
-                          <text x={x} y="198" textAnchor="middle" fontSize="10" fill="#6b7280">
+                          <circle cx={x} cy={y} r="6" fill="#059669" />
+                          <text x={x} y="198" textAnchor="middle" fontSize="12" fill="#6b7280">
                             {item.label}
                           </text>
                         </g>
+                      );
+                    })}
+                    {monthlyRevenueSeries.map((item, index) => {
+                      const x = 90 + (500 * (monthlyRevenueSeries.length === 1 ? 0.5 : index / (monthlyRevenueSeries.length - 1)));
+                      const netValue = Math.max(0, item.net);
+                      const y = 20 + (140 * (1 - netValue / monthlyRevenueScaleMax));
+                      return (
+                        <circle key={`${item.key}-net`} cx={x} cy={y} r="4" fill="#f97316" />
                       );
                     })}
                   </svg>
@@ -2332,16 +4168,98 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Historial</p>
-                    <p className="text-lg font-semibold text-gray-900">Fletes realizados</p>
-                    <p className="text-xs text-gray-500">Total bruto {currentMonthLabel}: {monthlyGrossLabel}</p>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Metodos de pago</p>
+                    <p className="text-xl font-semibold text-gray-900">Ingresos por efectivo y transferencia</p>
+                    <p className="text-sm text-gray-500">Desglose de los ultimos 12 meses segun lo cargado en cada flete.</p>
+                  </div>
+                  <div className="text-sm text-gray-500">
+                    {paymentBreakdownHasData
+                      ? `${currentMonthPaymentBreakdown?.count ?? 0} cobros cargados en ${currentMonthLabel}`
+                      : 'Sin cobros cargados por metodo'}
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-4">
+                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-emerald-700">Efectivo</p>
+                    <p className="mt-2 text-2xl font-semibold text-emerald-700">{currentMonthCashLabel}</p>
+                    <p className="text-sm text-emerald-700/80">{currentMonthLabel}</p>
+                  </div>
+                  <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-sky-700">Transferencia</p>
+                    <p className="mt-2 text-2xl font-semibold text-sky-700">{currentMonthTransferLabel}</p>
+                    <p className="text-sm text-sky-700/80">{currentMonthLabel}</p>
+                  </div>
+                  <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-amber-700">Sin definir</p>
+                    <p className="mt-2 text-2xl font-semibold text-amber-700">{currentMonthUnassignedLabel}</p>
+                    <p className="text-sm text-amber-700/80">Fletes viejos o sin metodo</p>
+                  </div>
+                  <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Total cobrado</p>
+                    <p className="mt-2 text-2xl font-semibold text-gray-900">{currentMonthCollectedLabel}</p>
+                    <p className="text-sm text-gray-500">{currentMonthLabel}</p>
+                  </div>
+                </div>
+                {paymentBreakdownHasData ? (
+                  <div className="mt-4 overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs uppercase tracking-wide text-gray-400">
+                          <th className="pb-2 pr-4 font-medium">Mes</th>
+                          <th className="pb-2 pr-4 font-medium">Efectivo</th>
+                          <th className="pb-2 pr-4 font-medium">Transferencia</th>
+                          <th className="pb-2 pr-4 font-medium">Sin definir</th>
+                          <th className="pb-2 pr-4 font-medium">Total</th>
+                          <th className="pb-2 font-medium">Cobros</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlyPaymentBreakdown.map((item) => {
+                          const total = item.total > 0 ? item.total : 1;
+                          const cashWidth = `${(item.cash / total) * 100}%`;
+                          const transferWidth = `${(item.transfer / total) * 100}%`;
+                          const unassignedWidth = `${(item.unassigned / total) * 100}%`;
+                          return (
+                            <tr key={item.key} className="border-b border-gray-100 align-top text-gray-700">
+                              <td className="py-3 pr-4 font-medium text-gray-900">{item.label}</td>
+                              <td className="py-3 pr-4">{currencyFormatter.format(item.cash)}</td>
+                              <td className="py-3 pr-4">{currencyFormatter.format(item.transfer)}</td>
+                              <td className="py-3 pr-4">{currencyFormatter.format(item.unassigned)}</td>
+                              <td className="py-3 pr-4">
+                                <p className="font-semibold text-gray-900">{currencyFormatter.format(item.total)}</p>
+                                <div className="mt-2 h-2 w-40 overflow-hidden rounded-full bg-gray-100">
+                                  <div className="flex h-full w-full">
+                                    <div className="bg-emerald-500" style={{ width: cashWidth }} />
+                                    <div className="bg-sky-500" style={{ width: transferWidth }} />
+                                    <div className="bg-amber-400" style={{ width: unassignedWidth }} />
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3 text-gray-500">{item.count}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-gray-500">Cuando cargues el metodo de pago en los fletes completados, aca vas a ver el desglose mensual.</p>
+                )}
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Historial</p>
+                    <p className="text-xl font-semibold text-gray-900">Fletes realizados</p>
+                    <p className="text-sm text-gray-500">Total bruto {currentMonthLabel}: {monthlyGrossLabel}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">{completedHistory.length} completados</span>
+                    <span className="text-sm text-gray-500">{completedHistory.length} completados</span>
                     <button
                       type="button"
                       onClick={handleDownloadHistory}
-                      className="rounded border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700"
+                      className="rounded border border-emerald-200 px-3 py-1.5 text-sm font-semibold text-emerald-700"
                     >
                       Descargar Excel
                     </button>
@@ -2353,20 +4271,23 @@ export default function AdminJobs() {
                   <div className="mt-3 space-y-2">
                     {completedHistory.map((entry) => {
                       const driver = entry.job.driverId ? driversById.get(entry.job.driverId) : null;
+                      const vehicle = driver?.vehicleId ? vehiclesById.get(driver.vehicleId) ?? null : null;
+                      const hourlyDistribution = getEntryHourDistribution(entry);
                       const durationLabel = entry.durationMs != null ? formatDurationMs(entry.durationMs) : 'Sin tiempos';
                       const helpersCount = entry.job.helpersCount ?? 0;
-                      const billedHours = getBilledHours(entry.durationMs);
-                      const jobValue = hourlyRateValue != null && entry.durationMs != null
-                        ? (billedHours ?? 0) * hourlyRateValue
-                        : null;
-                      const helpersValue = helperHourlyRateValue != null && entry.durationMs != null && helpersCount > 0
-                        ? (billedHours ?? 0) * helperHourlyRateValue * helpersCount
+                      const billedHours = getEntryBilledHours(entry);
+                      const jobValue = getEntryHourlyValue(entry);
+                      const helpersValue = helperHourlyRateValue != null && billedHours != null && helpersCount > 0
+                        ? billedHours * helperHourlyRateValue * helpersCount
                         : null;
                       const totalValue = jobValue != null || helpersValue != null
                         ? (jobValue ?? 0) + (helpersValue ?? 0)
                         : null;
-                      const chargedAmount = entry.job.chargedAmount ?? null;
-                      const chargedAmountLabel = chargedAmount != null ? currencyFormatter.format(chargedAmount) : null;
+                      const paymentSummary = getJobCollectedPayment(entry.job);
+                      const paymentStatus = getPaymentStatusMeta(paymentSummary);
+                      const paymentTotal = paymentSummary.total;
+                      const paymentTotalLabel = paymentTotal != null ? currencyFormatter.format(paymentTotal) : null;
+                      const paymentMethodLabel = getPaymentMethodLabel(paymentSummary.method);
                       const jobValueLabel = jobValue != null
                         ? currencyFormatter.format(jobValue)
                         : hourlyRateValue == null
@@ -2380,75 +4301,172 @@ export default function AdminJobs() {
                             ? 'Sin tiempos'
                             : 'Sin ayudantes';
                       const computedTotalLabel = totalValue != null ? currencyFormatter.format(totalValue) : 'N/D';
-                      const displayTotalLabel = chargedAmountLabel ?? computedTotalLabel;
+                      const displayTotalLabel = paymentTotalLabel ?? computedTotalLabel;
+                      const driverHourShareLabel = hourlyDistribution != null
+                        ? currencyFormatter.format(hourlyDistribution.driverShare)
+                        : hourlyRateValue == null
+                          ? 'Defini precio hora'
+                          : 'Sin base horaria';
+                      const ownerHourShareLabel = hourlyDistribution != null
+                        ? currencyFormatter.format(hourlyDistribution.ownerShare)
+                        : hourlyRateValue == null
+                          ? 'Defini precio hora'
+                          : 'Sin base horaria';
+                      const shareRuleLabel = hourlyDistribution != null
+                        ? percentFormatter.format(hourlyDistribution.driverShareRatio)
+                        : '--';
                       const endLabel = entry.endMs != null ? new Date(entry.endMs).toLocaleString() : 'Sin datos';
-                      const chargedInputValue = chargedAmountDrafts[entry.job.id] ?? (chargedAmount != null ? String(chargedAmount) : '');
-                      const isSavingCharge = savingChargedAmountId === entry.job.id;
+                      const paymentDraft = paymentDrafts[entry.job.id] ?? buildPaymentDraft(entry.job);
+                      const isSavingCharge = savingPaymentJobId === entry.job.id;
                       return (
                         <div key={entry.job.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <p className="font-semibold text-gray-900">{entry.job.clientName}</p>
                               {entry.job.description && (
-                                <p className="text-xs text-gray-500">Descripcion: {entry.job.description}</p>
+                                <p className="text-sm text-gray-500">Descripcion: {entry.job.description}</p>
                               )}
-                              <p className="text-xs text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
-                              <p className="text-xs text-gray-500">Ayudantes: {helpersCount}</p>
-                              <p className="text-xs text-gray-500">Finalizado: {endLabel}</p>
+                              <p className="text-sm text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
+                              <p className="text-sm text-gray-500">
+                                Vehiculo: {vehicle
+                                  ? `${vehicle.name} (${vehicleOwnershipLabels[vehicle.ownershipType]})`
+                                  : 'Sin vehiculo asignado (regla del dueno)'}
+                              </p>
+                              <p className="text-sm text-gray-500">Ayudantes: {helpersCount}</p>
+                              <p className="text-sm text-gray-500">Finalizado: {endLabel}</p>
                             </div>
                             <div className="text-right">
-                              <button
-                                type="button"
-                                onClick={() => openJobDetail(entry.job.id)}
-                                className="mb-1 rounded border px-2 py-1 text-[11px] font-semibold text-blue-600"
-                              >
-                                Detalle
-                              </button>
-                              <p className="text-sm font-semibold text-gray-900">{displayTotalLabel}</p>
-                              {chargedAmountLabel && (
-                                <p className="text-xs text-emerald-600">Cobrado</p>
+                              <div className="mb-1 flex items-center justify-end gap-2">
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${paymentStatus.className}`}>
+                                  {paymentStatus.label}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => openJobDetail(entry.job.id)}
+                                  className="rounded border px-2 py-1 text-sm font-semibold text-blue-600"
+                                >
+                                  Detalle
+                                </button>
+                              </div>
+                              <p className="text-base font-semibold text-gray-900">{displayTotalLabel}</p>
+                              {paymentTotalLabel && (
+                                <p className="text-sm text-emerald-600">{paymentMethodLabel}</p>
                               )}
-                              {chargedAmountLabel && totalValue != null && (
-                                <p className="text-xs text-gray-500">Estimado: {computedTotalLabel}</p>
+                              {paymentTotalLabel && totalValue != null && (
+                                <p className="text-sm text-gray-500">Estimado: {computedTotalLabel}</p>
                               )}
-                              <p className="text-xs text-gray-500">Flete: {jobValueLabel}</p>
-                              <p className="text-xs text-gray-500">Ayudantes: {helpersValueLabel}</p>
-                              <p className="text-xs text-gray-500">Duracion: {durationLabel}</p>
+                              {paymentSummary.cashAmount != null && (
+                                <p className="text-sm text-gray-500">Efectivo: {currencyFormatter.format(paymentSummary.cashAmount)}</p>
+                              )}
+                              {paymentSummary.transferAmount != null && (
+                                <p className="text-sm text-gray-500">Transferencia: {currencyFormatter.format(paymentSummary.transferAmount)}</p>
+                              )}
+                              {paymentSummary.unassignedAmount != null && (
+                                <p className="text-sm text-gray-500">Cobro sin metodo: {currencyFormatter.format(paymentSummary.unassignedAmount)}</p>
+                              )}
+                              <p className="text-sm text-gray-500">Flete: {jobValueLabel}</p>
+                              <p className="text-sm text-gray-500">Chofer (hora): {driverHourShareLabel}</p>
+                              <p className="text-sm text-gray-500">Empresa (hora): {ownerHourShareLabel}</p>
+                              <p className="text-sm text-gray-500">Regla reparto: {shareRuleLabel}</p>
+                              <p className="text-sm text-gray-500">Ayudantes: {helpersValueLabel}</p>
+                              <p className="text-sm text-gray-500">Duracion: {durationLabel}</p>
                             </div>
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                            <span className="text-[11px] uppercase tracking-wide text-gray-400">Cobrado</span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              min="0"
-                              step="0.01"
-                              placeholder="Ej: 30000"
-                              value={chargedInputValue}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setChargedAmountDrafts((prev) => ({ ...prev, [entry.job.id]: value }));
-                              }}
-                              className="w-28 rounded border px-2 py-1 text-xs"
-                            />
+                          <div className="mt-3 rounded-xl border border-white bg-white p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-gray-400">Estado de cobro</p>
+                                <p className="text-sm text-gray-500">{paymentStatus.helperText}</p>
+                              </div>
+                              <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${paymentStatus.className}`}>
+                                {paymentStatus.label}
+                              </span>
+                            </div>
+                            <div className="mt-3 grid gap-2 text-sm sm:grid-cols-[180px_1fr_1fr_auto_auto] sm:items-end">
+                            <div>
+                              <span className="text-xs uppercase tracking-wide text-gray-400">Metodo de pago</span>
+                              <select
+                                value={paymentDraft.method}
+                                onChange={(event) => {
+                                  const nextMethod = event.target.value as JobPaymentMethod;
+                                  setPaymentDrafts((prev) => {
+                                    const current = prev[entry.job.id] ?? buildPaymentDraft(entry.job);
+                                    return {
+                                      ...prev,
+                                      [entry.job.id]: {
+                                        method: nextMethod,
+                                        cashAmount: nextMethod === 'transfer' ? '' : current.cashAmount,
+                                        transferAmount: nextMethod === 'cash' ? '' : current.transferAmount,
+                                      },
+                                    };
+                                  });
+                                }}
+                                className="mt-1 w-full rounded border px-2 py-1 text-sm"
+                              >
+                                <option value="cash">Efectivo</option>
+                                <option value="transfer">Transferencia</option>
+                                <option value="mixed">Combinado</option>
+                              </select>
+                            </div>
+                            <div>
+                              <span className="text-xs uppercase tracking-wide text-gray-400">Efectivo</span>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                placeholder="Ej: 30000"
+                                value={paymentDraft.cashAmount}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setPaymentDrafts((prev) => {
+                                    const current = prev[entry.job.id] ?? buildPaymentDraft(entry.job);
+                                    return { ...prev, [entry.job.id]: { ...current, cashAmount: value } };
+                                  });
+                                }}
+                                disabled={paymentDraft.method === 'transfer'}
+                                className="mt-1 w-full rounded border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-xs uppercase tracking-wide text-gray-400">Transferencia</span>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                placeholder="Ej: 15000"
+                                value={paymentDraft.transferAmount}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setPaymentDrafts((prev) => {
+                                    const current = prev[entry.job.id] ?? buildPaymentDraft(entry.job);
+                                    return { ...prev, [entry.job.id]: { ...current, transferAmount: value } };
+                                  });
+                                }}
+                                disabled={paymentDraft.method === 'cash'}
+                                className="mt-1 w-full rounded border px-2 py-1 text-sm disabled:cursor-not-allowed disabled:bg-gray-100"
+                              />
+                            </div>
                             <button
                               type="button"
-                              onClick={() => handleSaveChargedAmount(entry.job)}
+                              onClick={() => handleSavePayment(entry.job)}
                               disabled={isSavingCharge}
-                              className="rounded border border-blue-200 px-2 py-1 text-[11px] font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {isSavingCharge ? 'Guardando...' : 'Guardar'}
+                              {isSavingCharge ? 'Guardando...' : paymentStatus.status === 'paid' ? 'Actualizar cobro' : 'Marcar cobrado'}
                             </button>
-                            {chargedAmount != null && (
+                            {paymentTotal != null && (
                               <button
                                 type="button"
-                                onClick={() => handleClearChargedAmount(entry.job)}
+                                onClick={() => handleClearPayment(entry.job)}
                                 disabled={isSavingCharge}
-                                className="rounded border border-gray-200 px-2 py-1 text-[11px] font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                                className="rounded border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
                               >
                                 Limpiar
                               </button>
                             )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -2464,7 +4482,62 @@ export default function AdminJobs() {
                 <div>
                   <p className="text-xs uppercase tracking-wide text-gray-400">Configuracion</p>
                   <h2 className="text-lg font-semibold text-gray-900">Parametros del sistema</h2>
-                  <p className="text-xs text-gray-500">Precios y costos que impactan en analiticas.</p>
+                  <p className="text-xs text-gray-500">Precios, costos y repartos que impactan en analiticas.</p>
+                </div>
+              </div>
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Base operativa</p>
+                    <h3 className="text-lg font-semibold text-gray-900">Sede central</h3>
+                    <p className="text-xs text-gray-500">
+                      Se usa solo como referencia para mostrar el tiempo estimado al punto mas lejano del flete.
+                    </p>
+                  </div>
+                  <p className="text-sm text-gray-500">Actual: {operationsBaseLocationLabel}</p>
+                </div>
+                <div className="mt-4 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+                  <div>
+                    <AddressAutocomplete
+                      key={operationsBaseLocationKey}
+                      label="Ubicacion de la sede"
+                      placeholder="Buscar sede central o base operativa"
+                      onSelect={setOperationsBaseLocationDraft}
+                      selected={operationsBaseLocationDraft}
+                    />
+                  </div>
+                  <div className="rounded-xl border bg-gray-50 p-3 text-sm text-gray-600">
+                    <p className="font-semibold text-gray-900">Como se muestra en el alta de fletes</p>
+                    <p className="mt-2">
+                      Cuando completes origen y destino, el sistema muestra el tiempo estimado desde esta base al punto mas lejano.
+                    </p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Es un dato informativo para el asistente. No interviene en precios, margenes ni calculos automaticos.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                  {operationsBaseLocationDraft && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOperationsBaseLocationDraft(null);
+                        setOperationsBaseLocationKey((prev) => prev + 1);
+                      }}
+                      disabled={savingOperationsBaseLocation}
+                      className="rounded border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Limpiar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSaveOperationsBaseLocation}
+                    disabled={savingOperationsBaseLocation}
+                    className="rounded border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingOperationsBaseLocation ? 'Guardando...' : 'Guardar base operativa'}
+                  </button>
                 </div>
               </div>
               <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
@@ -2514,6 +4587,58 @@ export default function AdminJobs() {
                       >
                         {savingHelperHourlyRate ? 'Guardando...' : 'Guardar precio ayudante'}
                       </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 border-t border-gray-100 pt-4">
+                    <p className="text-sm font-semibold text-gray-900">Reparto del valor hora (chofer)</p>
+                    <p className="text-xs text-gray-500">
+                      Vehiculo del dueno: {ownerVehicleDriverShareLabel} para chofer. Vehiculo del chofer: {driverVehicleDriverShareLabel} para chofer.
+                    </p>
+                    <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Vehiculo del dueno (%)</p>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="Ej: 33.33"
+                          value={ownerVehicleDriverShareInput}
+                          onChange={(event) => setOwnerVehicleDriverShareInput(event.target.value)}
+                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveOwnerVehicleDriverShare}
+                          disabled={savingOwnerVehicleDriverShare}
+                          className="mt-2 w-full rounded border border-indigo-200 px-2 py-1 text-xs font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingOwnerVehicleDriverShare ? 'Guardando...' : 'Guardar reparto dueno'}
+                        </button>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">Vehiculo del chofer (%)</p>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="Ej: 66.67"
+                          value={driverVehicleDriverShareInput}
+                          onChange={(event) => setDriverVehicleDriverShareInput(event.target.value)}
+                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveDriverVehicleDriverShare}
+                          disabled={savingDriverVehicleDriverShare}
+                          className="mt-2 w-full rounded border border-cyan-200 px-2 py-1 text-xs font-semibold text-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingDriverVehicleDriverShare ? 'Guardando...' : 'Guardar reparto chofer'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2597,8 +4722,8 @@ export default function AdminJobs() {
       </section>
 
       {selectedJobId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-5xl space-y-4 rounded-2xl bg-white p-4 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-3 sm:items-center sm:p-4">
+          <div className="my-3 w-full max-w-5xl max-h-[calc(100vh-1.5rem)] space-y-4 overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:my-4 sm:max-h-[calc(100vh-2rem)] sm:p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-wide text-blue-500">Detalle del flete</p>
@@ -2639,9 +4764,32 @@ export default function AdminJobs() {
                       <p>
                         <span className="font-medium text-gray-900">Duracion estimada:</span> {selectedJobEstimateLabel}
                       </p>
-                      <p>
-                        <span className="font-medium text-gray-900">Cobrado:</span> {selectedJobChargedLabel}
-                      </p>
+                      {canSeeMoney && (
+                        <>
+                          <p>
+                            <span className="font-medium text-gray-900">Estado de cobro:</span>{' '}
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${selectedJobPaymentStatus.className}`}>
+                              {selectedJobPaymentStatus.label}
+                            </span>
+                          </p>
+                          <p>
+                            <span className="font-medium text-gray-900">Cobrado:</span> {selectedJobChargedLabel}
+                          </p>
+                          <p>
+                            <span className="font-medium text-gray-900">Metodo de pago:</span> {selectedJobPaymentMethodLabel}
+                          </p>
+                          {selectedJobPayment?.cashAmount != null && (
+                            <p>
+                              <span className="font-medium text-gray-900">Efectivo:</span> {currencyFormatter.format(selectedJobPayment.cashAmount)}
+                            </p>
+                          )}
+                          {selectedJobPayment?.transferAmount != null && (
+                            <p>
+                              <span className="font-medium text-gray-900">Transferencia:</span> {currencyFormatter.format(selectedJobPayment.transferAmount)}
+                            </p>
+                          )}
+                        </>
+                      )}
                       {selectedJobDetail.clientPhone && (
                         <p>
                           <span className="font-medium text-gray-900">Contacto:</span> {selectedJobDetail.clientPhone}

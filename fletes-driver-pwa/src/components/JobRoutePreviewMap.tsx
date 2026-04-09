@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
-import maplibregl from 'maplibre-gl';
+import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
+import mapboxgl from 'mapbox-gl';
+import OperationsBaseMarker from './OperationsBaseMarker';
+import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { Job, LocationData } from '../lib/types';
-import { MAP_STYLE, applyMapPalette } from '../lib/mapStyle';
+import { applyMapPalette } from '../lib/mapStyle';
+import { useMapProviderFallback } from '../lib/mapProvider';
 import { cn } from '../lib/utils';
 
 const BA_BOUNDS = { minLon: -63.9, minLat: -40.8, maxLon: -56.0, maxLat: -33.0 };
@@ -15,10 +18,8 @@ interface RoutePoint {
 }
 
 const buildRouteUrl = (points: RoutePoint[]) => {
-  const coords = points.map((point) => `${point.lng},${point.lat}`).join(';');
-  const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coords}`);
-  url.searchParams.set('overview', 'full');
-  url.searchParams.set('geometries', 'geojson');
+  const url = new URL('/api/route', window.location.origin);
+  url.searchParams.set('points', points.map((point) => `${point.lat},${point.lng}`).join('|'));
   return url.toString();
 };
 
@@ -29,6 +30,8 @@ interface JobRoutePreviewMapProps {
 }
 
 export default function JobRoutePreviewMap({ job, className, focusLocation }: JobRoutePreviewMapProps) {
+  const { location: operationsBaseLocation } = useOperationsBaseLocation();
+  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -80,7 +83,7 @@ export default function JobRoutePreviewMap({ job, className, focusLocation }: Jo
         const res = await fetch(buildRouteUrl(routePoints));
         if (!res.ok) throw new Error('route');
         const data = await res.json();
-        const geometry = data?.routes?.[0]?.geometry;
+        const geometry = data?.geometry;
         if (!geometry || !geometry.coordinates?.length) {
           if (active) setRouteGeoJson(null);
           return;
@@ -104,21 +107,28 @@ export default function JobRoutePreviewMap({ job, className, focusLocation }: Jo
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current.getMap();
-    if (routePoints.length === 0) {
-      map.easeTo({ center: [fallbackLocation.lng, fallbackLocation.lat], zoom: 11, duration: 400 });
+    const points = [...routePoints];
+    if (operationsBaseLocation && isValidLocation(operationsBaseLocation)) {
+      points.push({ lat: operationsBaseLocation.lat, lng: operationsBaseLocation.lng });
+    }
+    if (points.length === 0) {
+      const fallback = operationsBaseLocation && isValidLocation(operationsBaseLocation)
+        ? operationsBaseLocation
+        : fallbackLocation;
+      map.easeTo({ center: [fallback.lng, fallback.lat], zoom: 11, duration: 400 });
       return;
     }
-    if (routePoints.length === 1) {
-      map.easeTo({ center: [routePoints[0].lng, routePoints[0].lat], zoom: 13, duration: 400 });
+    if (points.length === 1) {
+      map.easeTo({ center: [points[0].lng, points[0].lat], zoom: 13, duration: 400 });
       return;
     }
-    const bounds = new maplibregl.LngLatBounds(
-      [routePoints[0].lng, routePoints[0].lat],
-      [routePoints[0].lng, routePoints[0].lat]
+    const bounds = new mapboxgl.LngLatBounds(
+      [points[0].lng, points[0].lat],
+      [points[0].lng, points[0].lat]
     );
-    routePoints.slice(1).forEach((point) => bounds.extend([point.lng, point.lat]));
+    points.slice(1).forEach((point) => bounds.extend([point.lng, point.lat]));
     map.fitBounds(bounds, { padding: 80, duration: 500 });
-  }, [mapReady, routePoints]);
+  }, [mapReady, operationsBaseLocation, routePoints]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -129,23 +139,25 @@ export default function JobRoutePreviewMap({ job, className, focusLocation }: Jo
 
   if (!job) {
     return (
-      <div className={cn("min-h-[360px] w-full rounded-xl border bg-gray-100 flex items-center justify-center text-sm text-gray-600", className)}>
+      <div className={cn('min-h-[360px] w-full rounded-xl border bg-gray-100 flex items-center justify-center text-sm text-gray-600', className)}>
         Cargando mapa...
       </div>
     );
   }
 
   return (
-    <div className={cn("min-h-[360px] w-full overflow-hidden rounded-xl border bg-white", className)}>
+    <div className={cn('min-h-[360px] w-full overflow-hidden rounded-xl border bg-white', className)}>
       <Map
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
-        mapStyle={MAP_STYLE}
+        mapboxAccessToken={mapboxAccessToken}
+        mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);
           const map = mapRef.current?.getMap();
           if (map) applyMapPalette(map);
         }}
+        onError={handleMapError}
         maxBounds={[
           [BA_BOUNDS.minLon, BA_BOUNDS.minLat],
           [BA_BOUNDS.maxLon, BA_BOUNDS.maxLat],
@@ -191,6 +203,7 @@ export default function JobRoutePreviewMap({ job, className, focusLocation }: Jo
             <div className="h-3.5 w-3.5 rounded-full border-2 border-white bg-blue-600 shadow" />
           </Marker>
         )}
+        <OperationsBaseMarker location={operationsBaseLocation} />
       </Map>
     </div>
   );

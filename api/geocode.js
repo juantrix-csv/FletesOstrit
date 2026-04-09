@@ -1,17 +1,20 @@
-const buildSearchUrl = (query, params) => {
-  const url = new URL('https://nominatim.openstreetmap.org/search');
-  url.searchParams.set('q', query);
-  url.searchParams.set('format', 'jsonv2');
-  url.searchParams.set('limit', params.limit || '5');
-  url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('accept-language', 'es');
-  if (params.countrycodes) url.searchParams.set('countrycodes', params.countrycodes);
-  if (params.bounded) url.searchParams.set('bounded', params.bounded);
-  if (params.viewbox) url.searchParams.set('viewbox', params.viewbox);
-  if (process.env.NOMINATIM_EMAIL) {
-    url.searchParams.set('email', process.env.NOMINATIM_EMAIL);
+import {
+  buildMapboxGeocodeUrl,
+  hasMapboxAccessToken,
+  normalizeMapboxGeocodeResults,
+} from './_mapbox.js';
+import {
+  buildOpenMapsGeocodeUrl,
+  getOpenMapsRequestOptions,
+  normalizeOpenMapsGeocodeResults,
+} from './_openmaps.js';
+
+const readJsonSafe = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
   }
-  return url.toString();
 };
 
 export default async function handler(req, res) {
@@ -19,25 +22,46 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
+
   const q = req.query?.q;
   if (!q || typeof q !== 'string' || q.trim().length < 3) {
     res.status(400).json({ error: 'Missing query' });
     return;
   }
+
   try {
-    const url = buildSearchUrl(q, req.query || {});
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'FletesDriverPWA/1.0 (vercel)',
-      },
-    });
-    if (!response.ok) {
+    if (hasMapboxAccessToken()) {
+      try {
+        const response = await fetch(buildMapboxGeocodeUrl(q, req.query || {}));
+        const data = await readJsonSafe(response);
+
+        if (response.ok && !data?.message) {
+          if (!Array.isArray(data?.features) || data.features.length === 0) {
+            res.status(200).json([]);
+            return;
+          }
+
+          res.status(200).json(normalizeMapboxGeocodeResults(data));
+          return;
+        }
+      } catch {
+        // Fall back to OpenStreetMap providers on upstream Mapbox failures.
+      }
+    }
+
+    const fallbackResponse = await fetch(
+      buildOpenMapsGeocodeUrl(q, req.query || {}),
+      getOpenMapsRequestOptions()
+    );
+    if (!fallbackResponse.ok) {
       res.status(502).json({ error: 'Geocode failed' });
       return;
     }
-    const data = await response.json();
-    res.status(200).json(data);
-  } catch (err) {
+
+    const fallbackData = await readJsonSafe(fallbackResponse);
+    const normalized = normalizeOpenMapsGeocodeResults(fallbackData);
+    res.status(200).json(normalized);
+  } catch {
     res.status(500).json({ error: 'Server error' });
   }
 }

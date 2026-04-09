@@ -1,9 +1,22 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const versionRaw = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.npm_package_version ?? 'dev';
-const appVersion = versionRaw === 'dev' ? versionRaw : versionRaw.slice(0, 8);
+const resolveAppVersion = () => {
+  const envVersion = process.env.APP_VERSION ?? process.env.GIT_COMMIT_SHA ?? process.env.CI_COMMIT_SHA;
+  if (envVersion?.trim()) return envVersion.trim().slice(0, 8);
+
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+  } catch {
+    return process.env.npm_package_version?.trim() || 'dev';
+  }
+};
+
+const appVersion = resolveAppVersion();
 
 export default defineConfig({
   define: {
@@ -26,14 +39,10 @@ export default defineConfig({
         orientation: 'portrait',
         icons: [
           {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
-          {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
+            src: 'favicon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any'
           }
         ]
       }
@@ -41,29 +50,9 @@ export default defineConfig({
   ],
   server: {
     proxy: {
-      '/api/v1': {
+      '/api': {
         target: process.env.VITE_PROXY_TARGET || 'http://localhost:4000',
         changeOrigin: true,
-      },
-      '/api/geocode': {
-        target: 'https://nominatim.openstreetmap.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/geocode/, '/search'),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('User-Agent', 'FletesDriverPWA/1.0 (local dev)');
-          });
-        },
-      },
-      '/api/reverse-geocode': {
-        target: 'https://nominatim.openstreetmap.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/reverse-geocode/, '/reverse'),
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq) => {
-            proxyReq.setHeader('User-Agent', 'FletesDriverPWA/1.0 (local dev)');
-          });
-        },
       },
     },
   },

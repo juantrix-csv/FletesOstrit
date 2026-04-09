@@ -76,6 +76,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid extraStops' });
       return;
     }
+    if (body.stopIndex != null && !isNonNegativeInteger(body.stopIndex)) {
+      res.status(400).json({ error: 'Invalid stopIndex' });
+      return;
+    }
     if (body.description != null && typeof body.description !== 'string') {
       res.status(400).json({ error: 'Invalid description' });
       return;
@@ -90,6 +94,14 @@ export default async function handler(req, res) {
     }
     if (body.chargedAmount != null && !isNonNegativeNumber(body.chargedAmount)) {
       res.status(400).json({ error: 'Invalid chargedAmount' });
+      return;
+    }
+    if (body.cashAmount != null && !isNonNegativeNumber(body.cashAmount)) {
+      res.status(400).json({ error: 'Invalid cashAmount' });
+      return;
+    }
+    if (body.transferAmount != null && !isNonNegativeNumber(body.transferAmount)) {
+      res.status(400).json({ error: 'Invalid transferAmount' });
       return;
     }
     if (body.driverId) {

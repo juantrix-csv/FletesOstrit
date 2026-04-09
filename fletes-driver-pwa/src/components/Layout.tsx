@@ -5,10 +5,31 @@ import { Truck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { APP_VERSION } from '../lib/appVersion';
 import { AdminLayout } from './AdminLayout';
+import { useApiActivity } from '../hooks/useApiActivity';
+
+const GlobalApiFeedback = () => {
+  const { pendingMutations } = useApiActivity();
+
+  return (
+    <>
+      {pendingMutations > 0 && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/10 backdrop-blur-[1px]">
+          <div className="rounded-2xl border border-white/70 bg-white px-4 py-3 shadow-lg">
+            <div className="flex items-center gap-3 text-sm font-semibold text-slate-700">
+              <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600" />
+              Procesando...
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
   const navClass = (p: string) => cn("flex flex-col items-center w-full text-xs", loc.pathname === p ? "text-blue-600" : "text-gray-500");
-  const isAdminRoute = loc.pathname.startsWith('/admin');
+  const isAdminRoute = loc.pathname.startsWith('/admin') && loc.pathname !== '/admin/login';
   const isJobRoute = loc.pathname.startsWith('/job/');
   const isDriverRoute = loc.pathname.startsWith('/driver');
   const isDriverLogin = loc.pathname === '/driver/login';
@@ -25,6 +46,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
         <div className="fixed top-2 right-3 z-50 text-[10px] text-gray-400">
           build {APP_VERSION}
         </div>
+        <GlobalApiFeedback />
         <AdminLayout>{children}</AdminLayout>
         <Toaster />
       </div>
@@ -36,6 +58,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
       <div className="fixed top-2 right-3 z-50 text-[10px] text-gray-400">
         build {APP_VERSION}
       </div>
+      <GlobalApiFeedback />
       <main className={mainClass} style={mainStyle}>{children}</main>
       {showDriverNav && (
         <nav className="fixed bottom-0 w-full bg-white border-t flex justify-around items-center" style={navStyle}>

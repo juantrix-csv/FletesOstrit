@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub for new Fletes Ostrit deploys
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+Persistent=true
+Unit=fletes-ostrit-autodeploy.service
+
+[Install]
+WantedBy=timers.target

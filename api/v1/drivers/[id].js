@@ -1,4 +1,4 @@
-import { deleteDriver, getDriverByCode, updateDriver } from '../../_db.js';
+import { deleteDriver, getDriverByCode, getVehicleById, updateDriver } from '../../_db.js';
 
 const parseBody = (req) => {
   if (!req.body) return {};
@@ -13,6 +13,7 @@ const parseBody = (req) => {
 };
 
 const isNonEmptyString = (value) => typeof value === 'string' && value.trim().length > 0;
+const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;
 
 export default async function handler(req, res) {
   const { id } = req.query;
@@ -35,6 +36,37 @@ export default async function handler(req, res) {
         return;
       }
       body.code = normalizedCode;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'vehicleId')) {
+      if (body.vehicleId == null) {
+        body.vehicleId = null;
+      } else if (!isNonEmptyString(body.vehicleId)) {
+        res.status(400).json({ error: 'Invalid vehicle' });
+        return;
+      } else {
+        const vehicle = await getVehicleById(body.vehicleId);
+        if (!vehicle) {
+          res.status(400).json({ error: 'Invalid vehicle' });
+          return;
+        }
+        body.vehicleId = vehicle.id;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'ownerDebtSettledAmount')) {
+      if (body.ownerDebtSettledAmount == null) {
+        body.ownerDebtSettledAmount = null;
+      } else if (!isNonNegativeNumber(body.ownerDebtSettledAmount)) {
+        res.status(400).json({ error: 'Invalid ownerDebtSettledAmount' });
+        return;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'ownerDebtSettledAt')) {
+      if (body.ownerDebtSettledAt == null) {
+        body.ownerDebtSettledAt = null;
+      } else if (!isNonEmptyString(body.ownerDebtSettledAt)) {
+        res.status(400).json({ error: 'Invalid ownerDebtSettledAt' });
+        return;
+      }
     }
     const updated = await updateDriver(id, body);
     if (!updated) {

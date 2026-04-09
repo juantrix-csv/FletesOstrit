@@ -6,6 +6,7 @@ import {
   listCompletedJobs,
   listDrivers,
 } from '../../../_db.js';
+import { getBilledHoursFromDurationMs } from '../../../../lib/billing.js';
 
 const parseTimestampMs = (value) => {
   if (!value) return null;
@@ -35,9 +36,39 @@ const csvValue = (value) => {
 };
 
 const getBilledHours = (durationMs) => {
-  if (durationMs == null) return null;
-  if (durationMs <= 0) return 0;
-  return Math.ceil(durationMs / 3600000);
+  return getBilledHoursFromDurationMs(durationMs);
+};
+
+const roundMoney = (value) => Number(Number(value).toFixed(2));
+
+const getPaymentBreakdown = (job) => {
+  const cashAmount = Number.isFinite(job.cashAmount) ? Number(job.cashAmount) : null;
+  const transferAmount = Number.isFinite(job.transferAmount) ? Number(job.transferAmount) : null;
+  const hasBreakdown = cashAmount != null || transferAmount != null;
+  const chargedAmount = Number.isFinite(job.chargedAmount) ? Number(job.chargedAmount) : null;
+  const totalBilled = hasBreakdown
+    ? roundMoney((cashAmount ?? 0) + (transferAmount ?? 0))
+    : chargedAmount;
+  const paymentMethod = hasBreakdown
+    ? cashAmount != null && transferAmount != null
+      ? 'mixed'
+      : cashAmount != null
+        ? 'cash'
+        : transferAmount != null
+          ? 'transfer'
+          : null
+    : chargedAmount != null
+      ? 'unassigned'
+      : null;
+
+  return {
+    cashAmount,
+    transferAmount,
+    chargedAmount,
+    paymentMethod,
+    unassignedAmount: !hasBreakdown ? chargedAmount : null,
+    totalBilled,
+  };
 };
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -126,10 +157,18 @@ const handleExport = async (res) => {
     'duration_hours',
     'hourly_rate',
     'total_value',
+    'driver_share_ratio',
+    'driver_share_amount',
+    'company_share_amount',
+    'share_source',
     'helper_hourly_rate',
     'helpers_total_value',
     'total_with_helpers',
     'charged_amount',
+    'cash_amount',
+    'transfer_amount',
+    'payment_method',
+    'unassigned_amount',
     'total_billed',
     'created_at',
     'updated_at',
@@ -144,7 +183,15 @@ const handleExport = async (res) => {
     const durationMinutes = durationMs != null ? Math.round(durationMs / 60000) : null;
     const durationHours = durationMs != null ? Number((durationMs / 3600000).toFixed(2)) : null;
     const billedHours = getBilledHours(durationMs);
-    const totalValue = hourlyRate != null && billedHours != null ? Number((billedHours * hourlyRate).toFixed(2)) : null;
+    const totalValue = hourlyRate != null && billedHours != null
+      ? Number((billedHours * hourlyRate).toFixed(2))
+      : Number.isFinite(job.hourlyBaseAmount)
+        ? job.hourlyBaseAmount
+        : null;
+    const driverShareRatio = Number.isFinite(job.driverShareRatio) ? job.driverShareRatio : null;
+    const driverShareAmount = Number.isFinite(job.driverShareAmount) ? job.driverShareAmount : null;
+    const companyShareAmount = Number.isFinite(job.companyShareAmount) ? job.companyShareAmount : null;
+    const shareSource = typeof job.shareSource === 'string' ? job.shareSource : null;
     const helpersCount = Number.isFinite(job.helpersCount) ? job.helpersCount : 0;
     const helpersTotalValue = helperHourlyRate != null && billedHours != null && helpersCount > 0
       ? Number((billedHours * helperHourlyRate * helpersCount).toFixed(2))
@@ -152,8 +199,8 @@ const handleExport = async (res) => {
     const totalWithHelpers = totalValue != null && helpersTotalValue != null
       ? Number((totalValue + helpersTotalValue).toFixed(2))
       : totalValue ?? helpersTotalValue;
-    const chargedAmount = Number.isFinite(job.chargedAmount) ? job.chargedAmount : null;
-    const totalBilled = chargedAmount != null ? Number(chargedAmount.toFixed(2)) : totalWithHelpers;
+    const payment = getPaymentBreakdown(job);
+    const totalBilled = payment.totalBilled != null ? payment.totalBilled : totalWithHelpers;
     const driverName = job.driverId ? driversById.get(job.driverId)?.name ?? '' : '';
 
     rows.push([
@@ -172,10 +219,18 @@ const handleExport = async (res) => {
       durationHours,
       hourlyRate,
       totalValue,
+      driverShareRatio,
+      driverShareAmount,
+      companyShareAmount,
+      shareSource,
       helperHourlyRate,
       helpersTotalValue,
       totalWithHelpers,
-      chargedAmount,
+      payment.chargedAmount,
+      payment.cashAmount,
+      payment.transferAmount,
+      payment.paymentMethod,
+      payment.unassignedAmount,
       totalBilled,
       job.createdAt,
       job.updatedAt,

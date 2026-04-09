@@ -9,7 +9,7 @@ Incluye frontend para driver/admin y dos opciones de backend:
 - Admin: alta de fletes con cliente, descripcion, ayudantes, fecha/hora y direcciones con autocompletado acotado a Provincia de Buenos Aires.
 - Driver: muestra el viaje activo o el proximo pendiente; solo permite iniciar 1h antes del horario.
 - Flujo de estados con confirmacion por slider: `PENDING -> TO_PICKUP -> LOADING -> TO_DROPOFF -> UNLOADING -> DONE`.
-- Mapa: ruta con MapLibre + OSRM, seguimiento por geolocalizacion y modo follow (auto reenganche + suavizado del marcador).
+- Mapa: Mapbox como proveedor principal, con respaldo automatico a estilo OpenStreetMap/CARTO y ruteo OSRM si Mapbox queda sin cuota o sin token.
 - Tiempos: registra timestamps por etapa y calcula duraciones en el panel admin.
 - Analiticas: historial de fletes completados, totales del mes, y graficos diarios/mensuales.
 - Precios: precio por hora de flete y de ayudante con persistencia en DB.
@@ -26,14 +26,16 @@ Incluye frontend para driver/admin y dos opciones de backend:
 - Si hay ayudantes, se suma el costo por hora del ayudante por cantidad de ayudantes.
 
 ## Mapa y ubicacion
-- Estilo base: `https://basemaps.cartocdn.com/gl/positron-gl-style/style.json`.
-- Ruteo: `https://router.project-osrm.org/route/v1/driving/...`.
+- Estilo principal: `mapbox://styles/mapbox/streets-v12`.
+- Respaldo visual: `https://basemaps.cartocdn.com/gl/positron-gl-style/style.json`.
+- Ruteo principal: Mapbox Directions.
+- Respaldo de ruteo: `https://router.project-osrm.org/route/v1/driving/...`.
 - Geolocalizacion con `watchPosition` (alta precision) y calculo de distancia/ETA.
 - Limites: se acota el viewbox a Provincia de Buenos Aires y se evita el zoom mundial; fallback La Plata.
 
 ## Autocompletado de direcciones
-- En dev: proxy de Vite hacia Nominatim con `/api/geocode`.
-- En Vercel: funcion serverless `/api/geocode` (soporta `NOMINATIM_EMAIL`).
+- Proveedor principal: Mapbox Geocoding.
+- Respaldo: Nominatim por `/api/geocode` y `/api/reverse-geocode` (soporta `NOMINATIM_EMAIL` y `NOMINATIM_USER_AGENT`).
 
 ## API (REST)
 - Base: `/api/v1`
@@ -90,6 +92,17 @@ Frontend:
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:4000`
 - Seed demo: definido en `docker-compose.yml` (`SEED_DEMO=1`)
+
+## VPS / Auto Deploy
+- El VPS corre el frontend compilado con Nginx y la API con `node server/index.js`.
+- En VPS con Postgres local, usa `POSTGRES_USE_PG_POOL=1`.
+- El script versionado de deploy es `scripts/deploy-vps.sh`.
+- El script de migracion entre Postgres es `scripts/migrate-postgres-data.js`.
+- Para auto deploy por polling se usan las unidades:
+  - `deploy/systemd/fletes-ostrit-autodeploy.service`
+  - `deploy/systemd/fletes-ostrit-autodeploy.timer`
+- El timer revisa `origin/main`, hace `fetch + reset --hard`, reinstala dependencias, rebuild y reinicia `fletes-ostrit-api`.
+- Si el deploy nuevo falla en build, restart o healthcheck, el script vuelve automaticamente al commit anterior y reintenta el arranque.
 
 ## Deploy en Vercel
 - El frontend se builda desde `fletes-driver-pwa/dist` (ver `vercel.json`).

@@ -1,15 +1,20 @@
-const buildReverseUrl = (lat, lon, params) => {
-  const url = new URL('https://nominatim.openstreetmap.org/reverse');
-  url.searchParams.set('lat', lat);
-  url.searchParams.set('lon', lon);
-  url.searchParams.set('format', params.format || 'jsonv2');
-  url.searchParams.set('zoom', params.zoom || '18');
-  url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('accept-language', 'es');
-  if (process.env.NOMINATIM_EMAIL) {
-    url.searchParams.set('email', process.env.NOMINATIM_EMAIL);
+import {
+  buildMapboxReverseGeocodeUrl,
+  hasMapboxAccessToken,
+  normalizeMapboxReverseGeocodeResult,
+} from './_mapbox.js';
+import {
+  buildOpenMapsReverseGeocodeUrl,
+  getOpenMapsRequestOptions,
+  normalizeOpenMapsReverseGeocodeResult,
+} from './_openmaps.js';
+
+const readJsonSafe = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
   }
-  return url.toString();
 };
 
 export default async function handler(req, res) {
@@ -17,6 +22,7 @@ export default async function handler(req, res) {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
+
   const lat = req.query?.lat;
   const lon = req.query?.lon;
   if (typeof lat !== 'string' || typeof lon !== 'string') {
@@ -29,19 +35,38 @@ export default async function handler(req, res) {
     res.status(400).json({ error: 'Invalid coordinates' });
     return;
   }
+
   try {
-    const url = buildReverseUrl(lat, lon, req.query || {});
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'FletesDriverPWA/1.0 (vercel)',
-      },
-    });
-    if (!response.ok) {
+    if (hasMapboxAccessToken()) {
+      try {
+        const response = await fetch(buildMapboxReverseGeocodeUrl(lat, lon));
+        const data = await readJsonSafe(response);
+
+        if (response.ok && !data?.message) {
+          if (!Array.isArray(data?.features) || data.features.length === 0) {
+            res.status(200).json({ display_name: null });
+            return;
+          }
+
+          res.status(200).json(normalizeMapboxReverseGeocodeResult(data));
+          return;
+        }
+      } catch {
+        // Fall back to OpenStreetMap providers on upstream Mapbox failures.
+      }
+    }
+
+    const fallbackResponse = await fetch(
+      buildOpenMapsReverseGeocodeUrl(lat, lon),
+      getOpenMapsRequestOptions()
+    );
+    if (!fallbackResponse.ok) {
       res.status(502).json({ error: 'Reverse geocode failed' });
       return;
     }
-    const data = await response.json();
-    res.status(200).json(data);
+
+    const fallbackData = await readJsonSafe(fallbackResponse);
+    res.status(200).json(normalizeOpenMapsReverseGeocodeResult(fallbackData));
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

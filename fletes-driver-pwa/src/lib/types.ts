@@ -1,10 +1,37 @@
 export type JobStatus = 'PENDING' | 'TO_PICKUP' | 'LOADING' | 'TO_DROPOFF' | 'UNLOADING' | 'DONE';
+export type JobPaymentMethod = 'cash' | 'transfer' | 'mixed';
+export type LeadStatus = 'LOST';
+export type LeadLossReason =
+  | 'NO_AVAILABILITY'
+  | 'OUT_OF_AREA'
+  | 'NO_RESPONSE'
+  | 'PRICE'
+  | 'HIRED_OTHER'
+  | 'NOT_OUR_SERVICE'
+  | 'OTHER';
+export type LeadRequestedSlot = 'NOW' | 'TODAY' | 'TOMORROW' | 'THIS_WEEK' | 'UNSPECIFIED';
+export type LeadJobType = 'FLETE_SIMPLE' | 'MUDANZA' | 'CON_AYUDANTE' | 'RETIRO_ENTREGA' | 'UNSPECIFIED';
 export interface LocationData { address: string; lat: number; lng: number; }
+export type VehicleSize = 'chico' | 'mediano' | 'grande';
+export type VehicleOwnershipType = 'owner' | 'driver';
+export interface Vehicle {
+  id: string;
+  name: string;
+  size: VehicleSize;
+  ownershipType: VehicleOwnershipType;
+  costPerKm: number;
+  fixedMonthlyCost: number;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface Driver {
   id: string;
   name: string;
   code: string;
   phone?: string;
+  vehicleId?: string | null;
+  ownerDebtSettledAmount?: number | null;
+  ownerDebtSettledAt?: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -19,10 +46,47 @@ export interface DriverLocation {
   jobId?: string | null;
   updatedAt: string;
 }
+export interface LeadHistoryEntry {
+  id: string;
+  type: 'CREATED' | 'UPDATED';
+  message: string;
+  status: LeadStatus;
+  lossReason?: LeadLossReason | null;
+  note?: string | null;
+  createdAt: string;
+}
+export interface Lead {
+  id: string;
+  clientName: string;
+  clientPhone?: string | null;
+  description?: string | null;
+  requestedSlot?: LeadRequestedSlot | null;
+  originZone?: string | null;
+  destinationZone?: string | null;
+  jobType?: LeadJobType | null;
+  status: LeadStatus;
+  lossReason?: LeadLossReason | null;
+  notes?: string | null;
+  history: LeadHistoryEntry[];
+  closedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface Job {
-  id: string; clientName: string; clientPhone?: string; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
+  id: string; clientName: string; clientPhone?: string | null; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
   notes?: string; helpersCount?: number; estimatedDurationMinutes?: number | null; status: JobStatus; driverId?: string | null;
   chargedAmount?: number | null;
+  cashAmount?: number | null;
+  transferAmount?: number | null;
+  hourlyBilledHours?: number | null;
+  hourlyBaseAmount?: number | null;
+  driverShareAmount?: number | null;
+  companyShareAmount?: number | null;
+  driverShareRatio?: number | null;
+  shareSource?: string | null;
+  stopIndex?: number | null;
+  distanceMeters?: number | null;
+  distanceKm?: number | null;
   scheduledDate?: string; scheduledTime?: string; scheduledAt?: number;
   flags: { nearPickupSent: boolean; arrivedPickupSent: boolean; nearDropoffSent: boolean; arrivedDropoffSent: boolean; };
   timestamps: { startJobAt?: string; startLoadingAt?: string; endLoadingAt?: string; startTripAt?: string; endTripAt?: string; startUnloadingAt?: string; endUnloadingAt?: string; };
