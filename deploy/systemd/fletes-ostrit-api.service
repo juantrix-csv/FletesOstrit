@@ -1,0 +1,16 @@
+[Unit]
+Description=Fletes Ostrit API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fletes
+WorkingDirectory=/opt/fletes-ostrit
+EnvironmentFile=/etc/fletes-ostrit.env
+ExecStart=/usr/bin/node server/index.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

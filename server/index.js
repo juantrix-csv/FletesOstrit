@@ -7,6 +7,7 @@ import reverseGeocodeHandler from '../api/reverse-geocode.js';
 import driverLocationsIndexHandler from '../api/v1/driver-locations/index.js';
 import driversByIdHandler from '../api/v1/drivers/[id].js';
 import driversIndexHandler from '../api/v1/drivers/index.js';
+import financeResourceHandler from '../api/v1/finance/[resource].js';
 import jobsByIdHandler from '../api/v1/jobs/[id].js';
 import jobsIndexHandler from '../api/v1/jobs/index.js';
 import jobsHistoryHandler from '../api/v1/jobs/history/[action].js';
@@ -66,6 +67,8 @@ app.all('/api/v1/driver-locations', wrapHandler(driverLocationsIndexHandler));
 
 app.all('/api/v1/leads/:id', wrapHandler(leadsByIdHandler));
 app.all('/api/v1/leads', wrapHandler(leadsIndexHandler));
+
+app.all('/api/v1/finance/:resource', wrapHandler(financeResourceHandler));
 
 app.use((error, _req, res, _next) => {
   const detail = error instanceof Error ? error.message : 'Unknown error';
