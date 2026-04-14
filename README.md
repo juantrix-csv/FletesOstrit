@@ -55,8 +55,29 @@ Incluye frontend para driver/admin y dos opciones de backend:
   - `PUT /api/v1/settings/hourly-rate`
   - `GET /api/v1/settings/helper-hourly-rate`
   - `PUT /api/v1/settings/helper-hourly-rate`
+  - `GET /api/v1/finance/snapshot`
+  - `GET /api/v1/finance/summary`
+  - `GET /api/v1/finance/jobs`
+  - `GET /api/v1/finance/drivers`
+  - `GET /api/v1/finance/vehicles`
+  - `GET /api/v1/finance/leads`
+  - `GET /api/v1/finance/settings`
   - `GET /api/v1/jobs/history/export` (CSV)
   - `GET /api/v1/jobs/history/seed?months=12&perMonth=6&append=1`
+
+### API de lectura financiera
+- Base: `/api/v1/finance/:resource`.
+- Recursos: `snapshot`, `summary`, `jobs`, `drivers`, `vehicles`, `leads`, `settings`.
+- Auth: enviar `Authorization: Bearer <token>` o `x-api-key: <token>`.
+- Token esperado: `FINANCE_READ_API_KEY`; si no existe, usa `MAIN_API_KEY`. Si ninguna esta configurada, la API responde `503`.
+- En VPS, `scripts/deploy-vps.sh` genera `FINANCE_READ_API_KEY` en `/etc/fletes-ostrit.env` si falta.
+- Para leerlo en el servidor: `sudo grep '^FINANCE_READ_API_KEY=' /etc/fletes-ostrit.env`.
+- Filtros opcionales:
+  - `from=YYYY-MM-DD`
+  - `to=YYYY-MM-DD`
+  - `status=DONE` o `status=DONE,PENDING`
+  - `driverId=<id>`
+- Incluye importes cobrados, efectivo/transferencia, reparto chofer/empresa, costos por hora/km, choferes, vehiculos, configuracion de precios/costos y ventas perdidas.
 
 ## Estructura del repo
 - `fletes-driver-pwa/`: frontend PWA (React + Vite + Tailwind + PWA).
@@ -133,6 +154,7 @@ Env vars:
 - `OPENAI_TIMEOUT_SECONDS` (default `30`)
 - `MAIN_API_BASE_URL`
 - `MAIN_API_KEY` (opcional)
+- `FINANCE_READ_API_KEY` (opcional; si falta se usa `MAIN_API_KEY` para `/api/v1/finance/*`)
 - `AVAILABILITY_PATH`
 - `SCHEDULE_JOB_PATH`
 - `ESTIMATE_PATH` (opcional)

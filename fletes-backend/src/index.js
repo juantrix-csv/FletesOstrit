@@ -2,6 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import { getBilledHoursFromDurationMs } from '../../lib/billing.js';
 import {
+  authorizeFinanceRead,
+  buildFinanceResponse,
+  FINANCE_SETTING_KEYS,
+  resolveFinanceFilters,
+} from '../../lib/financeAccess.js';
+import {
   createDriver,
   createVehicle,
   createJob,
@@ -114,6 +120,32 @@ app.get('/health', (_req, res) => {
 
 app.get(`${API_PREFIX}/health`, (_req, res) => {
   res.json({ ok: true });
+});
+
+
+app.get(`${API_PREFIX}/finance/:resource`, (req, res) => {
+  const auth = authorizeFinanceRead(req);
+  if (!auth.ok) {
+    res.status(auth.status).json({ error: auth.error });
+    return;
+  }
+
+  const settings = Object.fromEntries(FINANCE_SETTING_KEYS.map((key) => [key, getSetting(key)]));
+  const payload = buildFinanceResponse(req.params.resource, {
+    jobs: listJobs(),
+    drivers: listDrivers(),
+    vehicles: listVehicles(),
+    leads: [],
+    settings,
+    filters: resolveFinanceFilters(req.query),
+  });
+
+  if (!payload) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  res.json(payload);
 });
 
 app.get(`${API_PREFIX}/jobs`, (_req, res) => {
