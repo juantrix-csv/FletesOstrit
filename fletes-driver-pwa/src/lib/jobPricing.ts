@@ -1,6 +1,8 @@
 import type { Job } from './types';
 import { getBilledHoursFromDurationMs } from './billing';
 
+export const DISTANT_BASE_THRESHOLD_MINUTES = 15;
+
 export const moneyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
@@ -10,6 +12,9 @@ export const moneyFormatter = new Intl.NumberFormat('es-AR', {
 
 const roundMoney = (value: number) => Number(value.toFixed(2));
 const toMoneyOrNull = (value?: number | null) => (Number.isFinite(value) ? Number(value) : null);
+const toCeiledPositiveMinutesOrNull = (value?: number | null) => (
+  Number.isFinite(value) && Number(value) > 0 ? Math.max(1, Math.ceil(Number(value))) : null
+);
 
 export const parseTimestampMs = (value?: string) => {
   if (!value) return null;
@@ -56,10 +61,19 @@ export const getJobChargeBreakdown = (
     hourlyRate: number | null;
     helperHourlyRate: number | null;
     endAtMs?: number | null;
+    distantBaseTravelMinutes?: number | null;
+    distantBasePoint?: 'pickup' | 'dropoff' | null;
   },
 ) => {
   const durationMs = getJobDurationMs(job, opts.endAtMs);
-  const billedHours = getBilledHoursFromDurationMs(durationMs);
+  const distantBaseTravelMinutes = toCeiledPositiveMinutesOrNull(opts.distantBaseTravelMinutes);
+  const distantBaseExtraMinutes = distantBaseTravelMinutes != null
+    && distantBaseTravelMinutes > DISTANT_BASE_THRESHOLD_MINUTES
+    ? distantBaseTravelMinutes
+    : 0;
+  const distantBaseExtraMs = distantBaseExtraMinutes * 60000;
+  const chargeableDurationMs = durationMs != null ? durationMs + distantBaseExtraMs : null;
+  const billedHours = getBilledHoursFromDurationMs(chargeableDurationMs);
   const helpersCount = Math.max(0, Number.isFinite(job.helpersCount) ? Number(job.helpersCount) : 0);
   const baseAmount = opts.hourlyRate != null && billedHours != null
     ? roundMoney(billedHours * opts.hourlyRate)
@@ -73,6 +87,11 @@ export const getJobChargeBreakdown = (
 
   return {
     durationMs,
+    distantBaseTravelMinutes,
+    distantBaseExtraMinutes,
+    distantBaseExtraMs,
+    distantBasePoint: opts.distantBasePoint ?? null,
+    chargeableDurationMs,
     billedHours,
     helpersCount,
     baseAmount,
