@@ -1,16 +1,38 @@
-import type mapboxgl from 'mapbox-gl';
+import type maplibregl from 'maplibre-gl';
+import type { StyleSpecification } from 'maplibre-gl';
 
-export const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN ?? '';
-
-// Streets removes the default traffic overlay and keeps road labels legible.
-export const MAP_STYLE = 'mapbox://styles/mapbox/streets-v12';
+export const OPEN_MAP_STYLE: StyleSpecification = {
+  version: 8,
+  name: 'Fletes Ostrit Open Map',
+  sources: {
+    'carto-light': {
+      type: 'raster',
+      tiles: [
+        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+      ],
+      tileSize: 256,
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    },
+  },
+  layers: [
+    {
+      id: 'carto-light',
+      type: 'raster',
+      source: 'carto-light',
+      minzoom: 0,
+      maxzoom: 20,
+    },
+  ],
+};
 
 const ONEWAY_FORWARD_LAYER_ID = 'fletes-ostrit-oneway-forward';
 const ONEWAY_REVERSE_LAYER_ID = 'fletes-ostrit-oneway-reverse';
 const ONEWAY_ARROW_LAYOUT = {
   'symbol-placement': 'line',
   'symbol-spacing': 160,
-  'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Regular'],
   'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 16, 14],
   'text-keep-upright': false,
   'text-rotation-alignment': 'map',
@@ -22,13 +44,13 @@ const ONEWAY_ARROW_PAINT = {
   'text-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 13.7, 0.58, 15, 0.9],
 };
 
-const getRoadLabelLayerId = (map: mapboxgl.Map) =>
+const getRoadLabelLayerId = (map: maplibregl.Map) =>
   map
     .getStyle()
     ?.layers?.find((layer) => layer.type === 'symbol' && layer.id.toLowerCase().includes('road'))
     ?.id;
 
-const addOneWayLayer = (map: mapboxgl.Map, layerId: string, textField: string, onewayValues: string[]) => {
+const addOneWayLayer = (map: maplibregl.Map, layerId: string, textField: string, onewayValues: string[]) => {
   if (!map.getSource('composite') || map.getLayer(layerId)) return;
 
   map.addLayer(
@@ -47,18 +69,16 @@ const addOneWayLayer = (map: mapboxgl.Map, layerId: string, textField: string, o
         'text-field': textField,
       },
       paint: ONEWAY_ARROW_PAINT,
-    } as unknown as mapboxgl.AnyLayer,
+    } as any,
     getRoadLabelLayerId(map)
   );
 };
 
-export const hasMapboxAccessToken = () => MAPBOX_ACCESS_TOKEN.trim().length > 0;
-
 export const applyMapPalette = (map?: unknown) => {
   if (!map) return;
-  const mapInstance = map as mapboxgl.Map;
+  const mapInstance = map as maplibregl.Map;
   if (!mapInstance.isStyleLoaded()) return;
 
-  addOneWayLayer(mapInstance, ONEWAY_FORWARD_LAYER_ID, '→', ['true', '1', 'yes']);
-  addOneWayLayer(mapInstance, ONEWAY_REVERSE_LAYER_ID, '←', ['-1', 'reverse']);
+  addOneWayLayer(mapInstance, ONEWAY_FORWARD_LAYER_ID, '>', ['true', '1', 'yes']);
+  addOneWayLayer(mapInstance, ONEWAY_REVERSE_LAYER_ID, '<', ['-1', 'reverse']);
 };

@@ -1,33 +1,24 @@
-import { sql as vercelSql } from '@vercel/postgres';
 import pg from 'pg';
 import { getBilledHoursFromDurationMs } from '../lib/billing.js';
 
 const { Pool } = pg;
+const connectionString = process.env.POSTGRES_URL ?? '';
+if (!connectionString.trim()) {
+  throw new Error('Missing POSTGRES_URL');
+}
 
-const shouldUseLocalPg = () => {
-  if (process.env.POSTGRES_USE_PG_POOL === '1') return true;
-  const connectionString = process.env.POSTGRES_URL ?? '';
-  return connectionString.includes('@127.0.0.1:') || connectionString.includes('@localhost:');
-};
+const pool = new Pool({ connectionString });
 
-const createPgSqlTag = () => {
-  const pool = new Pool({
-    connectionString: process.env.POSTGRES_URL,
-  });
-
-  return async (strings, ...values) => {
-    let text = '';
-    for (let index = 0; index < strings.length; index += 1) {
-      text += strings[index];
-      if (index < values.length) {
-        text += `$${index + 1}`;
-      }
+const sql = async (strings, ...values) => {
+  let text = '';
+  for (let index = 0; index < strings.length; index += 1) {
+    text += strings[index];
+    if (index < values.length) {
+      text += `$${index + 1}`;
     }
-    return pool.query(text, values);
-  };
+  }
+  return pool.query(text, values);
 };
-
-const sql = shouldUseLocalPg() ? createPgSqlTag() : vercelSql;
 
 const BA_UTC_OFFSET_HOURS = 3;
 
@@ -285,6 +276,7 @@ export const ensureSchema = async () => {
       last_track_at BIGINT,
       notes TEXT,
       driver_id TEXT,
+      vehicle_id TEXT,
       helpers_count INTEGER,
       estimated_duration_minutes INTEGER,
       charged_amount DOUBLE PRECISION,
@@ -307,6 +299,7 @@ export const ensureSchema = async () => {
     );
   `;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stop_index INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS distance_meters DOUBLE PRECISION;`;
@@ -332,18 +325,23 @@ export const ensureSchema = async () => {
       code TEXT NOT NULL UNIQUE,
       phone TEXT,
       vehicle_id TEXT,
+      owner_debt_settled_amount DOUBLE PRECISION,
+      owner_debt_settled_at TEXT,
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
   `;
   await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`;
+  await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_debt_settled_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_debt_settled_at TEXT;`;
   await sql`
     CREATE TABLE IF NOT EXISTS vehicles (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       size TEXT NOT NULL,
       ownership_type TEXT NOT NULL DEFAULT 'owner',
+      hourly_rate DOUBLE PRECISION,
       cost_per_km DOUBLE PRECISION NOT NULL,
       fixed_monthly_cost DOUBLE PRECISION NOT NULL,
       created_at TEXT NOT NULL,
@@ -351,6 +349,7 @@ export const ensureSchema = async () => {
     );
   `;
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS ownership_type TEXT;`;
+  await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION;`;
   await sql`UPDATE vehicles SET ownership_type = 'owner' WHERE ownership_type IS NULL;`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET DEFAULT 'owner';`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET NOT NULL;`;
@@ -444,6 +443,7 @@ const normalizeRow = (row) => {
     distanceKm: distanceMeters != null ? distanceMeters / 1000 : undefined,
     notes: row.notes ?? undefined,
     driverId: row.driver_id ?? undefined,
+    vehicleId: row.vehicle_id ?? undefined,
     helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
     estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
     chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : fallbackChargedAmount,
@@ -487,12 +487,21 @@ const getBilledHoursFromTimestamps = (timestamps) => {
 
 const toFiniteOrNull = (value) => (Number.isFinite(value) ? value : null);
 
-const resolveDriverShareRatio = async (driverId) => {
-  if (!driverId) {
+const resolveJobVehicle = async (job, driver = null) => {
+  if (job.vehicleId) {
+    return getVehicleById(job.vehicleId);
+  }
+  if (driver?.vehicleId) {
+    return getVehicleById(driver.vehicleId);
+  }
+  return null;
+};
+
+const resolveDriverShareRatio = async (job, driver, vehicle) => {
+  if (!job.driverId) {
     return { ratio: 0, source: 'no_driver' };
   }
 
-  const driver = await getDriverById(driverId);
   if (!driver) {
     return { ratio: 0, source: 'driver_not_found' };
   }
@@ -510,11 +519,10 @@ const resolveDriverShareRatio = async (driverId) => {
     ? driverVehicleSetting
     : (2 / 3);
 
-  if (!driver.vehicleId) {
+  if (!vehicle) {
     return { ratio: ownerVehicleRatio, source: 'owner_vehicle_no_assignment' };
   }
 
-  const vehicle = await getVehicleById(driver.vehicleId);
   if (vehicle?.ownershipType === 'driver') {
     return { ratio: driverVehicleRatio, source: 'driver_vehicle' };
   }
@@ -534,13 +542,16 @@ const buildJobShareSnapshot = async (job) => {
   }
 
   const billedHours = getBilledHoursFromTimestamps(job.timestamps);
+  const driver = job.driverId ? await getDriverById(job.driverId) : null;
+  const vehicle = await resolveJobVehicle(job, driver);
+  const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
   const hourlyRateSetting = await getSetting('hourlyRate');
-  const hourlyRate = Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null;
+  const hourlyRate = vehicleHourlyRate ?? (Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null);
   const baseAmount = billedHours != null && hourlyRate != null
     ? Number((billedHours * hourlyRate).toFixed(2))
     : null;
 
-  const { ratio, source } = await resolveDriverShareRatio(job.driverId);
+  const { ratio, source } = await resolveDriverShareRatio(job, driver, vehicle);
 
   if (baseAmount == null) {
     return {
@@ -613,7 +624,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, vehicle_id, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount,
       hourly_billed_hours, hourly_base_amount, driver_share_amount, company_share_amount, driver_share_ratio, share_source, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
@@ -632,6 +643,7 @@ export const createJob = async (job) => {
       ${null},
       ${job.notes ?? null},
       ${job.driverId ?? null},
+      ${job.vehicleId ?? null},
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
       ${Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null},
       ${payment.chargedAmount},
@@ -710,6 +722,7 @@ export const updateJob = async (id, patch) => {
     const mustRecomputeShare = current.status !== 'DONE'
       || Object.prototype.hasOwnProperty.call(patch, 'status')
       || Object.prototype.hasOwnProperty.call(patch, 'driverId')
+      || Object.prototype.hasOwnProperty.call(patch, 'vehicleId')
       || Object.prototype.hasOwnProperty.call(patch, 'timestamps');
 
     if (mustRecomputeShare) {
@@ -737,6 +750,7 @@ export const updateJob = async (id, patch) => {
       stop_index = ${Number.isInteger(next.stopIndex) && next.stopIndex >= 0 ? next.stopIndex : 0},
       notes = ${next.notes ?? null},
       driver_id = ${next.driverId ?? null},
+      vehicle_id = ${next.vehicleId ?? null},
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
       charged_amount = ${payment.chargedAmount},
@@ -1088,6 +1102,8 @@ const normalizeDriverRow = (row) => ({
   code: row.code,
   phone: row.phone ?? undefined,
   vehicleId: row.vehicle_id ?? undefined,
+  ownerDebtSettledAmount: row.owner_debt_settled_amount != null ? Number(row.owner_debt_settled_amount) : undefined,
+  ownerDebtSettledAt: row.owner_debt_settled_at ?? undefined,
   active: row.active === true,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -1120,13 +1136,15 @@ export const createDriver = async (driver) => {
   const active = typeof driver.active === 'boolean' ? driver.active : true;
   await sql`
     INSERT INTO drivers (
-      id, name, code, phone, vehicle_id, active, created_at, updated_at
+      id, name, code, phone, vehicle_id, owner_debt_settled_amount, owner_debt_settled_at, active, created_at, updated_at
     ) VALUES (
       ${driver.id},
       ${driver.name},
       ${driver.code},
       ${driver.phone ?? null},
       ${driver.vehicleId ?? null},
+      ${Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : null},
+      ${driver.ownerDebtSettledAt ?? null},
       ${active},
       ${createdAt},
       ${updatedAt}
@@ -1142,6 +1160,14 @@ export const updateDriver = async (id, patch) => {
     ...current,
     ...patch,
     active: typeof patch.active === 'boolean' ? patch.active : current.active,
+    ownerDebtSettledAmount: Number.isFinite(patch.ownerDebtSettledAmount)
+      ? Number(Number(patch.ownerDebtSettledAmount).toFixed(2))
+      : patch.ownerDebtSettledAmount === null
+        ? null
+        : current.ownerDebtSettledAmount ?? null,
+    ownerDebtSettledAt: Object.prototype.hasOwnProperty.call(patch, 'ownerDebtSettledAt')
+      ? (patch.ownerDebtSettledAt ?? null)
+      : (current.ownerDebtSettledAt ?? null),
     updatedAt: new Date().toISOString(),
   };
   await sql`
@@ -1150,6 +1176,8 @@ export const updateDriver = async (id, patch) => {
       code = ${next.code},
       phone = ${next.phone ?? null},
       vehicle_id = ${next.vehicleId ?? null},
+      owner_debt_settled_amount = ${next.ownerDebtSettledAmount},
+      owner_debt_settled_at = ${next.ownerDebtSettledAt},
       active = ${next.active},
       created_at = ${next.createdAt},
       updated_at = ${next.updatedAt}
@@ -1170,6 +1198,7 @@ const normalizeVehicleRow = (row) => ({
   name: row.name,
   size: row.size,
   ownershipType: row.ownership_type === 'driver' ? 'driver' : 'owner',
+  hourlyRate: row.hourly_rate != null ? Number(row.hourly_rate) : null,
   costPerKm: row.cost_per_km != null ? Number(row.cost_per_km) : 0,
   fixedMonthlyCost: row.fixed_monthly_cost != null ? Number(row.fixed_monthly_cost) : 0,
   createdAt: row.created_at,
@@ -1195,12 +1224,13 @@ export const createVehicle = async (vehicle) => {
   const updatedAt = vehicle.updatedAt ?? createdAt;
   await sql`
     INSERT INTO vehicles (
-      id, name, size, ownership_type, cost_per_km, fixed_monthly_cost, created_at, updated_at
+      id, name, size, ownership_type, hourly_rate, cost_per_km, fixed_monthly_cost, created_at, updated_at
     ) VALUES (
       ${vehicle.id},
       ${vehicle.name},
       ${vehicle.size},
       ${vehicle.ownershipType ?? 'owner'},
+      ${Number.isFinite(vehicle.hourlyRate) ? Number(vehicle.hourlyRate) : null},
       ${vehicle.costPerKm},
       ${vehicle.fixedMonthlyCost},
       ${createdAt},
@@ -1223,6 +1253,7 @@ export const updateVehicle = async (id, patch) => {
       name = ${next.name},
       size = ${next.size},
       ownership_type = ${next.ownershipType ?? 'owner'},
+      hourly_rate = ${Number.isFinite(next.hourlyRate) ? Number(next.hourlyRate) : null},
       cost_per_km = ${next.costPerKm},
       fixed_monthly_cost = ${next.fixedMonthlyCost},
       created_at = ${next.createdAt},
@@ -1234,6 +1265,7 @@ export const updateVehicle = async (id, patch) => {
 
 export const deleteVehicle = async (id) => {
   await ensureSchema();
+  await sql`UPDATE jobs SET vehicle_id = NULL WHERE vehicle_id = ${id}`;
   await sql`UPDATE drivers SET vehicle_id = NULL WHERE vehicle_id = ${id}`;
   const result = await sql`DELETE FROM vehicles WHERE id = ${id}`;
   return result.rowCount > 0;

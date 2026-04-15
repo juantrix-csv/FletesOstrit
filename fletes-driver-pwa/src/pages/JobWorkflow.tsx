@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { Job, JobStatus } from '../lib/types';
-import { getJob, jobDetailQueryKey, updateJob } from '../lib/api';
-import { ArrowLeft, LocateFixed, MapPin, Phone, Route } from 'lucide-react';
+import type { Job, JobStatus, Vehicle } from '../lib/types';
+import { getHelperHourlyRate, getHourlyRate, getJob, jobDetailQueryKey, listVehicles, updateJob, vehiclesListQueryKey } from '../lib/api';
+import { ArrowLeft, Banknote, Landmark, LocateFixed, MapPin, Phone, Route } from 'lucide-react';
 import { calculateDistance, getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { useGeoLocation } from '../hooks/useGeoLocation';
 import MapRoute, { type MapRouteHandle } from '../components/MapRoute';
@@ -11,6 +11,9 @@ import toast from 'react-hot-toast';
 import { getDriverSession } from '../lib/driverSession';
 import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
 import { useCachedQuery } from '../hooks/useCachedQuery';
+import { formatBilledHours, formatDurationMs, getJobChargeBreakdown, moneyFormatter } from '../lib/jobPricing';
+import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
+import { getRouteEstimate } from '../lib/routeEstimate';
 
 const formatAddress = (address: string, maxParts = 3) => {
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
@@ -27,11 +30,20 @@ export default function JobWorkflow() {
   const [job, setJob] = useState<Job | null>(null);
   const [showExpanded, setShowExpanded] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showCompletionSheet, setShowCompletionSheet] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer'>('cash');
   const [actionPending, setActionPending] = useState(false);
   const mapRef = useRef<MapRouteHandle | null>(null);
   const { coords } = useGeoLocation();
   const [dist, setDist] = useState<number|null>(null);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const [distantBaseEstimate, setDistantBaseEstimate] = useState<{
+    pickupMinutes: number | null;
+    dropoffMinutes: number | null;
+    farthestPoint: 'pickup' | 'dropoff';
+    farthestMinutes: number;
+  } | null>(null);
+  const [loadingDistantBaseEstimate, setLoadingDistantBaseEstimate] = useState(false);
   const session = getDriverSession();
   const jobQuery = useCachedQuery<Job>({
     key: id && session ? jobDetailQueryKey(id, { driverId: session.driverId }) : 'job:detail:disabled',
@@ -39,7 +51,40 @@ export default function JobWorkflow() {
     loader: () => getJob(id as string, { driverId: session!.driverId }),
     staleMs: 45000,
   });
+  const hourlyRateQuery = useCachedQuery<{ hourlyRate: number | null }>({
+    key: 'settings:hourly-rate',
+    enabled: !!session,
+    loader: getHourlyRate,
+    staleMs: 5 * 60 * 1000,
+  });
+  const helperHourlyRateQuery = useCachedQuery<{ hourlyRate: number | null }>({
+    key: 'settings:helper-hourly-rate',
+    enabled: !!session,
+    loader: getHelperHourlyRate,
+    staleMs: 5 * 60 * 1000,
+  });
+  const vehiclesQuery = useCachedQuery<Vehicle[]>({
+    key: vehiclesListQueryKey(),
+    enabled: !!session,
+    loader: listVehicles,
+    staleMs: 5 * 60 * 1000,
+  });
+  const operationsBaseLocationQuery = useOperationsBaseLocation();
+  const operationsBaseLocation = operationsBaseLocationQuery.location;
   const loading = jobQuery.loading;
+  const hourlyRateValue = Number.isFinite(hourlyRateQuery.data?.hourlyRate)
+    ? Number(hourlyRateQuery.data?.hourlyRate)
+    : null;
+  const helperHourlyRateValue = Number.isFinite(helperHourlyRateQuery.data?.hourlyRate)
+    ? Number(helperHourlyRateQuery.data?.hourlyRate)
+    : null;
+  const selectedVehicle = job?.vehicleId
+    ? vehiclesQuery.data?.find((vehicle) => vehicle.id === job.vehicleId) ?? null
+    : null;
+  const vehicleHourlyRateValue = Number.isFinite(selectedVehicle?.hourlyRate)
+    ? Number(selectedVehicle?.hourlyRate)
+    : null;
+  const effectiveHourlyRateValue = vehicleHourlyRateValue ?? hourlyRateValue;
   const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
   const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
     ? job.stopIndex
@@ -76,10 +121,18 @@ export default function JobWorkflow() {
   useEffect(() => {
     setShowExpanded(false);
     setShowDetails(false);
+    setShowCompletionSheet(false);
+    setPaymentMethod('cash');
   }, [id]);
 
   useEffect(() => {
     if (job?.status !== 'PENDING') setShowExpanded(false);
+  }, [job?.status]);
+
+  useEffect(() => {
+    if (job?.status !== 'UNLOADING') {
+      setShowCompletionSheet(false);
+    }
   }, [job?.status]);
 
   useEffect(() => {
@@ -99,6 +152,65 @@ export default function JobWorkflow() {
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, [job?.id, job?.status, job?.timestamps.startJobAt]);
+
+  useEffect(() => {
+    let active = true;
+    if (!job || !operationsBaseLocation || !isValidLocation(operationsBaseLocation) || !isValidLocation(job.pickup) || !isValidLocation(job.dropoff)) {
+      setDistantBaseEstimate(null);
+      setLoadingDistantBaseEstimate(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLoadingDistantBaseEstimate(true);
+    (async () => {
+      try {
+        const [pickupRoute, dropoffRoute] = await Promise.all([
+          getRouteEstimate(operationsBaseLocation, job.pickup),
+          getRouteEstimate(operationsBaseLocation, job.dropoff),
+        ]);
+        if (!active) return;
+
+        const pickupMinutes = pickupRoute ? Math.max(1, Math.ceil(pickupRoute.durationSeconds / 60)) : null;
+        const dropoffMinutes = dropoffRoute ? Math.max(1, Math.ceil(dropoffRoute.durationSeconds / 60)) : null;
+        if (pickupMinutes == null && dropoffMinutes == null) {
+          setDistantBaseEstimate(null);
+          return;
+        }
+
+        const farthestPoint = (pickupMinutes ?? -1) >= (dropoffMinutes ?? -1)
+          ? 'pickup'
+          : 'dropoff';
+        const farthestMinutes = farthestPoint === 'pickup' ? pickupMinutes : dropoffMinutes;
+        if (farthestMinutes == null) {
+          setDistantBaseEstimate(null);
+          return;
+        }
+
+        setDistantBaseEstimate({
+          pickupMinutes,
+          dropoffMinutes,
+          farthestPoint,
+          farthestMinutes,
+        });
+      } finally {
+        if (active) setLoadingDistantBaseEstimate(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    job?.id,
+    job?.pickup.lat,
+    job?.pickup.lng,
+    job?.dropoff.lat,
+    job?.dropoff.lng,
+    operationsBaseLocation?.lat,
+    operationsBaseLocation?.lng,
+  ]);
 
   useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
@@ -132,6 +244,13 @@ export default function JobWorkflow() {
   useDriverLocationSync({ session, jobId: job?.id ?? null, coords });
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
+  const pricingPreview = getJobChargeBreakdown(job, {
+    hourlyRate: effectiveHourlyRateValue,
+    helperHourlyRate: helperHourlyRateValue,
+    endAtMs: job.status === 'DONE' ? undefined : nowTick,
+    distantBaseTravelMinutes: distantBaseEstimate?.farthestMinutes ?? null,
+    distantBasePoint: distantBaseEstimate?.farthestPoint ?? null,
+  });
   const distanceKm = dist != null ? (dist / 1000) : null;
   const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
   const speedMps = coords?.speed ?? null;
@@ -178,6 +297,27 @@ export default function JobWorkflow() {
       : null;
   const distanceLabel = distanceValueKm != null ? `${distanceValueKm.toFixed(1)} km` : 'N/D';
   const extraStops = job.extraStops ?? [];
+  const hasHelpers = (job.helpersCount ?? 0) > 0;
+  const distantBaseLoading = operationsBaseLocationQuery.loading || (!!operationsBaseLocation && loadingDistantBaseEstimate);
+  const pricingLoading = pricingPreview.source !== 'stored'
+    && (Boolean(job.vehicleId && vehiclesQuery.loading) || (effectiveHourlyRateValue == null && hourlyRateQuery.loading) || (hasHelpers && helperHourlyRateQuery.loading) || distantBaseLoading);
+  const helperRateMissing = (job.helpersCount ?? 0) > 0 && helperHourlyRateValue == null;
+  const canConfirmCompletion = !pricingLoading && pricingPreview.totalAmount != null && !actionPending;
+  const displayedTotalAmount = pricingLoading ? null : pricingPreview.totalAmount;
+  const distantBasePointLabel = pricingPreview.distantBasePoint === 'pickup'
+    ? 'Origen'
+    : pricingPreview.distantBasePoint === 'dropoff'
+      ? 'Destino'
+      : 'Punto mas lejano';
+  const distantBaseExtraLabel = pricingPreview.distantBaseTravelMinutes != null
+    ? pricingPreview.distantBaseExtraMinutes > 0
+      ? `${pricingPreview.distantBaseExtraMinutes} min (${distantBasePointLabel} a ${pricingPreview.distantBaseTravelMinutes} min de la base)`
+      : `No aplica (${distantBasePointLabel} a ${pricingPreview.distantBaseTravelMinutes} min de la base)`
+    : distantBaseLoading
+      ? 'Calculando...'
+      : operationsBaseLocation
+        ? 'No se pudo calcular'
+        : 'Base no configurada';
   const detailsSection = (
     <>
       <div className="rounded-2xl border bg-white p-3">
@@ -186,6 +326,12 @@ export default function JobWorkflow() {
           <p><span className="font-medium text-gray-900">Programado:</span> {scheduleLabel}</p>
           <p><span className="font-medium text-gray-900">Duracion estimada:</span> {estimatedDurationLabel}</p>
           <p><span className="font-medium text-gray-900">Distancia:</span> {distanceLabel}</p>
+          <p>
+            <span className="font-medium text-gray-900">Vehiculo:</span>{' '}
+            {selectedVehicle
+              ? `${selectedVehicle.name}${vehicleHourlyRateValue != null ? ` (${moneyFormatter.format(vehicleHourlyRateValue)}/h)` : ''}`
+              : 'Sin vehiculo especifico'}
+          </p>
           <p><span className="font-medium text-gray-900">Ayudantes:</span> {job.helpersCount ?? 0}</p>
           {clientPhone && (
             <p><span className="font-medium text-gray-900">Contacto:</span> {clientPhone}</p>
@@ -285,6 +431,36 @@ export default function JobWorkflow() {
       setJob(updated);
     } catch {
       toast.error('No se pudo actualizar la parada');
+    } finally {
+      setActionPending(false);
+    }
+  };
+
+  const completeWithPayment = async () => {
+    if (!canConfirmCompletion || pricingPreview.totalAmount == null) {
+      toast.error('No se pudo calcular el monto final');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const patch: Partial<Job> = {
+      status: 'DONE',
+      updatedAt: now,
+      timestamps: {
+        endUnloadingAt: job.timestamps.endUnloadingAt ?? now,
+      },
+      cashAmount: paymentMethod === 'cash' ? pricingPreview.totalAmount : null,
+      transferAmount: paymentMethod === 'transfer' ? pricingPreview.totalAmount : null,
+    };
+
+    try {
+      setActionPending(true);
+      const updated = await updateJob(job.id, patch);
+      setJob(updated);
+      setShowCompletionSheet(false);
+      navigate('/driver');
+    } catch {
+      toast.error('No se pudo registrar el cobro');
     } finally {
       setActionPending(false);
     }
@@ -489,7 +665,17 @@ export default function JobWorkflow() {
       {job.status === 'TO_DROPOFF' && !hasPendingStops && (
         <SlideToConfirm label="Desliza para descargar" onConfirm={() => next('UNLOADING')} disabled={actionPending} disabledLabel="Procesando..." />
       )}
-      {job.status === 'UNLOADING' && <SlideToConfirm label="Desliza para finalizar" onConfirm={() => next('DONE')} disabled={actionPending} disabledLabel="Procesando..." />}
+      {job.status === 'UNLOADING' && (
+        <SlideToConfirm
+          label="Desliza para ver cobro"
+          onConfirm={() => {
+            setShowDetails(false);
+            setShowCompletionSheet(true);
+          }}
+          disabled={actionPending}
+          disabledLabel="Procesando..."
+        />
+      )}
       {showDetails && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40">
           <div className="w-full max-w-md mx-auto max-h-[85vh] overflow-y-auto rounded-t-3xl bg-slate-50 p-4 shadow-xl">
@@ -505,6 +691,131 @@ export default function JobWorkflow() {
             </div>
             <div className="mt-3 space-y-3">
               {detailsSection}
+            </div>
+          </div>
+        </div>
+      )}
+      {showCompletionSheet && (
+        <div className="fixed inset-0 z-[60] flex items-end bg-black/50">
+          <div className="w-full max-w-md mx-auto rounded-t-3xl bg-slate-50 p-4 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Cobro al cliente</p>
+                <p className="text-xs text-gray-500">Confirma el monto final y el medio de pago.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCompletionSheet(false)}
+                className="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+              <p className="text-[11px] uppercase tracking-wide text-emerald-700">Monto a cobrar</p>
+              <p className="mt-1 text-3xl font-semibold text-emerald-900">
+                {displayedTotalAmount != null ? moneyFormatter.format(displayedTotalAmount) : 'N/D'}
+              </p>
+              {pricingPreview.source === 'stored' && (
+                <p className="mt-1 text-xs text-emerald-700">Se usa el monto ya cargado en el flete.</p>
+              )}
+            </div>
+
+            <div className="mt-3 rounded-2xl border bg-white p-3">
+              <p className="text-xs uppercase tracking-wide text-gray-400">Como se forma</p>
+              <div className="mt-2 space-y-1.5 text-sm text-gray-700">
+                <p>
+                  <span className="font-medium text-gray-900">Tiempo real:</span>{' '}
+                  {pricingPreview.durationMs != null ? formatDurationMs(pricingPreview.durationMs) : 'Sin tiempos'}
+                </p>
+                <p>
+                  <span className="font-medium text-gray-900">Extra por lejania:</span>{' '}
+                  {distantBaseExtraLabel}
+                </p>
+                {pricingPreview.distantBaseExtraMinutes > 0 && (
+                  <p>
+                    <span className="font-medium text-gray-900">Tiempo para redondeo:</span>{' '}
+                    {pricingPreview.chargeableDurationMs != null ? formatDurationMs(pricingPreview.chargeableDurationMs) : 'Sin tiempos'}
+                  </p>
+                )}
+                <p>
+                  <span className="font-medium text-gray-900">Horas facturadas:</span>{' '}
+                  {pricingPreview.billedHours != null ? formatBilledHours(pricingPreview.billedHours) : 'Sin calcular'}
+                </p>
+                <p>
+                  <span className="font-medium text-gray-900">Flete base:</span>{' '}
+                  {pricingPreview.baseAmount != null && effectiveHourlyRateValue != null && pricingPreview.billedHours != null
+                    ? `${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.baseAmount)}`
+                    : pricingPreview.source === 'stored'
+                      ? 'Incluido en monto cargado'
+                      : 'Falta precio por hora'}
+                </p>
+                <p>
+                  <span className="font-medium text-gray-900">Ayudantes:</span>{' '}
+                  {pricingPreview.helpersCount <= 0
+                    ? 'Sin ayudantes'
+                    : helperHourlyRateValue != null && pricingPreview.billedHours != null
+                      ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(helperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
+                      : pricingPreview.source === 'stored'
+                        ? 'Incluido en monto cargado'
+                        : 'Hay ayudantes pero falta tarifa configurada'}
+                </p>
+              </div>
+            </div>
+
+            {helperRateMissing && pricingPreview.source !== 'stored' && (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                El total no incluye ayudantes porque no hay tarifa de ayudante configurada.
+              </div>
+            )}
+
+            {!canConfirmCompletion && pricingPreview.totalAmount == null && (
+              <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                No se pudo calcular el monto final. Revisa que exista un precio por hora o un monto ya cargado.
+              </div>
+            )}
+
+            <div className="mt-4">
+              <p className="text-xs uppercase tracking-wide text-gray-400">Medio de pago</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('cash')}
+                  className={`rounded-2xl border px-4 py-3 text-left ${paymentMethod === 'cash' ? 'border-emerald-500 bg-emerald-50 text-emerald-900' : 'border-gray-200 bg-white text-gray-700'}`}
+                >
+                  <Banknote size={18} />
+                  <p className="mt-2 text-sm font-semibold">Efectivo</p>
+                  <p className="text-xs text-gray-500">Cobro completo en mano.</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMethod('transfer')}
+                  className={`rounded-2xl border px-4 py-3 text-left ${paymentMethod === 'transfer' ? 'border-emerald-500 bg-emerald-50 text-emerald-900' : 'border-gray-200 bg-white text-gray-700'}`}
+                >
+                  <Landmark size={18} />
+                  <p className="mt-2 text-sm font-semibold">Transferencia</p>
+                  <p className="text-xs text-gray-500">Cobro completo por banco.</p>
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCompletionSheet(false)}
+                className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                onClick={completeWithPayment}
+                disabled={!canConfirmCompletion}
+                className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {actionPending ? 'Guardando...' : `Finalizar con ${paymentMethod === 'cash' ? 'efectivo' : 'transferencia'}`}
+              </button>
             </div>
           </div>
         </div>

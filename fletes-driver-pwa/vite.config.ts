@@ -1,9 +1,22 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-const versionRaw = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.npm_package_version ?? 'dev';
-const appVersion = versionRaw === 'dev' ? versionRaw : versionRaw.slice(0, 8);
+const resolveAppVersion = () => {
+  const envVersion = process.env.APP_VERSION ?? process.env.GIT_COMMIT_SHA ?? process.env.CI_COMMIT_SHA;
+  if (envVersion?.trim()) return envVersion.trim().slice(0, 8);
+
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+  } catch {
+    return process.env.npm_package_version?.trim() || 'dev';
+  }
+};
+
+const appVersion = resolveAppVersion();
 
 export default defineConfig({
   define: {

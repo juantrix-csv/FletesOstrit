@@ -3,6 +3,7 @@ import cors from 'cors';
 
 import geocodeHandler from '../api/geocode.js';
 import routeHandler from '../api/route.js';
+import serviceAreaHandler from '../api/service-area.js';
 import reverseGeocodeHandler from '../api/reverse-geocode.js';
 import driverLocationsIndexHandler from '../api/v1/driver-locations/index.js';
 import driversByIdHandler from '../api/v1/drivers/[id].js';
@@ -50,6 +51,7 @@ app.get('/api/v1/health', (_req, res) => {
 
 app.all('/api/geocode', wrapHandler(geocodeHandler));
 app.all('/api/route', wrapHandler(routeHandler));
+app.all('/api/service-area', wrapHandler(serviceAreaHandler));
 app.all('/api/reverse-geocode', wrapHandler(reverseGeocodeHandler));
 
 app.all('/api/v1/jobs/history/:action', wrapHandler(jobsHistoryHandler));

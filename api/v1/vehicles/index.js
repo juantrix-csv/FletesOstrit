@@ -18,6 +18,7 @@ const VEHICLE_SIZES = new Set(['chico', 'mediano', 'grande']);
 const isVehicleSize = (value) => typeof value === 'string' && VEHICLE_SIZES.has(value);
 const VEHICLE_OWNERSHIP_TYPES = new Set(['owner', 'driver']);
 const isVehicleOwnershipType = (value) => typeof value === 'string' && VEHICLE_OWNERSHIP_TYPES.has(value);
+const isOptionalNonNegativeNumber = (value) => value == null || isNonNegativeNumber(value);
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
@@ -45,6 +46,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid ownershipType' });
       return;
     }
+    if (!isOptionalNonNegativeNumber(body.hourlyRate)) {
+      res.status(400).json({ error: 'Invalid hourlyRate' });
+      return;
+    }
     if (!isNonNegativeNumber(body.costPerKm)) {
       res.status(400).json({ error: 'Invalid costPerKm' });
       return;
@@ -63,6 +68,7 @@ export default async function handler(req, res) {
       name: body.name,
       size: body.size,
       ownershipType,
+      hourlyRate: body.hourlyRate ?? null,
       costPerKm: body.costPerKm,
       fixedMonthlyCost: body.fixedMonthlyCost,
       createdAt: body.createdAt,

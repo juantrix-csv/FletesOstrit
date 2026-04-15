@@ -22,6 +22,8 @@ const createRes = () => ({
 test('geocode uses OpenStreetMap fallback when Mapbox quota is exhausted', async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.MAPBOX_ACCESS_TOKEN;
+  const originalMapboxEnabled = process.env.MAPBOX_ENABLED;
+  process.env.MAPBOX_ENABLED = 'true';
   process.env.MAPBOX_ACCESS_TOKEN = 'test-key';
 
   let fetchCount = 0;
@@ -54,6 +56,11 @@ test('geocode uses OpenStreetMap fallback when Mapbox quota is exhausted', async
     delete process.env.MAPBOX_ACCESS_TOKEN;
   } else {
     process.env.MAPBOX_ACCESS_TOKEN = originalApiKey;
+  }
+  if (originalMapboxEnabled == null) {
+    delete process.env.MAPBOX_ENABLED;
+  } else {
+    process.env.MAPBOX_ENABLED = originalMapboxEnabled;
   }
 
   assert.equal(fetchCount, 2);

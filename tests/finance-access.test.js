@@ -131,6 +131,42 @@ test('finance snapshot includes accounting totals, filters, and driver debt', ()
   assert.equal(driverSummary.driverKeptAmount, 6000);
 });
 
+test('finance jobs use job vehicle hourly rate before the global rate', () => {
+  const payload = buildFinanceResponse('jobs', {
+    generatedAt: '2026-04-14T00:00:00.000Z',
+    jobs: [{
+      ...doneJob,
+      id: 'job-vehicle-rate',
+      vehicleId: 'vehicle-trailer',
+      hourlyBaseAmount: undefined,
+      cashAmount: null,
+      transferAmount: null,
+    }],
+    drivers,
+    vehicles: [
+      ...vehicles,
+      {
+        id: 'vehicle-trailer',
+        name: 'F100 con carro',
+        size: 'grande',
+        ownershipType: 'driver',
+        hourlyRate: 45000,
+        costPerKm: 300,
+        fixedMonthlyCost: 0,
+        createdAt: '2026-04-01T00:00:00.000Z',
+        updatedAt: '2026-04-01T00:00:00.000Z',
+      },
+    ],
+    settings,
+    filters: resolveFinanceFilters({ status: 'DONE' }),
+  });
+
+  assert.equal(payload.jobs[0].vehicle.name, 'F100 con carro');
+  assert.equal(payload.jobs[0].hourlyRate, 45000);
+  assert.equal(payload.jobs[0].hourlyBaseAmount, 67500);
+  assert.equal(payload.jobs[0].expectedTotal, 70500);
+});
+
 test('finance response rejects unknown resources', () => {
   assert.equal(buildFinanceResponse('unknown', { jobs: [], drivers: [], vehicles: [] }), null);
 });

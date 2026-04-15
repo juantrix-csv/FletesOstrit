@@ -19,6 +19,7 @@ export interface Vehicle {
   name: string;
   size: VehicleSize;
   ownershipType: VehicleOwnershipType;
+  hourlyRate?: number | null;
   costPerKm: number;
   fixedMonthlyCost: number;
   createdAt: string;
@@ -30,6 +31,8 @@ export interface Driver {
   code: string;
   phone?: string;
   vehicleId?: string | null;
+  ownerDebtSettledAmount?: number | null;
+  ownerDebtSettledAt?: string | null;
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -73,6 +76,7 @@ export interface Lead {
 export interface Job {
   id: string; clientName: string; clientPhone?: string | null; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
   notes?: string; helpersCount?: number; estimatedDurationMinutes?: number | null; status: JobStatus; driverId?: string | null;
+  vehicleId?: string | null;
   chargedAmount?: number | null;
   cashAmount?: number | null;
   transferAmount?: number | null;

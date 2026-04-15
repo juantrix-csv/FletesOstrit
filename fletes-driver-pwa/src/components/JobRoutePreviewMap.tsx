@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
-import mapboxgl from 'mapbox-gl';
+import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
+import OperationsBaseServiceArea from './OperationsBaseServiceArea';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { Job, LocationData } from '../lib/types';
 import { applyMapPalette } from '../lib/mapStyle';
@@ -31,7 +32,7 @@ interface JobRoutePreviewMapProps {
 
 export default function JobRoutePreviewMap({ job, className, focusLocation }: JobRoutePreviewMapProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
-  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
+  const { handleMapError, mapStyle } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -122,7 +123,7 @@ export default function JobRoutePreviewMap({ job, className, focusLocation }: Jo
       map.easeTo({ center: [points[0].lng, points[0].lat], zoom: 13, duration: 400 });
       return;
     }
-    const bounds = new mapboxgl.LngLatBounds(
+    const bounds = new maplibregl.LngLatBounds(
       [points[0].lng, points[0].lat],
       [points[0].lng, points[0].lat]
     );
@@ -150,7 +151,6 @@ export default function JobRoutePreviewMap({ job, className, focusLocation }: Jo
       <Map
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
-        mapboxAccessToken={mapboxAccessToken}
         mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);
@@ -169,6 +169,7 @@ export default function JobRoutePreviewMap({ job, className, focusLocation }: Jo
         touchPitch={false}
         style={{ width: '100%', height: '100%' }}
       >
+        <OperationsBaseServiceArea location={operationsBaseLocation} />
         {routeGeoJson && (
           <Source id="job-route" type="geojson" data={routeGeoJson}>
             <Layer

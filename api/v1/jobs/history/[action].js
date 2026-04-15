@@ -5,6 +5,7 @@ import {
   getSetting,
   listCompletedJobs,
   listDrivers,
+  listVehicles,
 } from '../../../_db.js';
 import { getBilledHoursFromDurationMs } from '../../../../lib/billing.js';
 
@@ -135,7 +136,9 @@ const buildDoneJob = ({
 const handleExport = async (res) => {
   const completed = await listCompletedJobs();
   const drivers = await listDrivers();
+  const vehicles = await listVehicles();
   const driversById = new Map(drivers.map((driver) => [driver.id, driver]));
+  const vehiclesById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const storedRate = await getSetting('hourlyRate');
   const hourlyRate = typeof storedRate === 'number' && Number.isFinite(storedRate) ? storedRate : null;
   const storedHelperRate = await getSetting('helperHourlyRate');
@@ -145,6 +148,7 @@ const handleExport = async (res) => {
     'job_id',
     'client_name',
     'driver_name',
+    'vehicle_name',
     'description',
     'helpers_count',
     'pickup_address',
@@ -183,10 +187,19 @@ const handleExport = async (res) => {
     const durationMinutes = durationMs != null ? Math.round(durationMs / 60000) : null;
     const durationHours = durationMs != null ? Number((durationMs / 3600000).toFixed(2)) : null;
     const billedHours = getBilledHours(durationMs);
-    const totalValue = hourlyRate != null && billedHours != null
-      ? Number((billedHours * hourlyRate).toFixed(2))
-      : Number.isFinite(job.hourlyBaseAmount)
-        ? job.hourlyBaseAmount
+    const driver = job.driverId ? driversById.get(job.driverId) ?? null : null;
+    const vehicle = job.vehicleId
+      ? vehiclesById.get(job.vehicleId) ?? null
+      : driver?.vehicleId
+        ? vehiclesById.get(driver.vehicleId) ?? null
+        : null;
+    const effectiveHourlyRate = Number.isFinite(vehicle?.hourlyRate)
+      ? Number(vehicle.hourlyRate)
+      : hourlyRate;
+    const totalValue = Number.isFinite(job.hourlyBaseAmount)
+      ? job.hourlyBaseAmount
+      : effectiveHourlyRate != null && billedHours != null
+        ? Number((billedHours * effectiveHourlyRate).toFixed(2))
         : null;
     const driverShareRatio = Number.isFinite(job.driverShareRatio) ? job.driverShareRatio : null;
     const driverShareAmount = Number.isFinite(job.driverShareAmount) ? job.driverShareAmount : null;
@@ -201,12 +214,14 @@ const handleExport = async (res) => {
       : totalValue ?? helpersTotalValue;
     const payment = getPaymentBreakdown(job);
     const totalBilled = payment.totalBilled != null ? payment.totalBilled : totalWithHelpers;
-    const driverName = job.driverId ? driversById.get(job.driverId)?.name ?? '' : '';
+    const driverName = driver?.name ?? '';
+    const vehicleName = vehicle?.name ?? '';
 
     rows.push([
       job.id,
       job.clientName,
       driverName,
+      vehicleName,
       job.description ?? '',
       helpersCount,
       job.pickup?.address ?? '',
@@ -217,7 +232,7 @@ const handleExport = async (res) => {
       endMs != null ? new Date(endMs).toISOString() : '',
       durationMinutes,
       durationHours,
-      hourlyRate,
+      effectiveHourlyRate,
       totalValue,
       driverShareRatio,
       driverShareAmount,

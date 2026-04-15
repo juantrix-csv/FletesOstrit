@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
-import mapboxgl from 'mapbox-gl';
+import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import { useGeoLocation } from '../hooks/useGeoLocation';
@@ -59,7 +59,7 @@ const buildRouteUrl = (points: RoutePoint[]) => {
   return url.toString();
 };
 
-const getFitPadding = (map: mapboxgl.Map) => {
+const getFitPadding = (map: maplibregl.Map) => {
   const container = map.getContainer();
   const minSize = Math.min(container.clientWidth, container.clientHeight);
   const base = Math.round(Math.min(140, Math.max(60, (minSize || 400) * 0.18)));
@@ -69,7 +69,7 @@ const getFitPadding = (map: mapboxgl.Map) => {
 const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mode }, ref) => {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
   const { coords } = useGeoLocation();
-  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
+  const { handleMapError, mapStyle } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const lastRouteRef = useRef<{ lat: number; lng: number; targetKey: string; at: number } | null>(null);
   const smoothRef = useRef<{
@@ -287,7 +287,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       map.easeTo({ center: [fallback.lng, fallback.lat], zoom: 12, duration: 600 });
       return;
     }
-    const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
+    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
     points.slice(1).forEach((point) => bounds.extend(point));
     map.fitBounds(bounds, { padding: getFitPadding(map), duration: 800 });
   }, [mapReady, isDriving, job?.id, pickup.lat, pickup.lng, dropoff.lat, dropoff.lng, pickupValid, dropoffValid, extraStopsValid, viewMode]);
@@ -323,13 +323,13 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     }
     if (coords && isValidLocation(coords)) points.push([coords.lng, coords.lat]);
     if (points.length === 0) return;
-    const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
+    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
     points.slice(1).forEach((point) => bounds.extend(point));
     const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
     const latSpan = Math.max(0.02, (ne.lat - sw.lat) * 0.2);
     const lngSpan = Math.max(0.02, (ne.lng - sw.lng) * 0.2);
-    const maxBounds = new mapboxgl.LngLatBounds(
+    const maxBounds = new maplibregl.LngLatBounds(
       [sw.lng - lngSpan, sw.lat - latSpan],
       [ne.lng + lngSpan, ne.lat + latSpan]
     );
@@ -416,7 +416,7 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       map.easeTo({ center: [points[0].lng, points[0].lat], zoom: 14, duration: 500 });
       return true;
     }
-    const bounds = new mapboxgl.LngLatBounds(
+    const bounds = new maplibregl.LngLatBounds(
       [points[0].lng, points[0].lat],
       [points[0].lng, points[0].lat]
     );
@@ -462,7 +462,6 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
       <Map
         ref={mapRef}
         initialViewState={{ latitude: center[0], longitude: center[1], zoom: 13 }}
-        mapboxAccessToken={mapboxAccessToken}
         mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);

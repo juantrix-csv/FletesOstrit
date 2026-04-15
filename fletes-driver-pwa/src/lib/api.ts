@@ -157,6 +157,10 @@ const invalidateVehicleCaches = () => {
   invalidateCachedQueries((key) => key.startsWith('vehicles:list'));
 };
 
+const invalidateJobCaches = () => {
+  invalidateCachedQueries((key) => key.startsWith('jobs:list') || key.startsWith('job:detail:'));
+};
+
 const syncUpdatedLeadCaches = (lead: Lead) => {
   updateMatchingCachedQueries<Lead[]>(
     (key) => key.startsWith('leads:list'),
@@ -261,12 +265,14 @@ export const listVehicles = () => fetchJson<Vehicle[]>('/vehicles');
 export const createVehicle = async (vehicle: Vehicle) => {
   const created = await fetchJson<Vehicle>('/vehicles', { method: 'POST', body: JSON.stringify(vehicle) });
   invalidateVehicleCaches();
+  invalidateJobCaches();
   return created;
 };
 
 export const updateVehicle = async (id: string, patch: Partial<Vehicle>) => {
   const updated = await fetchJson<Vehicle>(`/vehicles/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
   invalidateVehicleCaches();
+  invalidateJobCaches();
   return updated;
 };
 
@@ -274,6 +280,7 @@ export const deleteVehicle = async (id: string) => {
   await runRequest<void>(`/vehicles/${id}`, { method: 'DELETE' });
   invalidateVehicleCaches();
   invalidateDriverCaches();
+  invalidateJobCaches();
 };
 
 export const listLeads = () => fetchJson<Lead[]>('/leads');

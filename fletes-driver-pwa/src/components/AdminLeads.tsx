@@ -336,13 +336,13 @@ export function AdminLeads({ canDelete = false }: { canDelete?: boolean }) {
 
   const removeLeadRecord = async () => {
     if (!selectedLead) return;
-    if (!window.confirm('Eliminar este registro de venta perdida?')) return;
+    if (!window.confirm('Restar este caso de perdidas? Usalo cuando la conversacion se retoma y la venta finalmente se concreta.')) return;
     try {
       await deleteLead(selectedLead.id);
-      toast.success('Registro eliminado');
+      toast.success('Caso restado de perdidas');
       void leadsQuery.reload();
     } catch {
-      toast.error('No se pudo eliminar el registro');
+      toast.error('No se pudo restar el caso');
     }
   };
 
@@ -355,6 +355,11 @@ export function AdminLeads({ canDelete = false }: { canDelete?: boolean }) {
           <p className="mt-1 text-sm text-slate-500">
             Carga solo lo perdido. La conversion exitosa se calcula con los fletes cargados.
           </p>
+          {canDelete ? (
+            <p className="mt-1 text-sm text-slate-500">
+              Si un cliente vuelve despues y concreta, abre el caso y restalo de perdidas.
+            </p>
+          ) : null}
         </div>
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           <p className="font-semibold">Canal fijo</p>
@@ -682,12 +687,18 @@ export function AdminLeads({ canDelete = false }: { canDelete?: boolean }) {
                       <button
                         type="button"
                         onClick={removeLeadRecord}
-                        className="rounded-full border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                        className="rounded-full border border-amber-200 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50"
                       >
-                        Eliminar
+                        Restar de perdidas
                       </button>
                     ) : null}
                   </div>
+
+                  {canDelete ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      Usa esta accion cuando el cliente parecia perdido, pero retomo la conversacion dias despues y termino cerrando el flete.
+                    </div>
+                  ) : null}
 
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="block text-xs font-medium text-slate-500">
