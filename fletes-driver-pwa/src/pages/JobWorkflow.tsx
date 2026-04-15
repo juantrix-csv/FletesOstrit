@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { Job, JobStatus } from '../lib/types';
-import { getHelperHourlyRate, getHourlyRate, getJob, jobDetailQueryKey, updateJob } from '../lib/api';
+import type { Job, JobStatus, Vehicle } from '../lib/types';
+import { getHelperHourlyRate, getHourlyRate, getJob, jobDetailQueryKey, listVehicles, updateJob, vehiclesListQueryKey } from '../lib/api';
 import { ArrowLeft, Banknote, Landmark, LocateFixed, MapPin, Phone, Route } from 'lucide-react';
 import { calculateDistance, getScheduledAtMs, isStartWindowOpen } from '../lib/utils';
 import { useGeoLocation } from '../hooks/useGeoLocation';
@@ -12,6 +12,8 @@ import { getDriverSession } from '../lib/driverSession';
 import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
 import { useCachedQuery } from '../hooks/useCachedQuery';
 import { formatBilledHours, formatDurationMs, getJobChargeBreakdown, moneyFormatter } from '../lib/jobPricing';
+import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
+import { getRouteEstimate } from '../lib/routeEstimate';
 
 const formatAddress = (address: string, maxParts = 3) => {
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
@@ -35,6 +37,13 @@ export default function JobWorkflow() {
   const { coords } = useGeoLocation();
   const [dist, setDist] = useState<number|null>(null);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
+  const [distantBaseEstimate, setDistantBaseEstimate] = useState<{
+    pickupMinutes: number | null;
+    dropoffMinutes: number | null;
+    farthestPoint: 'pickup' | 'dropoff';
+    farthestMinutes: number;
+  } | null>(null);
+  const [loadingDistantBaseEstimate, setLoadingDistantBaseEstimate] = useState(false);
   const session = getDriverSession();
   const jobQuery = useCachedQuery<Job>({
     key: id && session ? jobDetailQueryKey(id, { driverId: session.driverId }) : 'job:detail:disabled',
@@ -54,6 +63,14 @@ export default function JobWorkflow() {
     loader: getHelperHourlyRate,
     staleMs: 5 * 60 * 1000,
   });
+  const vehiclesQuery = useCachedQuery<Vehicle[]>({
+    key: vehiclesListQueryKey(),
+    enabled: !!session,
+    loader: listVehicles,
+    staleMs: 5 * 60 * 1000,
+  });
+  const operationsBaseLocationQuery = useOperationsBaseLocation();
+  const operationsBaseLocation = operationsBaseLocationQuery.location;
   const loading = jobQuery.loading;
   const hourlyRateValue = Number.isFinite(hourlyRateQuery.data?.hourlyRate)
     ? Number(hourlyRateQuery.data?.hourlyRate)
@@ -61,6 +78,13 @@ export default function JobWorkflow() {
   const helperHourlyRateValue = Number.isFinite(helperHourlyRateQuery.data?.hourlyRate)
     ? Number(helperHourlyRateQuery.data?.hourlyRate)
     : null;
+  const selectedVehicle = job?.vehicleId
+    ? vehiclesQuery.data?.find((vehicle) => vehicle.id === job.vehicleId) ?? null
+    : null;
+  const vehicleHourlyRateValue = Number.isFinite(selectedVehicle?.hourlyRate)
+    ? Number(selectedVehicle?.hourlyRate)
+    : null;
+  const effectiveHourlyRateValue = vehicleHourlyRateValue ?? hourlyRateValue;
   const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
   const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
     ? job.stopIndex
@@ -130,6 +154,65 @@ export default function JobWorkflow() {
   }, [job?.id, job?.status, job?.timestamps.startJobAt]);
 
   useEffect(() => {
+    let active = true;
+    if (!job || !operationsBaseLocation || !isValidLocation(operationsBaseLocation) || !isValidLocation(job.pickup) || !isValidLocation(job.dropoff)) {
+      setDistantBaseEstimate(null);
+      setLoadingDistantBaseEstimate(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLoadingDistantBaseEstimate(true);
+    (async () => {
+      try {
+        const [pickupRoute, dropoffRoute] = await Promise.all([
+          getRouteEstimate(operationsBaseLocation, job.pickup),
+          getRouteEstimate(operationsBaseLocation, job.dropoff),
+        ]);
+        if (!active) return;
+
+        const pickupMinutes = pickupRoute ? Math.max(1, Math.ceil(pickupRoute.durationSeconds / 60)) : null;
+        const dropoffMinutes = dropoffRoute ? Math.max(1, Math.ceil(dropoffRoute.durationSeconds / 60)) : null;
+        if (pickupMinutes == null && dropoffMinutes == null) {
+          setDistantBaseEstimate(null);
+          return;
+        }
+
+        const farthestPoint = (pickupMinutes ?? -1) >= (dropoffMinutes ?? -1)
+          ? 'pickup'
+          : 'dropoff';
+        const farthestMinutes = farthestPoint === 'pickup' ? pickupMinutes : dropoffMinutes;
+        if (farthestMinutes == null) {
+          setDistantBaseEstimate(null);
+          return;
+        }
+
+        setDistantBaseEstimate({
+          pickupMinutes,
+          dropoffMinutes,
+          farthestPoint,
+          farthestMinutes,
+        });
+      } finally {
+        if (active) setLoadingDistantBaseEstimate(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [
+    job?.id,
+    job?.pickup.lat,
+    job?.pickup.lng,
+    job?.dropoff.lat,
+    job?.dropoff.lng,
+    operationsBaseLocation?.lat,
+    operationsBaseLocation?.lng,
+  ]);
+
+  useEffect(() => {
     let wakeLock: WakeLockSentinel | null = null;
 
     const requestWakeLock = async () => {
@@ -162,9 +245,11 @@ export default function JobWorkflow() {
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
   const pricingPreview = getJobChargeBreakdown(job, {
-    hourlyRate: hourlyRateValue,
+    hourlyRate: effectiveHourlyRateValue,
     helperHourlyRate: helperHourlyRateValue,
     endAtMs: job.status === 'DONE' ? undefined : nowTick,
+    distantBaseTravelMinutes: distantBaseEstimate?.farthestMinutes ?? null,
+    distantBasePoint: distantBaseEstimate?.farthestPoint ?? null,
   });
   const distanceKm = dist != null ? (dist / 1000) : null;
   const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
@@ -213,10 +298,26 @@ export default function JobWorkflow() {
   const distanceLabel = distanceValueKm != null ? `${distanceValueKm.toFixed(1)} km` : 'N/D';
   const extraStops = job.extraStops ?? [];
   const hasHelpers = (job.helpersCount ?? 0) > 0;
+  const distantBaseLoading = operationsBaseLocationQuery.loading || (!!operationsBaseLocation && loadingDistantBaseEstimate);
   const pricingLoading = pricingPreview.source !== 'stored'
-    && (hourlyRateQuery.loading || (hasHelpers && helperHourlyRateQuery.loading));
+    && (Boolean(job.vehicleId && vehiclesQuery.loading) || (effectiveHourlyRateValue == null && hourlyRateQuery.loading) || (hasHelpers && helperHourlyRateQuery.loading) || distantBaseLoading);
   const helperRateMissing = (job.helpersCount ?? 0) > 0 && helperHourlyRateValue == null;
   const canConfirmCompletion = !pricingLoading && pricingPreview.totalAmount != null && !actionPending;
+  const displayedTotalAmount = pricingLoading ? null : pricingPreview.totalAmount;
+  const distantBasePointLabel = pricingPreview.distantBasePoint === 'pickup'
+    ? 'Origen'
+    : pricingPreview.distantBasePoint === 'dropoff'
+      ? 'Destino'
+      : 'Punto mas lejano';
+  const distantBaseExtraLabel = pricingPreview.distantBaseTravelMinutes != null
+    ? pricingPreview.distantBaseExtraMinutes > 0
+      ? `${pricingPreview.distantBaseExtraMinutes} min (${distantBasePointLabel} a ${pricingPreview.distantBaseTravelMinutes} min de la base)`
+      : `No aplica (${distantBasePointLabel} a ${pricingPreview.distantBaseTravelMinutes} min de la base)`
+    : distantBaseLoading
+      ? 'Calculando...'
+      : operationsBaseLocation
+        ? 'No se pudo calcular'
+        : 'Base no configurada';
   const detailsSection = (
     <>
       <div className="rounded-2xl border bg-white p-3">
@@ -225,6 +326,12 @@ export default function JobWorkflow() {
           <p><span className="font-medium text-gray-900">Programado:</span> {scheduleLabel}</p>
           <p><span className="font-medium text-gray-900">Duracion estimada:</span> {estimatedDurationLabel}</p>
           <p><span className="font-medium text-gray-900">Distancia:</span> {distanceLabel}</p>
+          <p>
+            <span className="font-medium text-gray-900">Vehiculo:</span>{' '}
+            {selectedVehicle
+              ? `${selectedVehicle.name}${vehicleHourlyRateValue != null ? ` (${moneyFormatter.format(vehicleHourlyRateValue)}/h)` : ''}`
+              : 'Sin vehiculo especifico'}
+          </p>
           <p><span className="font-medium text-gray-900">Ayudantes:</span> {job.helpersCount ?? 0}</p>
           {clientPhone && (
             <p><span className="font-medium text-gray-900">Contacto:</span> {clientPhone}</p>
@@ -608,7 +715,7 @@ export default function JobWorkflow() {
             <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
               <p className="text-[11px] uppercase tracking-wide text-emerald-700">Monto a cobrar</p>
               <p className="mt-1 text-3xl font-semibold text-emerald-900">
-                {pricingPreview.totalAmount != null ? moneyFormatter.format(pricingPreview.totalAmount) : 'N/D'}
+                {displayedTotalAmount != null ? moneyFormatter.format(displayedTotalAmount) : 'N/D'}
               </p>
               {pricingPreview.source === 'stored' && (
                 <p className="mt-1 text-xs text-emerald-700">Se usa el monto ya cargado en el flete.</p>
@@ -623,13 +730,23 @@ export default function JobWorkflow() {
                   {pricingPreview.durationMs != null ? formatDurationMs(pricingPreview.durationMs) : 'Sin tiempos'}
                 </p>
                 <p>
+                  <span className="font-medium text-gray-900">Extra por lejania:</span>{' '}
+                  {distantBaseExtraLabel}
+                </p>
+                {pricingPreview.distantBaseExtraMinutes > 0 && (
+                  <p>
+                    <span className="font-medium text-gray-900">Tiempo para redondeo:</span>{' '}
+                    {pricingPreview.chargeableDurationMs != null ? formatDurationMs(pricingPreview.chargeableDurationMs) : 'Sin tiempos'}
+                  </p>
+                )}
+                <p>
                   <span className="font-medium text-gray-900">Horas facturadas:</span>{' '}
                   {pricingPreview.billedHours != null ? formatBilledHours(pricingPreview.billedHours) : 'Sin calcular'}
                 </p>
                 <p>
                   <span className="font-medium text-gray-900">Flete base:</span>{' '}
-                  {pricingPreview.baseAmount != null && hourlyRateValue != null && pricingPreview.billedHours != null
-                    ? `${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(hourlyRateValue)} = ${moneyFormatter.format(pricingPreview.baseAmount)}`
+                  {pricingPreview.baseAmount != null && effectiveHourlyRateValue != null && pricingPreview.billedHours != null
+                    ? `${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.baseAmount)}`
                     : pricingPreview.source === 'stored'
                       ? 'Incluido en monto cargado'
                       : 'Falta precio por hora'}

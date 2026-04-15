@@ -1,4 +1,4 @@
-import { deleteJob, getDriverByCode, getDriverById, getJobById, updateJob } from '../../_db.js';
+import { deleteJob, getDriverByCode, getDriverById, getJobById, getVehicleById, updateJob } from '../../_db.js';
 
 const ALLOWED_STATUSES = new Set([
   'PENDING',
@@ -109,6 +109,21 @@ export default async function handler(req, res) {
       if (!driver) {
         res.status(400).json({ error: 'Invalid driverId' });
         return;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'vehicleId')) {
+      if (body.vehicleId == null) {
+        body.vehicleId = null;
+      } else if (typeof body.vehicleId !== 'string' || !body.vehicleId.trim()) {
+        res.status(400).json({ error: 'Invalid vehicleId' });
+        return;
+      } else {
+        const vehicle = await getVehicleById(body.vehicleId);
+        if (!vehicle) {
+          res.status(400).json({ error: 'Invalid vehicleId' });
+          return;
+        }
+        body.vehicleId = vehicle.id;
       }
     }
     const updated = await updateJob(id, body);

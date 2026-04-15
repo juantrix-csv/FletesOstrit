@@ -93,6 +93,9 @@ const csvValue = (value) => {
 
 const VEHICLE_SIZES = new Set(['chico', 'mediano', 'grande']);
 const isVehicleSize = (value) => typeof value === 'string' && VEHICLE_SIZES.has(value);
+const VEHICLE_OWNERSHIP_TYPES = new Set(['owner', 'driver']);
+const isVehicleOwnershipType = (value) => typeof value === 'string' && VEHICLE_OWNERSHIP_TYPES.has(value);
+const isOptionalNonNegativeNumber = (value) => value == null || isNonNegativeNumber(value);
 
 const getBilledHours = (durationMs) => {
   return getBilledHoursFromDurationMs(durationMs);
@@ -414,6 +417,21 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
       return;
     }
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'vehicleId')) {
+    if (body.vehicleId == null || body.vehicleId === '') {
+      body.vehicleId = null;
+    } else if (!isNonEmptyString(body.vehicleId)) {
+      res.status(400).json({ error: 'Invalid vehicleId' });
+      return;
+    } else {
+      const vehicle = getVehicleById(body.vehicleId);
+      if (!vehicle) {
+        res.status(400).json({ error: 'Invalid vehicleId' });
+        return;
+      }
+      body.vehicleId = vehicle.id;
+    }
+  }
   const created = createJob(body);
   res.status(201).json(created);
 });
@@ -461,6 +479,21 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
     if (!driver) {
       res.status(400).json({ error: 'Invalid driverId' });
       return;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'vehicleId')) {
+    if (body.vehicleId == null || body.vehicleId === '') {
+      body.vehicleId = null;
+    } else if (!isNonEmptyString(body.vehicleId)) {
+      res.status(400).json({ error: 'Invalid vehicleId' });
+      return;
+    } else {
+      const vehicle = getVehicleById(body.vehicleId);
+      if (!vehicle) {
+        res.status(400).json({ error: 'Invalid vehicleId' });
+        return;
+      }
+      body.vehicleId = vehicle.id;
     }
   }
   const updated = updateJob(req.params.id, body);
@@ -609,6 +642,15 @@ app.post(`${API_PREFIX}/vehicles`, (req, res) => {
     res.status(400).json({ error: 'Invalid size' });
     return;
   }
+  const ownershipType = body.ownershipType ?? 'owner';
+  if (!isVehicleOwnershipType(ownershipType)) {
+    res.status(400).json({ error: 'Invalid ownershipType' });
+    return;
+  }
+  if (!isOptionalNonNegativeNumber(body.hourlyRate)) {
+    res.status(400).json({ error: 'Invalid hourlyRate' });
+    return;
+  }
   if (!isNonNegativeNumber(body.costPerKm)) {
     res.status(400).json({ error: 'Invalid costPerKm' });
     return;
@@ -626,6 +668,8 @@ app.post(`${API_PREFIX}/vehicles`, (req, res) => {
     id: body.id,
     name: body.name,
     size: body.size,
+    ownershipType,
+    hourlyRate: body.hourlyRate ?? null,
     costPerKm: body.costPerKm,
     fixedMonthlyCost: body.fixedMonthlyCost,
     createdAt: body.createdAt,
@@ -642,6 +686,14 @@ app.patch(`${API_PREFIX}/vehicles/:id`, (req, res) => {
   }
   if (body.size && !isVehicleSize(body.size)) {
     res.status(400).json({ error: 'Invalid size' });
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'ownershipType') && !isVehicleOwnershipType(body.ownershipType)) {
+    res.status(400).json({ error: 'Invalid ownershipType' });
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'hourlyRate') && !isOptionalNonNegativeNumber(body.hourlyRate)) {
+    res.status(400).json({ error: 'Invalid hourlyRate' });
     return;
   }
   if (Object.prototype.hasOwnProperty.call(body, 'costPerKm') && !isNonNegativeNumber(body.costPerKm)) {

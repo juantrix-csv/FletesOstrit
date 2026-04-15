@@ -1,4 +1,4 @@
-import { createJob, getDriverByCode, getDriverById, listJobs } from '../../_db.js';
+import { createJob, getDriverByCode, getDriverById, getVehicleById, listJobs } from '../../_db.js';
 
 const ALLOWED_STATUSES = new Set([
   'PENDING',
@@ -112,6 +112,21 @@ export default async function handler(req, res) {
       if (!driver) {
         res.status(400).json({ error: 'Invalid driverId' });
         return;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'vehicleId')) {
+      if (body.vehicleId == null || body.vehicleId === '') {
+        body.vehicleId = null;
+      } else if (typeof body.vehicleId !== 'string' || !body.vehicleId.trim()) {
+        res.status(400).json({ error: 'Invalid vehicleId' });
+        return;
+      } else {
+        const vehicle = await getVehicleById(body.vehicleId);
+        if (!vehicle) {
+          res.status(400).json({ error: 'Invalid vehicleId' });
+          return;
+        }
+        body.vehicleId = vehicle.id;
       }
     }
     const created = await createJob(body);

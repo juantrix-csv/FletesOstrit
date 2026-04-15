@@ -27,6 +27,7 @@ db.exec(`
     lastTrackAt INTEGER,
     notes TEXT,
     driverId TEXT,
+    vehicleId TEXT,
     helpersCount INTEGER,
     estimatedDurationMinutes INTEGER,
     chargedAmount REAL,
@@ -52,6 +53,9 @@ const ensureJobsColumns = () => {
   const columns = db.prepare('PRAGMA table_info(jobs)').all().map((col) => col.name);
   if (!columns.includes('driverId')) {
     db.exec('ALTER TABLE jobs ADD COLUMN driverId TEXT;');
+  }
+  if (!columns.includes('vehicleId')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN vehicleId TEXT;');
   }
   if (!columns.includes('extraStops')) {
     db.exec('ALTER TABLE jobs ADD COLUMN extraStops TEXT;');
@@ -112,6 +116,8 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     size TEXT NOT NULL,
+    ownershipType TEXT NOT NULL DEFAULT 'owner',
+    hourlyRate REAL,
     costPerKm REAL NOT NULL,
     fixedMonthlyCost REAL NOT NULL,
     createdAt TEXT NOT NULL,
@@ -133,6 +139,18 @@ db.exec(`
 `);
 
 ensureDriversColumns();
+
+const ensureVehiclesColumns = () => {
+  const columns = db.prepare('PRAGMA table_info(vehicles)').all().map((col) => col.name);
+  if (!columns.includes('ownershipType')) {
+    db.exec("ALTER TABLE vehicles ADD COLUMN ownershipType TEXT NOT NULL DEFAULT 'owner';");
+  }
+  if (!columns.includes('hourlyRate')) {
+    db.exec('ALTER TABLE vehicles ADD COLUMN hourlyRate REAL;');
+  }
+};
+
+ensureVehiclesColumns();
 
 const defaultFlags = {
   nearPickupSent: false,
@@ -222,6 +240,7 @@ const toRow = (job) => ({
   lastTrackAt: Number.isFinite(job.lastTrackAt) ? job.lastTrackAt : null,
   notes: job.notes ?? null,
   driverId: job.driverId ?? null,
+  vehicleId: job.vehicleId ?? null,
   helpersCount: Number.isFinite(job.helpersCount) ? job.helpersCount : null,
   estimatedDurationMinutes: Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null,
   chargedAmount: Number.isFinite(job.chargedAmount) ? job.chargedAmount : null,
@@ -251,6 +270,7 @@ const fromRow = (row) => ({
   lastTrackAt: Number.isFinite(row.lastTrackAt) ? row.lastTrackAt : undefined,
   notes: row.notes ?? undefined,
   driverId: row.driverId ?? undefined,
+  vehicleId: row.vehicleId ?? undefined,
   helpersCount: Number.isFinite(row.helpersCount) ? row.helpersCount : undefined,
   estimatedDurationMinutes: Number.isFinite(row.estimatedDurationMinutes) ? row.estimatedDurationMinutes : undefined,
   chargedAmount: Number.isFinite(row.chargedAmount) ? row.chargedAmount : undefined,
@@ -266,11 +286,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, vehicleId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @vehicleId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -291,6 +311,7 @@ const updateStmt = db.prepare(`
     lastTrackAt = @lastTrackAt,
     notes = @notes,
     driverId = @driverId,
+    vehicleId = @vehicleId,
     helpersCount = @helpersCount,
     estimatedDurationMinutes = @estimatedDurationMinutes,
     chargedAmount = @chargedAmount,
@@ -342,6 +363,7 @@ export const createJob = (job) => {
     flags: job.flags ?? defaultFlags,
     timestamps: job.timestamps ?? {},
     driverId: job.driverId ?? null,
+    vehicleId: job.vehicleId ?? null,
     scheduledAt,
     createdAt,
     updatedAt,
@@ -483,6 +505,8 @@ const toVehicleRow = (vehicle) => ({
   id: vehicle.id,
   name: vehicle.name,
   size: vehicle.size,
+  ownershipType: vehicle.ownershipType === 'driver' ? 'driver' : 'owner',
+  hourlyRate: Number.isFinite(vehicle.hourlyRate) ? vehicle.hourlyRate : null,
   costPerKm: Number.isFinite(vehicle.costPerKm) ? vehicle.costPerKm : 0,
   fixedMonthlyCost: Number.isFinite(vehicle.fixedMonthlyCost) ? vehicle.fixedMonthlyCost : 0,
   createdAt: vehicle.createdAt,
@@ -493,6 +517,8 @@ const fromVehicleRow = (row) => ({
   id: row.id,
   name: row.name,
   size: row.size,
+  ownershipType: row.ownershipType === 'driver' ? 'driver' : 'owner',
+  hourlyRate: Number.isFinite(row.hourlyRate) ? row.hourlyRate : null,
   costPerKm: Number.isFinite(row.costPerKm) ? row.costPerKm : 0,
   fixedMonthlyCost: Number.isFinite(row.fixedMonthlyCost) ? row.fixedMonthlyCost : 0,
   createdAt: row.createdAt,
@@ -501,9 +527,9 @@ const fromVehicleRow = (row) => ({
 
 const insertVehicleStmt = db.prepare(`
   INSERT INTO vehicles (
-    id, name, size, costPerKm, fixedMonthlyCost, createdAt, updatedAt
+    id, name, size, ownershipType, hourlyRate, costPerKm, fixedMonthlyCost, createdAt, updatedAt
   ) VALUES (
-    @id, @name, @size, @costPerKm, @fixedMonthlyCost, @createdAt, @updatedAt
+    @id, @name, @size, @ownershipType, @hourlyRate, @costPerKm, @fixedMonthlyCost, @createdAt, @updatedAt
   );
 `);
 
@@ -511,6 +537,8 @@ const updateVehicleStmt = db.prepare(`
   UPDATE vehicles SET
     name = @name,
     size = @size,
+    ownershipType = @ownershipType,
+    hourlyRate = @hourlyRate,
     costPerKm = @costPerKm,
     fixedMonthlyCost = @fixedMonthlyCost,
     createdAt = @createdAt,
@@ -553,6 +581,7 @@ export const updateVehicle = (id, patch) => {
 };
 
 export const deleteVehicle = (id) => {
+  db.prepare('UPDATE jobs SET vehicleId = NULL WHERE vehicleId = ?').run(id);
   db.prepare('UPDATE drivers SET vehicleId = NULL WHERE vehicleId = ?').run(id);
   const info = db.prepare('DELETE FROM vehicles WHERE id = ?').run(id);
   return info.changes > 0;

@@ -479,6 +479,7 @@ type EditJobDraft = {
   estimatedDurationHours: string;
   helpersCount: string;
   driverId: string;
+  vehicleId: string;
 };
 
 const emptyEditDraft: EditJobDraft = {
@@ -490,6 +491,7 @@ const emptyEditDraft: EditJobDraft = {
   estimatedDurationHours: '',
   helpersCount: '',
   driverId: '',
+  vehicleId: '',
 };
 
 const getEstimatedDurationMinutes = (job: Job) => {
@@ -577,6 +579,8 @@ export default function AdminJobs() {
   const [loadingLocations, setLoadingLocations] = useState(() => !locationsCacheEntry);
   const [savingJob, setSavingJob] = useState(false);
   const [open, setOpen] = useState(false);
+  const [newJobDriverId, setNewJobDriverId] = useState('');
+  const [newJobVehicleId, setNewJobVehicleId] = useState('');
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
   const [extraStops, setExtraStops] = useState<LocationData[]>([]);
@@ -601,6 +605,7 @@ export default function AdminJobs() {
   const [vehicleName, setVehicleName] = useState('');
   const [vehicleSize, setVehicleSize] = useState<'chico' | 'mediano' | 'grande'>('mediano');
   const [vehicleOwnershipType, setVehicleOwnershipType] = useState<VehicleOwnershipType>('owner');
+  const [vehicleHourlyRateInput, setVehicleHourlyRateInput] = useState('');
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
@@ -685,6 +690,23 @@ export default function AdminJobs() {
   const fixedMonthlyCostValue = useMemo(() => parseHourlyRate(fixedMonthlyCostInput), [fixedMonthlyCostInput]);
   const tripCostPerHourValue = useMemo(() => parseHourlyRate(tripCostPerHourInput), [tripCostPerHourInput]);
   const tripCostPerKmValue = useMemo(() => parseHourlyRate(tripCostPerKmInput), [tripCostPerKmInput]);
+  const hasVehicleHourlyRates = useMemo(
+    () => vehicles.some((vehicle) => Number.isFinite(vehicle.hourlyRate)),
+    [vehicles],
+  );
+  const getDriverDefaultVehicleId = (driverId?: string | null) => {
+    if (!driverId) return '';
+    return driversById.get(driverId)?.vehicleId ?? '';
+  };
+  const getJobVehicle = (job: Pick<Job, 'vehicleId' | 'driverId'>) => {
+    if (job.vehicleId) return vehiclesById.get(job.vehicleId) ?? null;
+    const driverVehicleId = getDriverDefaultVehicleId(job.driverId);
+    return driverVehicleId ? vehiclesById.get(driverVehicleId) ?? null : null;
+  };
+  const getJobHourlyRateValue = (job: Pick<Job, 'vehicleId' | 'driverId'>) => {
+    const vehicle = getJobVehicle(job);
+    return Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle?.hourlyRate) : hourlyRateValue;
+  };
 
   const loadJobs = async (options?: { silent?: boolean }) => {
     try {
@@ -1087,7 +1109,8 @@ export default function AdminJobs() {
     }
     const estimatedDurationMinutes = Math.max(1, Math.round(estimatedHours * 60));
     const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
-    const driverIdValue = String(fd.get('driverId') || '').trim();
+    const driverIdValue = newJobDriverId.trim();
+    const vehicleIdValue = newJobVehicleId.trim();
     try {
       setSavingJob(true);
       await createJob({
@@ -1104,6 +1127,7 @@ export default function AdminJobs() {
         extraStops,
         helpersCount,
         driverId: driverIdValue || undefined,
+        vehicleId: vehicleIdValue || undefined,
         status: 'PENDING',
         flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
         timestamps: {},
@@ -1112,6 +1136,8 @@ export default function AdminJobs() {
       });
       toast.success('Creado');
       setOpen(false);
+      setNewJobDriverId('');
+      setNewJobVehicleId('');
       setPickup(null);
       setDropoff(null);
       setExtraStops([]);
@@ -1136,12 +1162,23 @@ export default function AdminJobs() {
   };
 
   const handleAssignJob = async (job: Job, driverId: string) => {
+    const vehicleId = driverId ? getDriverDefaultVehicleId(driverId) || null : null;
     try {
-      const updated = await updateJob(job.id, { driverId: driverId || null });
+      const updated = await updateJob(job.id, { driverId: driverId || null, vehicleId });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
       toast.success('Asignacion guardada');
     } catch {
       toast.error('No se pudo asignar el conductor');
+    }
+  };
+
+  const handleAssignJobVehicle = async (job: Job, vehicleId: string) => {
+    try {
+      const updated = await updateJob(job.id, { vehicleId: vehicleId || null });
+      setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
+      toast.success('Vehiculo guardado');
+    } catch {
+      toast.error('No se pudo asignar el vehiculo');
     }
   };
 
@@ -1156,6 +1193,7 @@ export default function AdminJobs() {
       estimatedDurationHours: formatDurationHours(job.estimatedDurationMinutes),
       helpersCount: Number.isFinite(job.helpersCount) ? String(job.helpersCount) : '',
       driverId: job.driverId ?? '',
+      vehicleId: job.vehicleId ?? getDriverDefaultVehicleId(job.driverId),
     });
     setEditPickup(job.pickup ?? null);
     setEditDropoff(job.dropoff ?? null);
@@ -1218,6 +1256,7 @@ export default function AdminJobs() {
         estimatedDurationMinutes: Math.max(1, Math.round(estimatedHours * 60)),
         helpersCount: helpersCountRaw ? helpersCount : undefined,
         driverId: editDraft.driverId ? editDraft.driverId : null,
+        vehicleId: editDraft.vehicleId ? editDraft.vehicleId : null,
       });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
       toast.success('Flete actualizado');
@@ -1265,6 +1304,11 @@ export default function AdminJobs() {
       toast.error('Nombre del vehiculo obligatorio');
       return;
     }
+    const hourlyRate = parseMoneyInput(vehicleHourlyRateInput);
+    if (vehicleHourlyRateInput.trim() && hourlyRate == null) {
+      toast.error('Precio por hora invalido');
+      return;
+    }
     const costPerKm = parseMoneyInput(vehicleCostPerKmInput);
     if (vehicleCostPerKmInput.trim() && costPerKm == null) {
       toast.error('Gasto por km invalido');
@@ -1291,6 +1335,7 @@ export default function AdminJobs() {
         name: vehicleName.trim(),
         size: vehicleSize,
         ownershipType: vehicleOwnershipType,
+        hourlyRate,
         costPerKm: costPerKm as number,
         fixedMonthlyCost: fixedMonthlyCost as number,
         createdAt: now,
@@ -1300,6 +1345,7 @@ export default function AdminJobs() {
       setVehicleName('');
       setVehicleSize('mediano');
       setVehicleOwnershipType('owner');
+      setVehicleHourlyRateInput('');
       setVehicleCostPerKmInput('');
       setVehicleFixedMonthlyInput('');
       toast.success('Vehiculo creado');
@@ -1370,6 +1416,7 @@ export default function AdminJobs() {
       await deleteVehicle(id);
       setVehicles((prev) => prev.filter((vehicle) => vehicle.id !== id));
       setDrivers((prev) => prev.map((driver) => (driver.vehicleId === id ? { ...driver, vehicleId: null } : driver)));
+      setJobs((prev) => prev.map((job) => (job.vehicleId === id ? { ...job, vehicleId: null } : job)));
       toast.success('Vehiculo eliminado');
     } catch {
       toast.error('No se pudo eliminar el vehiculo');
@@ -1659,8 +1706,12 @@ export default function AdminJobs() {
   };
   const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
     const billedHours = getEntryBilledHours(entry);
-    if (hourlyRateValue != null && billedHours != null) {
-      return billedHours * hourlyRateValue;
+    if (entry.job.status === 'DONE' && Number.isFinite(entry.job.hourlyBaseAmount)) {
+      return entry.job.hourlyBaseAmount as number;
+    }
+    const jobHourlyRate = getJobHourlyRateValue(entry.job);
+    if (jobHourlyRate != null && billedHours != null) {
+      return billedHours * jobHourlyRate;
     }
     if (Number.isFinite(entry.job.hourlyBaseAmount)) {
       return entry.job.hourlyBaseAmount as number;
@@ -1681,10 +1732,7 @@ export default function AdminJobs() {
     return baseValue + helpersValue;
   };
   const getEntryVehicle = (entry: { job: Job }) => {
-    if (!entry.job.driverId) return null;
-    const driver = driversById.get(entry.job.driverId);
-    if (!driver?.vehicleId) return null;
-    return vehiclesById.get(driver.vehicleId) ?? null;
+    return getJobVehicle(entry.job);
   };
   const isOwnerAccountDriver = (driver: Driver | null) => String(driver?.code ?? '').trim() === OWNER_ACCOUNT_DRIVER_CODE;
   const isExternalDriver = (driver: Driver | null) => !!driver && !isOwnerAccountDriver(driver);
@@ -1776,12 +1824,13 @@ export default function AdminJobs() {
     const collectedPayment = getJobCollectedPayment(job);
     if (collectedPayment.total != null) return collectedPayment.total;
     const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(job));
-    if (hourlyRateValue == null || billedHours == null) return null;
+    const jobHourlyRate = getJobHourlyRateValue(job);
+    if (jobHourlyRate == null || billedHours == null) return null;
     const helpersCount = job.helpersCount ?? 0;
     const helpersValue = helperHourlyRateValue != null && helpersCount > 0
       ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
-    return billedHours * hourlyRateValue + helpersValue;
+    return billedHours * jobHourlyRate + helpersValue;
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
@@ -1838,7 +1887,7 @@ export default function AdminJobs() {
     });
     const value = hoursTotal > 0 ? revenueTotal / hoursTotal : null;
     return { value, hoursTotal, trips };
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue]);
+  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, vehiclesById, driversById]);
   const netMarginStats = useMemo(() => {
     let total = 0;
     let count = 0;
@@ -1947,7 +1996,7 @@ export default function AdminJobs() {
     ? `${recurringClientStats.recurring} de ${recurringClientStats.total} con telefono.`
     : 'Sin telefonos cargados.';
   const monthlyGrossTotal = useMemo(() => {
-    if (hourlyRateValue == null && !hasChargeOverrides) return null;
+    if (hourlyRateValue == null && !hasVehicleHourlyRates && !hasChargeOverrides) return null;
     const now = new Date();
     const month = now.getMonth();
     const year = now.getFullYear();
@@ -1958,7 +2007,7 @@ export default function AdminJobs() {
       const total = getEntryTotal(entry);
       return total != null ? sum + total : sum;
     }, 0);
-  }, [completedHistory, hourlyRateValue, helperHourlyRateValue, hasChargeOverrides]);
+  }, [completedHistory, hourlyRateValue, hasVehicleHourlyRates, helperHourlyRateValue, hasChargeOverrides, vehiclesById, driversById]);
   const monthlyGrossLabel = monthlyGrossTotal != null
     ? currencyFormatter.format(monthlyGrossTotal)
     : 'Configura el precio';
@@ -2121,7 +2170,7 @@ export default function AdminJobs() {
   const currentMonthCollectedLabel = currentMonthPaymentBreakdown != null
     ? currencyFormatter.format(currentMonthPaymentBreakdown.total)
     : currencyFormatter.format(0);
-  const hasMonthlyPricing = hourlyRateValue != null || helperHourlyRateValue != null || hasChargeOverrides;
+  const hasMonthlyPricing = hourlyRateValue != null || hasVehicleHourlyRates || helperHourlyRateValue != null || hasChargeOverrides;
   const driverLocationsById = useMemo(() => {
     const map = new Map<string, DriverLocation>();
     driverLocations.forEach((loc) => map.set(loc.driverId, loc));
@@ -2257,6 +2306,7 @@ export default function AdminJobs() {
     return jobs.find((job) => job.id === selectedJobId) ?? null;
   }, [jobs, selectedJobId]);
   const selectedJobDriver = selectedJobDetail?.driverId ? driversById.get(selectedJobDetail.driverId) : null;
+  const selectedJobVehicle = selectedJobDetail ? getJobVehicle(selectedJobDetail) : null;
   const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
   const editMapTargetLabel = editMapTarget === 'pickup' ? 'origen' : editMapTarget === 'dropoff' ? 'destino' : 'parada extra';
   const selectedJobDurations = useMemo(() => {
@@ -2355,8 +2405,9 @@ export default function AdminJobs() {
       total += estimate;
       const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
       const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
-      const baseValue = hourlyRateValue != null && billedHours != null
-        ? billedHours * hourlyRateValue
+      const jobHourlyRate = getJobHourlyRateValue(item.job);
+      const baseValue = jobHourlyRate != null && billedHours != null
+        ? billedHours * jobHourlyRate
         : null;
       const helpersCount = item.job.helpersCount ?? 0;
       const helpersCost = helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
@@ -2373,7 +2424,7 @@ export default function AdminJobs() {
       netTotal += companyHourlyMargin + helperRevenue - helpersCost - fuelCost - getSchedulingAssistantCost();
     });
     return { total, netTotal, missing, count, totalMinutes };
-  }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById, driversById]);
+  }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById, driversById, vehiclesById]);
   const handleCalendarToday = () => setCalendarDate(new Date());
   const moveCalendar = (direction: -1 | 1) => {
     setCalendarDate((prev) => {
@@ -2581,17 +2632,45 @@ export default function AdminJobs() {
                           </div>
                         )}
                       </div>
-                      <label className="text-xs text-gray-500">
-                        Conductor
-                        <select name="driverId" className="mt-1 w-full rounded border px-3 py-2 text-sm">
-                          <option value="">Sin asignar</option>
-                          {drivers.map((driver) => (
-                            <option key={driver.id} value={driver.id}>
-                              {driver.name} ({driver.code})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="text-xs text-gray-500">
+                          Conductor
+                          <select
+                            name="driverId"
+                            value={newJobDriverId}
+                            onChange={(event) => {
+                              const driverId = event.target.value;
+                              setNewJobDriverId(driverId);
+                              setNewJobVehicleId(getDriverDefaultVehicleId(driverId));
+                            }}
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          >
+                            <option value="">Sin asignar</option>
+                            {drivers.map((driver) => (
+                              <option key={driver.id} value={driver.id}>
+                                {driver.name} ({driver.code})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="text-xs text-gray-500">
+                          Vehiculo
+                          <select
+                            name="vehicleId"
+                            value={newJobVehicleId}
+                            onChange={(event) => setNewJobVehicleId(event.target.value)}
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          >
+                            <option value="">Sin vehiculo especifico</option>
+                            {vehicles.map((vehicle) => (
+                              <option key={vehicle.id} value={vehicle.id}>
+                                {vehicle.name}
+                                {Number.isFinite(vehicle.hourlyRate) ? ` - ${currencyFormatter.format(Number(vehicle.hourlyRate))}/h` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
                       <div className="space-y-2 rounded border bg-gray-50 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-sm font-medium">Seleccion en mapa</p>
@@ -2645,7 +2724,7 @@ export default function AdminJobs() {
                             <p>
                               <span className="font-medium">Uso:</span>{' '}
                               <span className="text-xs text-blue-700">
-                              Informativo para decidir el precio. No se usa en ningun calculo automatico.
+                              Si el punto mas lejano supera 15 min desde la base, ese tiempo se suma al cobro final.
                               </span>
                             </p>
                           </div>
@@ -2758,6 +2837,7 @@ export default function AdminJobs() {
                     const hasRealDistance = Number.isFinite(job.distanceKm) || Number.isFinite(job.distanceMeters);
                     const distanceLabel = distanceKm != null ? `${decimalFormatter.format(distanceKm)} km` : 'N/D';
                     const driver = job.driverId ? driversById.get(job.driverId) : null;
+                    const jobVehicle = getJobVehicle(job);
                     const isEditing = editingJobId === job.id;
                     const statusBadge = getStatusBadge(job.status);
                     const isMapActive = selectedMapJob?.id === job.id;
@@ -2875,6 +2955,27 @@ export default function AdminJobs() {
                               ))}
                             </select>
                             {driver && <span className="text-xs text-gray-500">Activo: {driver.active ? 'Si' : 'No'}</span>}
+                            <label className="text-xs text-gray-500">Vehiculo:</label>
+                            <select
+                              value={job.vehicleId ?? ''}
+                              onClick={(event) => event.stopPropagation()}
+                              onChange={(event) => handleAssignJobVehicle(job, event.target.value)}
+                              className="w-full max-w-full rounded border px-2 py-1 text-xs sm:w-auto"
+                            >
+                              <option value="">Predeterminado del conductor</option>
+                              {vehicles.map((vehicle) => (
+                                <option key={vehicle.id} value={vehicle.id}>
+                                  {vehicle.name}
+                                  {Number.isFinite(vehicle.hourlyRate) ? ` - ${currencyFormatter.format(Number(vehicle.hourlyRate))}/h` : ''}
+                                </option>
+                              ))}
+                            </select>
+                            {jobVehicle && (
+                              <span className="text-xs text-gray-500">
+                                Usa: {jobVehicle.name}
+                                {Number.isFinite(jobVehicle.hourlyRate) ? ` (${currencyFormatter.format(Number(jobVehicle.hourlyRate))}/h)` : ''}
+                              </span>
+                            )}
                           </div>
                         )}
                         {isEditing && (
@@ -2942,13 +3043,36 @@ export default function AdminJobs() {
                                 Conductor
                                 <select
                                   value={editDraft.driverId}
-                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, driverId: event.target.value }))}
+                                  onChange={(event) => {
+                                    const driverId = event.target.value;
+                                    setEditDraft((prev) => ({
+                                      ...prev,
+                                      driverId,
+                                      vehicleId: getDriverDefaultVehicleId(driverId),
+                                    }));
+                                  }}
                                   className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
                                 >
                                   <option value="">Sin asignar</option>
                                   {drivers.map((driver) => (
                                     <option key={driver.id} value={driver.id}>
                                       {driver.name} ({driver.code})
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="text-xs text-gray-500">
+                                Vehiculo
+                                <select
+                                  value={editDraft.vehicleId}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, vehicleId: event.target.value }))}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                >
+                                  <option value="">Predeterminado del conductor</option>
+                                  {vehicles.map((vehicle) => (
+                                    <option key={vehicle.id} value={vehicle.id}>
+                                      {vehicle.name}
+                                      {Number.isFinite(vehicle.hourlyRate) ? ` - ${currencyFormatter.format(Number(vehicle.hourlyRate))}/h` : ''}
                                     </option>
                                   ))}
                                 </select>
@@ -3272,6 +3396,8 @@ export default function AdminJobs() {
                             const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
+                            const vehicle = getJobVehicle(item.job);
+                            const calendarOwnerLabel = vehicle ? `${driverLabel} | ${vehicle.name}` : driverLabel;
                             const driverColors = getDriverColors(item.job.driverId);
                             const layoutEntry = dayLayout.get(item.job.id);
                             const columnStyle = getEventColumnStyle(layoutEntry);
@@ -3300,7 +3426,7 @@ export default function AdminJobs() {
                                   </span>
                                 )}
                                 <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
-                                  {driverLabel}
+                                  {calendarOwnerLabel}
                                 </div>
                                 <div className="font-semibold truncate">{item.job.clientName}</div>
                                 <div className={cn("truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
@@ -3397,6 +3523,8 @@ export default function AdminJobs() {
                                   const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
+                                  const vehicle = getJobVehicle(item.job);
+                                  const calendarOwnerLabel = vehicle ? `${driverLabel} | ${vehicle.name}` : driverLabel;
                                   const driverColors = getDriverColors(item.job.driverId);
                                   const layoutEntry = dayLayoutWeek.get(item.job.id);
                                   const columnStyle = getEventColumnStyle(layoutEntry);
@@ -3425,7 +3553,7 @@ export default function AdminJobs() {
                                         </span>
                                       )}
                                       <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
-                                        {driverLabel}
+                                        {calendarOwnerLabel}
                                       </div>
                                       <div className="font-semibold truncate">{item.job.clientName}</div>
                                       <div className={cn("truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
@@ -3483,6 +3611,8 @@ export default function AdminJobs() {
                                 const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
                                 const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                 const driverLabel = driver?.name ?? 'Sin asignar';
+                                const vehicle = getJobVehicle(item.job);
+                                const calendarOwnerLabel = vehicle ? `${driverLabel} | ${vehicle.name}` : driverLabel;
                                 const driverColors = getDriverColors(item.job.driverId);
                                 return (
                                   <div
@@ -3501,7 +3631,7 @@ export default function AdminJobs() {
                                       </span>
                                     )}
                                     <div className="truncate font-semibold" style={{ color: driverColors.accent }}>
-                                      {driverLabel}
+                                      {calendarOwnerLabel}
                                     </div>
                                     <div className="truncate">
                                       {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
@@ -3579,7 +3709,7 @@ export default function AdminJobs() {
                   </div>
                   <span className="text-xs text-gray-400">{vehicles.length} registrados</span>
                 </div>
-                <form onSubmit={handleCreateVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
+                <form onSubmit={handleCreateVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]">
                   <div>
                     <label className="text-xs text-gray-500">Nombre</label>
                     <input
@@ -3612,6 +3742,18 @@ export default function AdminJobs() {
                       <option value="owner">Del dueno</option>
                       <option value="driver">Del chofer</option>
                     </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Precio hora</label>
+                    <input
+                      value={vehicleHourlyRateInput}
+                      onChange={(event) => setVehicleHourlyRateInput(event.target.value)}
+                      placeholder="Ej: 45000"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                    />
                   </div>
                   <div>
                     <label className="text-xs text-gray-500">Gasto por km</label>
@@ -3666,6 +3808,11 @@ export default function AdminJobs() {
                           </div>
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.costPerKm)}</span> / km
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-semibold text-gray-800">
+                              {Number.isFinite(vehicle.hourlyRate) ? currencyFormatter.format(Number(vehicle.hourlyRate)) : 'Usa precio global'}
+                            </span> / h
                           </div>
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.fixedMonthlyCost)}</span> mensual
@@ -3777,6 +3924,9 @@ export default function AdminJobs() {
                               {assignedVehicle && (
                                 <p className="mt-1 text-[11px] text-gray-500">
                                   {currencyFormatter.format(assignedVehicle.costPerKm)} / km
+                                  {Number.isFinite(assignedVehicle.hourlyRate)
+                                    ? ` | ${currencyFormatter.format(Number(assignedVehicle.hourlyRate))} / h`
+                                    : ''}
                                 </p>
                               )}
                             </div>
@@ -4271,11 +4421,12 @@ export default function AdminJobs() {
                   <div className="mt-3 space-y-2">
                     {completedHistory.map((entry) => {
                       const driver = entry.job.driverId ? driversById.get(entry.job.driverId) : null;
-                      const vehicle = driver?.vehicleId ? vehiclesById.get(driver.vehicleId) ?? null : null;
+                      const vehicle = getJobVehicle(entry.job);
                       const hourlyDistribution = getEntryHourDistribution(entry);
                       const durationLabel = entry.durationMs != null ? formatDurationMs(entry.durationMs) : 'Sin tiempos';
                       const helpersCount = entry.job.helpersCount ?? 0;
                       const billedHours = getEntryBilledHours(entry);
+                      const jobHourlyRate = getJobHourlyRateValue(entry.job);
                       const jobValue = getEntryHourlyValue(entry);
                       const helpersValue = helperHourlyRateValue != null && billedHours != null && helpersCount > 0
                         ? billedHours * helperHourlyRateValue * helpersCount
@@ -4290,7 +4441,7 @@ export default function AdminJobs() {
                       const paymentMethodLabel = getPaymentMethodLabel(paymentSummary.method);
                       const jobValueLabel = jobValue != null
                         ? currencyFormatter.format(jobValue)
-                        : hourlyRateValue == null
+                        : jobHourlyRate == null
                           ? 'Defini precio hora'
                           : 'Sin tiempos';
                       const helpersValueLabel = helpersValue != null
@@ -4304,12 +4455,12 @@ export default function AdminJobs() {
                       const displayTotalLabel = paymentTotalLabel ?? computedTotalLabel;
                       const driverHourShareLabel = hourlyDistribution != null
                         ? currencyFormatter.format(hourlyDistribution.driverShare)
-                        : hourlyRateValue == null
+                        : jobHourlyRate == null
                           ? 'Defini precio hora'
                           : 'Sin base horaria';
                       const ownerHourShareLabel = hourlyDistribution != null
                         ? currencyFormatter.format(hourlyDistribution.ownerShare)
-                        : hourlyRateValue == null
+                        : jobHourlyRate == null
                           ? 'Defini precio hora'
                           : 'Sin base horaria';
                       const shareRuleLabel = hourlyDistribution != null
@@ -4329,7 +4480,7 @@ export default function AdminJobs() {
                               <p className="text-sm text-gray-500">Conductor: {driver ? driver.name : 'Sin asignar'}</p>
                               <p className="text-sm text-gray-500">
                                 Vehiculo: {vehicle
-                                  ? `${vehicle.name} (${vehicleOwnershipLabels[vehicle.ownershipType]})`
+                                  ? `${vehicle.name} (${vehicleOwnershipLabels[vehicle.ownershipType]}${Number.isFinite(vehicle.hourlyRate) ? `, ${currencyFormatter.format(Number(vehicle.hourlyRate))}/h` : ''})`
                                   : 'Sin vehiculo asignado (regla del dueno)'}
                               </p>
                               <p className="text-sm text-gray-500">Ayudantes: {helpersCount}</p>
@@ -4491,7 +4642,7 @@ export default function AdminJobs() {
                     <p className="text-xs uppercase tracking-wide text-gray-400">Base operativa</p>
                     <h3 className="text-lg font-semibold text-gray-900">Sede central</h3>
                     <p className="text-xs text-gray-500">
-                      Se usa solo como referencia para mostrar el tiempo estimado al punto mas lejano del flete.
+                      Se usa para calcular la lejania y marcar la referencia sin extra.
                     </p>
                   </div>
                   <p className="text-sm text-gray-500">Actual: {operationsBaseLocationLabel}</p>
@@ -4512,7 +4663,7 @@ export default function AdminJobs() {
                       Cuando completes origen y destino, el sistema muestra el tiempo estimado desde esta base al punto mas lejano.
                     </p>
                     <p className="mt-2 text-xs text-gray-500">
-                      Es un dato informativo para el asistente. No interviene en precios, margenes ni calculos automaticos.
+                      El area verde marca una referencia de 15 min desde la base. El cobro final usa el tiempo estimado al punto mas lejano.
                     </p>
                   </div>
                 </div>
@@ -4757,6 +4908,12 @@ export default function AdminJobs() {
                       <p>
                         <span className="font-medium text-gray-900">Conductor:</span>{' '}
                         {selectedJobDriver ? `${selectedJobDriver.name} (${selectedJobDriver.code})` : 'Sin asignar'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Vehiculo:</span>{' '}
+                        {selectedJobVehicle
+                          ? `${selectedJobVehicle.name}${Number.isFinite(selectedJobVehicle.hourlyRate) ? ` (${currencyFormatter.format(Number(selectedJobVehicle.hourlyRate))}/h)` : ''}`
+                          : 'Sin vehiculo'}
                       </p>
                       <p>
                         <span className="font-medium text-gray-900">Ayudantes:</span> {selectedJobDetail.helpersCount ?? 0}

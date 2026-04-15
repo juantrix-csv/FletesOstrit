@@ -1,6 +1,6 @@
 export const BILLING_FIRST_HOUR_MINUTES = 60;
 export const BILLING_GRACE_MINUTES = 10;
-export const BILLING_STEP_MINUTES = 30;
+export const BILLING_STEP_MINUTES = 60;
 export const BILLING_STEP_HOURS = 0.5;
 
 export const getBilledHoursFromMinutes = (durationMinutes: number | null | undefined) => {
