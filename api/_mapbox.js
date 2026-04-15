@@ -1,6 +1,7 @@
 const MAPBOX_GEOCODE_ENDPOINT = 'https://api.mapbox.com/search/geocode/v6/forward';
 const MAPBOX_REVERSE_GEOCODE_ENDPOINT = 'https://api.mapbox.com/search/geocode/v6/reverse';
 const MAPBOX_DIRECTIONS_ENDPOINT = 'https://api.mapbox.com/directions/v5/mapbox/driving';
+const MAPBOX_ISOCHRONE_ENDPOINT = 'https://api.mapbox.com/isochrone/v1/mapbox/driving';
 
 const BA_BOUNDS = {
   south: -40.8,
@@ -11,7 +12,11 @@ const BA_BOUNDS = {
 
 const getAccessToken = () => process.env.MAPBOX_ACCESS_TOKEN ?? process.env.VITE_MAPBOX_ACCESS_TOKEN ?? '';
 
-export const hasMapboxAccessToken = () => getAccessToken().trim().length > 0;
+const isMapboxEnabled = () => ['1', 'true', 'yes', 'on'].includes(
+  (process.env.MAPBOX_ENABLED ?? '').trim().toLowerCase()
+);
+
+export const hasMapboxAccessToken = () => isMapboxEnabled() && getAccessToken().trim().length > 0;
 
 const createMapboxUrl = (baseUrl) => {
   const url = new URL(baseUrl);
@@ -54,6 +59,17 @@ export const buildMapboxDirectionsUrl = (points) => {
   url.searchParams.set('overview', 'full');
   url.searchParams.set('geometries', 'geojson');
   url.searchParams.set('steps', 'false');
+  return url.toString();
+};
+
+export const buildMapboxIsochroneUrl = ({ lat, lng, minutes }) => {
+  const url = createMapboxUrl(`${MAPBOX_ISOCHRONE_ENDPOINT}/${lng},${lat}`);
+  url.searchParams.delete('country');
+  url.searchParams.delete('language');
+  url.searchParams.set('contours_minutes', String(minutes));
+  url.searchParams.set('polygons', 'true');
+  url.searchParams.set('denoise', '1');
+  url.searchParams.set('generalize', '60');
   return url.toString();
 };
 

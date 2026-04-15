@@ -49,6 +49,8 @@ test('reverse-geocode rejects invalid coordinates', async () => {
 test('reverse-geocode returns data on success', async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.MAPBOX_ACCESS_TOKEN;
+  const originalMapboxEnabled = process.env.MAPBOX_ENABLED;
+  process.env.MAPBOX_ENABLED = 'true';
   process.env.MAPBOX_ACCESS_TOKEN = 'test-key';
   globalThis.fetch = async () => ({
     ok: true,
@@ -64,6 +66,11 @@ test('reverse-geocode returns data on success', async () => {
     delete process.env.MAPBOX_ACCESS_TOKEN;
   } else {
     process.env.MAPBOX_ACCESS_TOKEN = originalApiKey;
+  }
+  if (originalMapboxEnabled == null) {
+    delete process.env.MAPBOX_ENABLED;
+  } else {
+    process.env.MAPBOX_ENABLED = originalMapboxEnabled;
   }
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { display_name: 'Test' });

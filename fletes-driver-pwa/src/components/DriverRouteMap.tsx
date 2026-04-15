@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
-import mapboxgl from 'mapbox-gl';
+import Map, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
+import OperationsBaseServiceArea from './OperationsBaseServiceArea';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { DriverLocation, Job, LocationData } from '../lib/types';
 import { applyMapPalette } from '../lib/mapStyle';
@@ -31,7 +32,7 @@ interface DriverRouteMapProps {
 
 export default function DriverRouteMap({ location, job, className }: DriverRouteMapProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
-  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
+  const { handleMapError, mapStyle } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [routeGeoJson, setRouteGeoJson] = useState<GeoJSON.Feature<GeoJSON.LineString> | null>(null);
@@ -171,7 +172,7 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
       map.easeTo({ center: [points[0][0], points[0][1]], zoom: 13, duration: 400 });
       return;
     }
-    const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
+    const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
     points.slice(1).forEach((point) => bounds.extend(point));
     map.fitBounds(bounds, { padding: 80, duration: 500 });
   }, [location, mapReady, operationsBaseLocation, pendingStops, target]);
@@ -187,7 +188,6 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
       <Map
         ref={mapRef}
         initialViewState={{ latitude: fallbackLocation.lat, longitude: fallbackLocation.lng, zoom: 11 }}
-        mapboxAccessToken={mapboxAccessToken}
         mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);
@@ -206,6 +206,7 @@ export default function DriverRouteMap({ location, job, className }: DriverRoute
         touchPitch={false}
         style={{ width: '100%', height: '100%' }}
       >
+        <OperationsBaseServiceArea location={operationsBaseLocation} />
         {routeGeoJson && (
           <Source id="driver-route" type="geojson" data={routeGeoJson}>
             <Layer

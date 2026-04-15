@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Marker, type MapMouseEvent, type MapRef } from 'react-map-gl/mapbox';
-import mapboxgl from 'mapbox-gl';
+import Map, { Marker, type MapMouseEvent, type MapRef } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
+import OperationsBaseServiceArea from './OperationsBaseServiceArea';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { LocationData } from '../lib/types';
 import { reverseGeocodeLocation } from '../lib/geocode';
@@ -41,7 +42,7 @@ export default function MapLocationPicker({
   className,
 }: MapLocationPickerProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
-  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
+  const { handleMapError, mapStyle } = useMapProviderFallback();
   const activeLocation = active === 'pickup'
     ? pickup
     : active === 'dropoff'
@@ -72,7 +73,7 @@ export default function MapLocationPicker({
     }
 
     if (points.length >= 2) {
-      const bounds = new mapboxgl.LngLatBounds(points[0], points[0]);
+      const bounds = new maplibregl.LngLatBounds(points[0], points[0]);
       points.slice(1).forEach((point) => bounds.extend(point));
       map.fitBounds(bounds, { padding: 70, duration: 450 });
       return;
@@ -113,7 +114,6 @@ export default function MapLocationPicker({
       <Map
         ref={mapRef}
         initialViewState={{ latitude: center.lat, longitude: center.lng, zoom: 11.5 }}
-        mapboxAccessToken={mapboxAccessToken}
         mapStyle={mapStyle}
         onClick={handleClick}
         onLoad={() => {
@@ -133,6 +133,7 @@ export default function MapLocationPicker({
         touchPitch={false}
         style={{ width: '100%', height: '100%' }}
       >
+        <OperationsBaseServiceArea location={operationsBaseLocation} />
         {pickup && (
           <Marker latitude={pickup.lat} longitude={pickup.lng}>
             <div className={cn('h-3 w-3 rounded-full bg-green-600 shadow', active === 'pickup' ? 'ring-2 ring-green-200' : 'ring-2 ring-white')} />

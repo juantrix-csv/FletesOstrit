@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import MapGL, { Layer, Marker, Source, type MapRef } from 'react-map-gl/mapbox';
-import mapboxgl from 'mapbox-gl';
+import MapGL, { Layer, Marker, Source, type MapRef } from 'react-map-gl/maplibre';
+import maplibregl from 'maplibre-gl';
 import OperationsBaseMarker from './OperationsBaseMarker';
+import OperationsBaseServiceArea from './OperationsBaseServiceArea';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import type { Driver, DriverLocation, Job, JobStatus } from '../lib/types';
 import { applyMapPalette } from '../lib/mapStyle';
@@ -62,7 +63,7 @@ const isDisconnectedLocation = (location: DriverLocation) => {
 
 export default function DriversOverviewMap({ locations, drivers, jobs, className }: DriversOverviewMapProps) {
   const { location: operationsBaseLocation } = useOperationsBaseLocation();
-  const { handleMapError, mapStyle, mapboxAccessToken } = useMapProviderFallback();
+  const { handleMapError, mapStyle } = useMapProviderFallback();
   const mapRef = useRef<MapRef | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const hasFitRef = useRef(false);
@@ -159,7 +160,7 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
       lastViewportKeyRef.current = viewportKey;
       return;
     }
-    const bounds = new mapboxgl.LngLatBounds(
+    const bounds = new maplibregl.LngLatBounds(
       points[0],
       points[0]
     );
@@ -234,7 +235,6 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
       <MapGL
         ref={mapRef}
         initialViewState={initialViewState}
-        mapboxAccessToken={mapboxAccessToken}
         mapStyle={mapStyle}
         onLoad={() => {
           setMapReady(true);
@@ -250,6 +250,7 @@ export default function DriversOverviewMap({ locations, drivers, jobs, className
         touchPitch={false}
         style={MAP_CONTAINER_STYLE}
       >
+        <OperationsBaseServiceArea location={operationsBaseLocation} />
         {routeSpecs.map((route) => {
           const feature = routeGeoJsonByDriverId[route.driverId];
           if (!feature) return null;
