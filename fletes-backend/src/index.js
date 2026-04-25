@@ -71,8 +71,8 @@ const parseSettingNumber = (value) => {
 };
 
 const getJobStartMs = (job) =>
-  parseTimestampMs(job.timestamps?.startJobAt)
-  ?? parseTimestampMs(job.timestamps?.startLoadingAt)
+  parseTimestampMs(job.timestamps?.startLoadingAt)
+  ?? parseTimestampMs(job.timestamps?.startJobAt)
   ?? parseTimestampMs(job.timestamps?.startTripAt)
   ?? parseTimestampMs(job.timestamps?.startUnloadingAt)
   ?? null;

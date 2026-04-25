@@ -25,7 +25,8 @@ const doneJob = {
   driverShareRatio: 4000 / 15000,
   shareSource: 'owner_vehicle',
   timestamps: {
-    startJobAt: '2026-04-10T11:00:00.000Z',
+    startJobAt: '2026-04-10T10:30:00.000Z',
+    startLoadingAt: '2026-04-10T11:00:00.000Z',
     endUnloadingAt: '2026-04-10T12:30:00.000Z',
   },
   createdAt: '2026-04-10T10:30:00.000Z',

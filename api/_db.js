@@ -473,8 +473,8 @@ const parseTimestampMs = (value) => {
 };
 
 const getBilledHoursFromTimestamps = (timestamps) => {
-  const startMs = parseTimestampMs(timestamps?.startJobAt)
-    ?? parseTimestampMs(timestamps?.startLoadingAt)
+  const startMs = parseTimestampMs(timestamps?.startLoadingAt)
+    ?? parseTimestampMs(timestamps?.startJobAt)
     ?? parseTimestampMs(timestamps?.startTripAt)
     ?? parseTimestampMs(timestamps?.startUnloadingAt)
     ?? null;

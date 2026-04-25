@@ -15,7 +15,8 @@ const makeJob = (overrides: Partial<Job> = {}): Job => ({
     arrivedDropoffSent: false,
   },
   timestamps: {
-    startJobAt: '2026-01-01T10:00:00.000Z',
+    startJobAt: '2026-01-01T09:40:00.000Z',
+    startLoadingAt: '2026-01-01T10:00:00.000Z',
     endUnloadingAt: '2026-01-01T11:00:00.000Z',
   },
   createdAt: '2026-01-01T09:00:00.000Z',
@@ -72,5 +73,23 @@ describe('job pricing', () => {
     expect(breakdown.chargeableDurationMs).toBe(71 * 60 * 1000);
     expect(breakdown.billedHours).toBe(1.5);
     expect(breakdown.computedTotal).toBe(1500);
+  });
+
+  it('starts charging from arrival at pickup when both start timestamps exist', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({
+      timestamps: {
+        startJobAt: '2026-01-01T09:30:00.000Z',
+        startLoadingAt: '2026-01-01T10:00:00.000Z',
+        endUnloadingAt: '2026-01-01T11:00:00.000Z',
+      },
+    }), {
+      hourlyRate: 1000,
+      helperHourlyRate: null,
+      distantBaseTravelMinutes: null,
+      distantBasePoint: null,
+    });
+
+    expect(breakdown.durationMs).toBe(60 * 60 * 1000);
+    expect(breakdown.billedHours).toBe(1);
   });
 });
