@@ -16,7 +16,16 @@ test('billing rounds every started hour up to a full hour', () => {
   assert.equal(getBilledHoursFromMinutes(241), 5);
 });
 
+test('billing does not undercharge long exact-hour jobs', () => {
+  assert.equal(getBilledHoursFromMinutes(180), 3);
+  assert.equal(getBilledHoursFromMinutes(240), 4);
+  assert.equal(getBilledHoursFromMinutes(300), 5);
+  assert.equal(getBilledHoursFromMinutes(360), 6);
+});
+
 test('billing supports millisecond inputs', () => {
   assert.equal(getBilledHoursFromDurationMs(60 * 60 * 1000), 1);
   assert.equal(getBilledHoursFromDurationMs(61 * 60 * 1000), 2);
+  assert.equal(getBilledHoursFromDurationMs(4 * 60 * 60 * 1000), 4);
+  assert.equal(getBilledHoursFromDurationMs((4 * 60 * 60 * 1000) + 1), 5);
 });

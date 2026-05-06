@@ -111,4 +111,44 @@ describe('job pricing', () => {
     expect(breakdown.baseAmount).toBe(4000);
     expect(breakdown.computedTotal).toBe(4000);
   });
+
+  it('shows the driver a four-hour total including helpers', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({
+      helpersCount: 2,
+      timestamps: {
+        startLoadingAt: '2026-01-01T10:00:00.000Z',
+        endUnloadingAt: '2026-01-01T14:00:00.000Z',
+      },
+    }), {
+      hourlyRate: 1000,
+      helperHourlyRate: 250,
+      distantBaseTravelMinutes: null,
+      distantBasePoint: null,
+    });
+
+    expect(breakdown.billedHours).toBe(4);
+    expect(breakdown.baseAmount).toBe(4000);
+    expect(breakdown.helpersAmount).toBe(2000);
+    expect(breakdown.computedTotal).toBe(6000);
+    expect(breakdown.totalAmount).toBe(6000);
+    expect(breakdown.source).toBe('computed');
+  });
+
+  it('rounds a four-hour job with one extra minute up to five hours', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({
+      timestamps: {
+        startLoadingAt: '2026-01-01T10:00:00.000Z',
+        endUnloadingAt: '2026-01-01T14:01:00.000Z',
+      },
+    }), {
+      hourlyRate: 1000,
+      helperHourlyRate: null,
+      distantBaseTravelMinutes: null,
+      distantBasePoint: null,
+    });
+
+    expect(breakdown.durationMs).toBe((4 * 60 + 1) * 60 * 1000);
+    expect(breakdown.billedHours).toBe(5);
+    expect(breakdown.computedTotal).toBe(5000);
+  });
 });
