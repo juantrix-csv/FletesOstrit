@@ -2,22 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from './billing';
 
 describe('billing', () => {
-  it('keeps the minimum charge at one hour until 70 minutes', () => {
+  it('keeps the minimum charge at one hour through the first hour', () => {
     expect(getBilledHoursFromMinutes(1)).toBe(1);
     expect(getBilledHoursFromMinutes(60)).toBe(1);
-    expect(getBilledHoursFromMinutes(70)).toBe(1);
   });
 
-  it('moves to the next half-hour block after the 10 minute grace', () => {
-    expect(getBilledHoursFromMinutes(71)).toBe(1.5);
-    expect(getBilledHoursFromMinutes(130)).toBe(1.5);
-    expect(getBilledHoursFromMinutes(131)).toBe(2);
-    expect(getBilledHoursFromMinutes(190)).toBe(2);
-    expect(getBilledHoursFromMinutes(191)).toBe(2.5);
+  it('rounds every started hour up to a full hour', () => {
+    expect(getBilledHoursFromMinutes(61)).toBe(2);
+    expect(getBilledHoursFromMinutes(85)).toBe(2);
+    expect(getBilledHoursFromMinutes(120)).toBe(2);
+    expect(getBilledHoursFromMinutes(121)).toBe(3);
+    expect(getBilledHoursFromMinutes(240)).toBe(4);
+    expect(getBilledHoursFromMinutes(241)).toBe(5);
   });
 
   it('supports millisecond durations', () => {
-    expect(getBilledHoursFromDurationMs(70 * 60 * 1000)).toBe(1);
-    expect(getBilledHoursFromDurationMs(71 * 60 * 1000)).toBe(1.5);
+    expect(getBilledHoursFromDurationMs(60 * 60 * 1000)).toBe(1);
+    expect(getBilledHoursFromDurationMs(61 * 60 * 1000)).toBe(2);
   });
 });

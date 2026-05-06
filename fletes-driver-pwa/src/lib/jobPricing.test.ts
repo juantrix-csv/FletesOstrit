@@ -50,10 +50,10 @@ describe('job pricing', () => {
 
     expect(breakdown.distantBaseExtraMinutes).toBe(16);
     expect(breakdown.chargeableDurationMs).toBe(76 * 60 * 1000);
-    expect(breakdown.billedHours).toBe(1.5);
-    expect(breakdown.baseAmount).toBe(1500);
+    expect(breakdown.billedHours).toBe(2);
+    expect(breakdown.baseAmount).toBe(2000);
     expect(breakdown.helpersAmount).toBe(0);
-    expect(breakdown.computedTotal).toBe(1500);
+    expect(breakdown.computedTotal).toBe(2000);
   });
 
   it('treats partial minutes above the threshold as distant base time', () => {
@@ -71,8 +71,8 @@ describe('job pricing', () => {
 
     expect(breakdown.distantBaseExtraMinutes).toBe(16);
     expect(breakdown.chargeableDurationMs).toBe(71 * 60 * 1000);
-    expect(breakdown.billedHours).toBe(1.5);
-    expect(breakdown.computedTotal).toBe(1500);
+    expect(breakdown.billedHours).toBe(2);
+    expect(breakdown.computedTotal).toBe(2000);
   });
 
   it('starts charging from arrival at pickup when both start timestamps exist', () => {
@@ -91,5 +91,24 @@ describe('job pricing', () => {
 
     expect(breakdown.durationMs).toBe(60 * 60 * 1000);
     expect(breakdown.billedHours).toBe(1);
+  });
+
+  it('charges a four-hour job as four full hours', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({
+      timestamps: {
+        startLoadingAt: '2026-01-01T10:00:00.000Z',
+        endUnloadingAt: '2026-01-01T14:00:00.000Z',
+      },
+    }), {
+      hourlyRate: 1000,
+      helperHourlyRate: null,
+      distantBaseTravelMinutes: null,
+      distantBasePoint: null,
+    });
+
+    expect(breakdown.durationMs).toBe(4 * 60 * 60 * 1000);
+    expect(breakdown.billedHours).toBe(4);
+    expect(breakdown.baseAmount).toBe(4000);
+    expect(breakdown.computedTotal).toBe(4000);
   });
 });
