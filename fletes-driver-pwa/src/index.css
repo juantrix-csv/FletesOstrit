@@ -93,3 +93,24 @@ body {
   overflow: visible;
   white-space: normal;
 }
+
+.calendar-horizontal-scroll {
+  overscroll-behavior-x: contain;
+  scrollbar-color: #94a3b8 #e5e7eb;
+  scrollbar-width: thin;
+}
+
+.calendar-horizontal-scroll::-webkit-scrollbar {
+  height: 12px;
+}
+
+.calendar-horizontal-scroll::-webkit-scrollbar-track {
+  background: #e5e7eb;
+  border-radius: 9999px;
+}
+
+.calendar-horizontal-scroll::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border: 3px solid #e5e7eb;
+  border-radius: 9999px;
+}

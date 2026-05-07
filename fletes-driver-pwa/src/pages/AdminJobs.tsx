@@ -3366,9 +3366,9 @@ export default function AdminJobs() {
                 </div>
 
                 {calendarView === 'day' && (
-                  <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_220px]">
-                    <div className="rounded-2xl border bg-white p-3">
-                      <div className="grid grid-cols-[56px_1fr]">
+                  <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                    <div className="calendar-horizontal-scroll overflow-x-auto rounded-2xl border bg-white p-3 pb-4">
+                      <div className="grid min-w-[760px] grid-cols-[56px_1fr]">
                         <div className="flex flex-col" style={{ height: calendarGridHeight }}>
                           {calendarHours.map((hour) => (
                             <div
@@ -3476,7 +3476,7 @@ export default function AdminJobs() {
 
                 {calendarView === 'week' && (
                   <div className="mt-4 rounded-2xl border bg-white p-3">
-                    <div className="overflow-x-auto">
+                    <div className="calendar-horizontal-scroll overflow-x-auto pb-4">
                       <div className="min-w-[1280px]">
                         <div className="grid grid-cols-[56px_repeat(7,1fr)] text-[11px] text-gray-500">
                           <div />
