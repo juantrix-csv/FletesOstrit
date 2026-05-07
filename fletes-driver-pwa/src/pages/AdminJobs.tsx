@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
@@ -211,9 +212,18 @@ const getEventColumnStyle = (layoutEntry?: { column: number; columns: number }) 
   const columnWidth = 100 / columns;
   const left = columnWidth * column;
   const right = columnWidth * (columns - column - 1);
+  const leftValue = `calc(${left}% + ${gutter}px)`;
+  const rightValue = `calc(${right}% + ${gutter}px)`;
+  const expandsFromRight = column >= columns / 2;
+  const hoverAvailableWidth = expandsFromRight
+    ? `calc(100% - (${rightValue}) - ${gutter}px)`
+    : `calc(100% - (${leftValue}) - ${gutter}px)`;
   return {
-    left: `calc(${left}% + ${gutter}px)`,
-    right: `calc(${right}% + ${gutter}px)`,
+    left: leftValue,
+    right: rightValue,
+    '--calendar-event-hover-left': expandsFromRight ? 'auto' : leftValue,
+    '--calendar-event-hover-right': expandsFromRight ? rightValue : 'auto',
+    '--calendar-event-hover-width': `min(260px, ${hoverAvailableWidth})`,
   };
 };
 
@@ -3401,35 +3411,41 @@ export default function AdminJobs() {
                             const driverColors = getDriverColors(item.job.driverId);
                             const layoutEntry = dayLayout.get(item.job.id);
                             const columnStyle = getEventColumnStyle(layoutEntry);
-                            const isDense = (layoutEntry?.columns ?? 1) > 2;
+                            const overlapColumns = layoutEntry?.columns ?? 1;
+                            const isOverlapped = overlapColumns > 1;
+                            const isDense = overlapColumns > 2;
+                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${estimateLabel ? `\n${estimateLabel}` : ''}`;
                             if (!style) return null;
                             return (
                               <div
                                 key={item.job.id}
                                 onClick={() => openJobDetail(item.job.id)}
+                                title={eventTitle}
                                 className={cn(
-                                  "absolute cursor-pointer rounded-lg border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                  "calendar-event absolute cursor-pointer rounded-lg border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                  isOverlapped && "calendar-event--overlapped",
                                   isDense ? "pl-1 pr-1 text-[10px]" : "pl-2 pr-12 text-[11px]"
                                 )}
                                 style={{
                                   top: style.top,
                                   height: style.height,
+                                  '--calendar-event-height': `${style.height}px`,
                                   ...columnStyle,
                                   backgroundColor: driverColors.background,
                                   borderColor: driverColors.border,
                                   color: driverColors.text,
-                                }}
+                                } as CSSProperties}
                               >
                                 {!isDense && estimateLabel && (
                                   <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
                                     {estimateLabel}
                                   </span>
                                 )}
-                                <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
+                                <div className={cn("calendar-event__line font-semibold uppercase tracking-wide", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
                                   {calendarOwnerLabel}
                                 </div>
-                                <div className="font-semibold truncate">{item.job.clientName}</div>
-                                <div className={cn("truncate", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
+                                <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
+                                <div className={cn("calendar-event__line", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
                                   {formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
@@ -3461,7 +3477,7 @@ export default function AdminJobs() {
                 {calendarView === 'week' && (
                   <div className="mt-4 rounded-2xl border bg-white p-3">
                     <div className="overflow-x-auto">
-                      <div className="min-w-[960px]">
+                      <div className="min-w-[1280px]">
                         <div className="grid grid-cols-[56px_repeat(7,1fr)] text-[11px] text-gray-500">
                           <div />
                           {weekDays.map((day) => {
@@ -3528,35 +3544,41 @@ export default function AdminJobs() {
                                   const driverColors = getDriverColors(item.job.driverId);
                                   const layoutEntry = dayLayoutWeek.get(item.job.id);
                                   const columnStyle = getEventColumnStyle(layoutEntry);
-                                  const isDense = (layoutEntry?.columns ?? 1) > 2;
+                                  const overlapColumns = layoutEntry?.columns ?? 1;
+                                  const isOverlapped = overlapColumns > 1;
+                                  const isDense = overlapColumns > 2;
+                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${estimateLabel ? `\n${estimateLabel}` : ''}`;
                                   if (!style) return null;
                                   return (
                                     <div
                                       key={item.job.id}
                                       onClick={() => openJobDetail(item.job.id)}
+                                      title={eventTitle}
                                       className={cn(
-                                        "absolute cursor-pointer rounded-md border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                        "calendar-event absolute cursor-pointer rounded-md border py-1 shadow-sm transition hover:shadow overflow-hidden",
+                                        isOverlapped && "calendar-event--overlapped",
                                         isDense ? "pl-1 pr-1 text-[9px]" : "pl-1.5 pr-11 text-[10px]"
                                       )}
                                       style={{
                                         top: style.top,
                                         height: style.height,
+                                        '--calendar-event-height': `${style.height}px`,
                                         ...columnStyle,
                                         backgroundColor: driverColors.background,
                                         borderColor: driverColors.border,
                                         color: driverColors.text,
-                                      }}
+                                      } as CSSProperties}
                                     >
                                       {!isDense && estimateLabel && (
                                         <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
                                           {estimateLabel}
                                         </span>
                                       )}
-                                      <div className={cn("font-semibold uppercase tracking-wide truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
+                                      <div className={cn("calendar-event__line font-semibold uppercase tracking-wide", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
                                         {calendarOwnerLabel}
                                       </div>
-                                      <div className="font-semibold truncate">{item.job.clientName}</div>
-                                      <div className={cn("truncate", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
+                                      <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
+                                      <div className={cn("calendar-event__line", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
                                         {formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
                                     </div>

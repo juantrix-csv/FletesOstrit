@@ -67,3 +67,29 @@ body {
   border: 2px solid #2563eb;
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
 }
+
+.calendar-event {
+  min-width: 0;
+}
+
+.calendar-event__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-event--overlapped:hover {
+  left: var(--calendar-event-hover-left) !important;
+  right: var(--calendar-event-hover-right) !important;
+  width: var(--calendar-event-hover-width);
+  height: auto !important;
+  min-height: var(--calendar-event-height);
+  max-height: none;
+  overflow: visible;
+  z-index: 40;
+}
+
+.calendar-event--overlapped:hover .calendar-event__line {
+  overflow: visible;
+  white-space: normal;
+}
