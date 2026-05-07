@@ -579,6 +579,10 @@ export default function AdminJobs() {
   }, [isOwner, navigate, resolvedTab]);
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const calendarDayScrollRef = useRef<HTMLDivElement>(null);
+  const calendarWeekScrollRef = useRef<HTMLDivElement>(null);
+  const [calendarScrollLeft, setCalendarScrollLeft] = useState(0);
+  const [calendarScrollMax, setCalendarScrollMax] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [jobs, setJobs] = useState<Job[]>(() => jobsCacheEntry?.data ?? []);
   const [drivers, setDrivers] = useState<Driver[]>(() => driversCacheEntry?.data ?? []);
@@ -2485,6 +2489,58 @@ export default function AdminJobs() {
     ? '1 flete'
     : `${calendarEstimateSummary.count} fletes`;
   const calendarTotalHoursLabel = `${decimalFormatter.format(calendarEstimateSummary.totalMinutes / 60)} h`;
+  const getCalendarScrollElement = () => {
+    if (calendarView === 'day') return calendarDayScrollRef.current;
+    if (calendarView === 'week') return calendarWeekScrollRef.current;
+    return null;
+  };
+  const syncCalendarScrollState = (element: HTMLDivElement | null = getCalendarScrollElement()) => {
+    if (!element) {
+      setCalendarScrollLeft(0);
+      setCalendarScrollMax(0);
+      return;
+    }
+    const max = Math.max(0, element.scrollWidth - element.clientWidth);
+    setCalendarScrollMax(max);
+    setCalendarScrollLeft(Math.min(max, element.scrollLeft));
+  };
+  const handleCalendarScrollRange = (value: string) => {
+    const nextLeft = Number(value);
+    const element = getCalendarScrollElement();
+    if (!element || !Number.isFinite(nextLeft)) return;
+    element.scrollLeft = nextLeft;
+    syncCalendarScrollState(element);
+  };
+
+  useEffect(() => {
+    if (calendarView === 'month') {
+      syncCalendarScrollState(null);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => syncCalendarScrollState());
+    const handleResize = () => syncCalendarScrollState();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [calendarView, calendarDate, calendarGridHeight, scheduledJobs.length]);
+
+  const calendarHorizontalRange = calendarView !== 'month' && (
+    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <input
+        type="range"
+        min="0"
+        max={Math.max(0, Math.round(calendarScrollMax))}
+        step="1"
+        value={Math.min(Math.round(calendarScrollLeft), Math.round(calendarScrollMax))}
+        onChange={(event) => handleCalendarScrollRange(event.target.value)}
+        disabled={calendarScrollMax <= 0}
+        aria-label="Mover calendario horizontalmente"
+        className="calendar-horizontal-range"
+      />
+    </div>
+  );
 
   if (!adminRole) {
     return null;
@@ -3369,8 +3425,13 @@ export default function AdminJobs() {
 
                 {calendarView === 'day' && (
                   <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-                    <div className="calendar-horizontal-scroll overflow-x-auto rounded-2xl border bg-white p-3 pb-4">
-                      <div className="grid min-w-[760px] grid-cols-[56px_1fr]">
+                    <div className="min-w-0">
+                      <div
+                        ref={calendarDayScrollRef}
+                        onScroll={(event) => syncCalendarScrollState(event.currentTarget)}
+                        className="calendar-horizontal-scroll overflow-x-auto rounded-2xl border bg-white p-3 pb-4"
+                      >
+                        <div className="grid min-w-[760px] grid-cols-[56px_1fr]">
                         <div className="flex flex-col" style={{ height: calendarGridHeight }}>
                           {calendarHours.map((hour) => (
                             <div
@@ -3454,7 +3515,9 @@ export default function AdminJobs() {
                             );
                           })}
                         </div>
+                        </div>
                       </div>
+                      {calendarHorizontalRange}
                     </div>
                     <div className="rounded-2xl border bg-gray-50 p-3 text-xs">
                       <p className="text-[11px] uppercase tracking-wide text-gray-400">Huecos disponibles</p>
@@ -3478,7 +3541,11 @@ export default function AdminJobs() {
 
                 {calendarView === 'week' && (
                   <div className="mt-4 rounded-2xl border bg-white p-3">
-                    <div className="calendar-horizontal-scroll overflow-x-auto pb-4">
+                    <div
+                      ref={calendarWeekScrollRef}
+                      onScroll={(event) => syncCalendarScrollState(event.currentTarget)}
+                      className="calendar-horizontal-scroll overflow-x-auto pb-4"
+                    >
                       <div className="min-w-[1280px]">
                         <div className="grid grid-cols-[56px_repeat(7,1fr)] text-[11px] text-gray-500">
                           <div />
@@ -3592,6 +3659,7 @@ export default function AdminJobs() {
                         </div>
                       </div>
                     </div>
+                    {calendarHorizontalRange}
                   </div>
                 )}
 
