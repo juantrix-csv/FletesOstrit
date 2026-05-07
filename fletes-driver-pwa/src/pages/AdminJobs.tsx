@@ -2412,9 +2412,11 @@ export default function AdminJobs() {
         missing += 1;
         return;
       }
-      total += estimate;
       const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
       const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
+      total += isExternalDriver(driver) && billedHours != null
+        ? billedHours * EXTERNAL_DRIVER_COMPANY_HOURLY_MARGIN
+        : estimate;
       const jobHourlyRate = getJobHourlyRateValue(item.job);
       const baseValue = jobHourlyRate != null && billedHours != null
         ? billedHours * jobHourlyRate
