@@ -55,6 +55,48 @@ describe('job pricing', () => {
     expect(breakdown.computedTotal).toBe(1500);
   });
 
+  it('adds helper charges to the final computed total', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({ helpersCount: 2 }), {
+      hourlyRate: 10000,
+      helperHourlyRate: 2500,
+    });
+
+    expect(breakdown.billedHours).toBe(1);
+    expect(breakdown.baseAmount).toBe(10000);
+    expect(breakdown.helpersAmount).toBe(5000);
+    expect(breakdown.computedTotal).toBe(15000);
+    expect(breakdown.totalAmount).toBe(15000);
+    expect(breakdown.source).toBe('computed');
+  });
+
+  it('uses a materially different stored total when the completed job already has one', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({ chargedAmount: 18000 }), {
+      hourlyRate: 10000,
+      helperHourlyRate: 2500,
+    });
+
+    expect(breakdown.computedTotal).toBe(10000);
+    expect(breakdown.storedTotal).toBe(18000);
+    expect(breakdown.totalAmount).toBe(18000);
+    expect(breakdown.source).toBe('stored');
+  });
+
+  it('falls back across job timestamps and clamps negative durations to zero', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({
+      timestamps: {
+        startTripAt: '2026-01-01T12:00:00.000Z',
+        endTripAt: '2026-01-01T11:00:00.000Z',
+      },
+    }), {
+      hourlyRate: 10000,
+      helperHourlyRate: null,
+    });
+
+    expect(breakdown.durationMs).toBe(0);
+    expect(breakdown.billedHours).toBe(0);
+    expect(breakdown.computedTotal).toBe(0);
+  });
+
   it('treats partial minutes above the threshold as distant base time', () => {
     const breakdown = getJobChargeBreakdown(makeJob({
       timestamps: {

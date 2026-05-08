@@ -126,9 +126,9 @@ test('finance snapshot includes accounting totals, filters, and driver debt', ()
   assert.equal(payload.summary.leads.lossReasons.PRICE, 1);
 
   const driverSummary = payload.summary.byDriver.find((driver) => driver.id === 'driver-1');
-  assert.equal(driverSummary.grossOwnerDebt, 11000);
-  assert.equal(driverSummary.outstandingOwnerDebt, 9000);
-  assert.equal(driverSummary.driverKeptAmount, 6000);
+  assert.equal(driverSummary.grossOwnerDebt, 13000);
+  assert.equal(driverSummary.outstandingOwnerDebt, 11000);
+  assert.equal(driverSummary.driverKeptAmount, 4000);
 });
 
 test('finance jobs use job vehicle hourly rate before the global rate', () => {
@@ -165,6 +165,71 @@ test('finance jobs use job vehicle hourly rate before the global rate', () => {
   assert.equal(payload.jobs[0].hourlyRate, 45000);
   assert.equal(payload.jobs[0].hourlyBaseAmount, 67500);
   assert.equal(payload.jobs[0].expectedTotal, 70500);
+});
+
+test('finance net subtracts hourly, distance, and driver share variable costs from gross billing', () => {
+  const payload = buildFinanceResponse('summary', {
+    generatedAt: '2026-04-14T00:00:00.000Z',
+    jobs: [{
+      ...doneJob,
+      cashAmount: null,
+      transferAmount: null,
+      chargedAmount: 50000,
+      driverShareAmount: 8000,
+      companyShareAmount: 42000,
+      distanceMeters: 20000,
+      timestamps: {
+        startJobAt: '2026-04-10T10:00:00.000Z',
+        endUnloadingAt: '2026-04-10T12:00:00.000Z',
+      },
+    }],
+    drivers,
+    vehicles,
+    settings: {
+      ...settings,
+      tripCostPerHour: 1500,
+      tripCostPerKm: 200,
+    },
+    filters: resolveFinanceFilters({ status: 'DONE' }),
+  });
+
+  assert.equal(payload.summary.totals.totalBilled, 50000);
+  assert.equal(payload.summary.totals.tripCostByHour, 3000);
+  assert.equal(payload.summary.totals.tripCostByKm, 4000);
+  assert.equal(payload.summary.totals.driverShareAmount, 8000);
+  assert.equal(payload.summary.totals.variableCost, 15000);
+  assert.equal(payload.summary.totals.estimatedNetBeforeFixedCosts, 35000);
+});
+
+test('finance date filters include complete Buenos Aires calendar days', () => {
+  const filters = resolveFinanceFilters({ from: '2026-04-10', to: '2026-04-10' });
+  const payload = buildFinanceResponse('jobs', {
+    generatedAt: '2026-04-14T00:00:00.000Z',
+    jobs: [
+      {
+        ...doneJob,
+        id: 'inside-ba-day',
+        timestamps: {
+          startJobAt: '2026-04-11T01:00:00.000Z',
+          endUnloadingAt: '2026-04-11T02:00:00.000Z',
+        },
+      },
+      {
+        ...doneJob,
+        id: 'outside-ba-day',
+        timestamps: {
+          startJobAt: '2026-04-11T03:01:00.000Z',
+          endUnloadingAt: '2026-04-11T03:30:00.000Z',
+        },
+      },
+    ],
+    drivers,
+    vehicles,
+    settings,
+    filters,
+  });
+
+  assert.deepEqual(payload.jobs.map((job) => job.id), ['inside-ba-day']);
 });
 
 test('finance response rejects unknown resources', () => {

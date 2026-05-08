@@ -6,7 +6,9 @@
     "start": "node server/index.js",
     "dev:server": "node --watch server/index.js",
     "build": "npm --prefix fletes-driver-pwa run build",
-    "test:api": "node --test tests/*.test.js"
+    "test": "npm run test:api && npm run test:pwa",
+    "test:api": "node --test tests/*.test.js",
+    "test:pwa": "npm --prefix fletes-driver-pwa run test"
   },
   "dependencies": {
     "cors": "^2.8.5",

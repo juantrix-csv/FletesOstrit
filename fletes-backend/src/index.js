@@ -70,6 +70,17 @@ const parseSettingNumber = (value) => {
   return value;
 };
 
+const isMonthCostMap = (value) => (
+  value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.entries(value).every(([key, cost]) => (
+    /^\d{4}-\d{2}$/.test(key) &&
+    Number.isFinite(cost) &&
+    cost >= 0
+  ))
+);
+
 const getJobStartMs = (job) =>
   parseTimestampMs(job.timestamps?.startJobAt)
   ?? parseTimestampMs(job.timestamps?.startLoadingAt)
@@ -124,7 +135,6 @@ app.get('/health', (_req, res) => {
 app.get(`${API_PREFIX}/health`, (_req, res) => {
   res.json({ ok: true });
 });
-
 
 app.get(`${API_PREFIX}/finance/:resource`, (req, res) => {
   const auth = authorizeFinanceRead(req);
@@ -336,6 +346,40 @@ app.put(`${API_PREFIX}/settings/fixed-monthly-cost`, (req, res) => {
   }
   const saved = setSetting('fixedMonthlyCost', parsed);
   sendSettingValue(res, saved);
+});
+
+app.get(`${API_PREFIX}/settings/advertising-monthly-cost`, (_req, res) => {
+  sendSettingValue(res, getSetting('advertisingMonthlyCost'));
+});
+
+app.put(`${API_PREFIX}/settings/advertising-monthly-cost`, (req, res) => {
+  const body = req.body ?? {};
+  const parsed = parseSettingNumber(body.value);
+  if (Number.isNaN(parsed)) {
+    res.status(400).json({ error: 'Invalid value' });
+    return;
+  }
+  const saved = setSetting('advertisingMonthlyCost', parsed);
+  sendSettingValue(res, saved);
+});
+
+app.get(`${API_PREFIX}/settings/advertising-monthly-costs`, (_req, res) => {
+  const stored = getSetting('advertisingMonthlyCosts');
+  res.json({ costs: isMonthCostMap(stored) ? stored : {} });
+});
+
+app.put(`${API_PREFIX}/settings/advertising-monthly-costs`, (req, res) => {
+  const body = req.body ?? {};
+  const costs = body.costs ?? {};
+  if (!isMonthCostMap(costs)) {
+    res.status(400).json({ error: 'Invalid costs' });
+    return;
+  }
+  const saved = setSetting(
+    'advertisingMonthlyCosts',
+    Object.fromEntries(Object.entries(costs).map(([monthKey, cost]) => [monthKey, Number(cost)])),
+  );
+  res.json({ costs: isMonthCostMap(saved) ? saved : {} });
 });
 
 app.get(`${API_PREFIX}/settings/trip-cost-per-hour`, (_req, res) => {

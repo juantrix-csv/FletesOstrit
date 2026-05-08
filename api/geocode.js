@@ -8,6 +8,7 @@ import {
   getOpenMapsRequestOptions,
   normalizeOpenMapsGeocodeResults,
 } from './_openmaps.js';
+import { preferOpenMaps } from './_mapPreference.js';
 
 const readJsonSafe = async (response) => {
   try {
@@ -30,7 +31,25 @@ export default async function handler(req, res) {
   }
 
   try {
-    if (hasMapboxAccessToken()) {
+    const tryOpenMaps = async () => {
+      const response = await fetch(
+        buildOpenMapsGeocodeUrl(q, req.query || {}),
+        getOpenMapsRequestOptions()
+      );
+      if (!response.ok) {
+        return false;
+      }
+
+      const data = await readJsonSafe(response);
+      res.status(200).json(normalizeOpenMapsGeocodeResults(data));
+      return true;
+    };
+
+    const tryMapbox = async () => {
+      if (!hasMapboxAccessToken()) {
+        return false;
+      }
+
       try {
         const response = await fetch(buildMapboxGeocodeUrl(q, req.query || {}));
         const data = await readJsonSafe(response);
@@ -42,25 +61,24 @@ export default async function handler(req, res) {
           }
 
           res.status(200).json(normalizeMapboxGeocodeResults(data));
-          return;
+          return true;
         }
       } catch {
         // Fall back to OpenStreetMap providers on upstream Mapbox failures.
       }
+
+      return false;
+    };
+
+    const handlers = preferOpenMaps()
+      ? [tryOpenMaps, tryMapbox]
+      : [tryMapbox, tryOpenMaps];
+
+    for (const execute of handlers) {
+      if (await execute()) return;
     }
 
-    const fallbackResponse = await fetch(
-      buildOpenMapsGeocodeUrl(q, req.query || {}),
-      getOpenMapsRequestOptions()
-    );
-    if (!fallbackResponse.ok) {
-      res.status(502).json({ error: 'Geocode failed' });
-      return;
-    }
-
-    const fallbackData = await readJsonSafe(fallbackResponse);
-    const normalized = normalizeOpenMapsGeocodeResults(fallbackData);
-    res.status(200).json(normalized);
+    res.status(502).json({ error: 'Geocode failed' });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

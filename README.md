@@ -3,7 +3,7 @@
 PWA para gestion de fletes, pensada para uso en Buenos Aires (principalmente La Plata y alrededores).
 Incluye frontend para driver/admin y dos opciones de backend:
 - Local: API REST con Express + SQLite (node:sqlite).
-- Vercel: funciones serverless en `/api` con Postgres.
+- VPS/Node: API REST en `server/` usando Postgres y los handlers de `api/`.
 
 ## Funcionalidad principal
 - Admin: alta de fletes con cliente, descripcion, ayudantes, fecha/hora y direcciones con autocompletado acotado a Provincia de Buenos Aires.
@@ -85,8 +85,9 @@ Incluye frontend para driver/admin y dos opciones de backend:
 - `fletes-ia/`: modulo IA (WhatsApp con whatsmeow + OpenAI).
 - `lib/ai/`: planner, writer, state y tools client para la secretaria virtual.
 - `lib/ai/handler.js`: entrada interna para procesar mensajes (sin API publica).
-- `api/`: funciones serverless para Vercel (Postgres) + proxy de geocoding.
-- `tests/`: tests de funciones serverless (node --test).
+- `api/`: handlers HTTP compartidos para la API Postgres y proxy de geocoding.
+- `server/`: servidor Express para exponer la API en VPS.
+- `tests/`: tests de API (node --test).
 
 ## Configuracion local
 Backend:
@@ -116,20 +117,16 @@ Frontend:
 
 ## VPS / Auto Deploy
 - El VPS corre el frontend compilado con Nginx y la API con `node server/index.js`.
-- En VPS con Postgres local, usa `POSTGRES_USE_PG_POOL=1`.
 - El script versionado de deploy es `scripts/deploy-vps.sh`.
 - El script de migracion entre Postgres es `scripts/migrate-postgres-data.js`.
+- La API usa la unidad `deploy/systemd/fletes-ostrit-api.service` y carga variables desde `/etc/fletes-ostrit.env`.
+- En cada deploy se asegura un drop-in de systemd para que `fletes-ostrit-api` lea `/etc/fletes-ostrit.env`.
 - Para auto deploy por polling se usan las unidades:
+  - `deploy/systemd/fletes-ostrit-api.service`
   - `deploy/systemd/fletes-ostrit-autodeploy.service`
   - `deploy/systemd/fletes-ostrit-autodeploy.timer`
 - El timer revisa `origin/main`, hace `fetch + reset --hard`, reinstala dependencias, rebuild y reinicia `fletes-ostrit-api`.
 - Si el deploy nuevo falla en build, restart o healthcheck, el script vuelve automaticamente al commit anterior y reintenta el arranque.
-
-## Deploy en Vercel
-- El frontend se builda desde `fletes-driver-pwa/dist` (ver `vercel.json`).
-- Funciones en `/api` usan `@vercel/postgres` (requiere `POSTGRES_URL`).
-- El frontend consume `/api/v1` en el mismo dominio.
-- Seed de historicos: `/api/v1/jobs/history/seed?append=1&months=12&perMonth=6`.
 
 ## Servicios externos
 - Nominatim (geocoding) y OSRM (ruteo). Para produccion, usar servicios propios o con API key y respetar politicas de uso.

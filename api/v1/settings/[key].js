@@ -10,6 +10,17 @@ const isLocation = (value) => (
   Number.isFinite(value.lng)
 );
 
+const isMonthCostMap = (value) => (
+  value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.entries(value).every(([key, cost]) => (
+    /^\d{4}-\d{2}$/.test(key) &&
+    Number.isFinite(cost) &&
+    cost >= 0
+  ))
+);
+
 const parseBody = (req) => {
   if (!req.body) return {};
   if (typeof req.body === 'string') {
@@ -32,6 +43,13 @@ const parseSettingValue = (key, value) => {
       lng: Number(value.lng),
     };
   }
+  if (key === 'advertisingMonthlyCosts') {
+    if (value == null || value === '') return {};
+    if (!isMonthCostMap(value)) return INVALID_SETTING;
+    return Object.fromEntries(
+      Object.entries(value).map(([monthKey, cost]) => [monthKey, Number(cost)]),
+    );
+  }
   if (value == null || value === '') return null;
   if (!Number.isFinite(value)) return NaN;
   if (key === 'ownerVehicleDriverShare' || key === 'driverVehicleDriverShare') {
@@ -46,6 +64,8 @@ const resolveSettingKey = (raw) => {
   if (raw === 'hourly-rate') return 'hourlyRate';
   if (raw === 'helper-hourly-rate') return 'helperHourlyRate';
   if (raw === 'fixed-monthly-cost') return 'fixedMonthlyCost';
+  if (raw === 'advertising-monthly-cost') return 'advertisingMonthlyCost';
+  if (raw === 'advertising-monthly-costs') return 'advertisingMonthlyCosts';
   if (raw === 'trip-cost-per-hour') return 'tripCostPerHour';
   if (raw === 'trip-cost-per-km') return 'tripCostPerKm';
   if (raw === 'owner-vehicle-driver-share') return 'ownerVehicleDriverShare';
@@ -56,6 +76,7 @@ const resolveSettingKey = (raw) => {
 
 const resolveBodyValue = (body) => {
   if (body && Object.prototype.hasOwnProperty.call(body, 'value')) return body.value;
+  if (body && Object.prototype.hasOwnProperty.call(body, 'costs')) return body.costs;
   if (body && Object.prototype.hasOwnProperty.call(body, 'hourlyRate')) return body.hourlyRate;
   if (body && Object.prototype.hasOwnProperty.call(body, 'location')) return body.location;
   return undefined;
@@ -64,6 +85,10 @@ const resolveBodyValue = (body) => {
 const respondSetting = (res, key, stored) => {
   if (key === 'operationsBaseLocation') {
     res.status(200).json({ location: isLocation(stored) ? stored : null });
+    return;
+  }
+  if (key === 'advertisingMonthlyCosts') {
+    res.status(200).json({ costs: isMonthCostMap(stored) ? stored : {} });
     return;
   }
   const value = typeof stored === 'number' && Number.isFinite(stored) ? stored : null;

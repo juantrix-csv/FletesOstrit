@@ -7,6 +7,10 @@ type RouteEstimate = {
 
 const estimateCache = new Map<string, RouteEstimate>();
 
+export const clearRouteEstimateCacheForTests = () => {
+  estimateCache.clear();
+};
+
 const buildRouteEstimateUrl = (origin: LocationData, destination: LocationData) => {
   const url = new URL('/api/route', window.location.origin);
   url.searchParams.set('points', `${origin.lat},${origin.lng}|${destination.lat},${destination.lng}`);

@@ -18,11 +18,6 @@ PWA para gestion de fletes, pensada para uso en Buenos Aires (principalmente La 
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:4000`
 
-## Vercel
-- El frontend se deploya junto con las funciones en `api/`.
-- Asegurar `POSTGRES_URL` en Vercel (Vercel Postgres recomendado).
-- La app usa `/api/v1` en el mismo dominio.
-
 ## Scripts
 - `npm run dev`: desarrollo con Vite.
 - `npm run build`: build de produccion.

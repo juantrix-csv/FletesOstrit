@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { getBilledHoursFromDurationMs } from '../lib/billing.js';
+import { getDriverOwnedVehicleShare } from '../lib/driverShare.js';
 
 const { Pool } = pg;
 const connectionString = process.env.POSTGRES_URL ?? '';
@@ -524,7 +525,7 @@ const resolveDriverShareRatio = async (job, driver, vehicle) => {
   }
 
   if (vehicle?.ownershipType === 'driver') {
-    return { ratio: driverVehicleRatio, source: 'driver_vehicle' };
+    return { ratio: driverVehicleRatio, source: 'driver_vehicle', fixedCompanyHourlyMargin: true };
   }
   return { ratio: ownerVehicleRatio, source: 'owner_vehicle' };
 };
@@ -551,7 +552,7 @@ const buildJobShareSnapshot = async (job) => {
     ? Number((billedHours * hourlyRate).toFixed(2))
     : null;
 
-  const { ratio, source } = await resolveDriverShareRatio(job, driver, vehicle);
+  const { ratio, source, fixedCompanyHourlyMargin } = await resolveDriverShareRatio(job, driver, vehicle);
 
   if (baseAmount == null) {
     return {
@@ -564,15 +565,19 @@ const buildJobShareSnapshot = async (job) => {
     };
   }
 
-  const driverShareAmount = Number((baseAmount * ratio).toFixed(2));
-  const companyShareAmount = Number((baseAmount - driverShareAmount).toFixed(2));
+  const fixedMarginShare = fixedCompanyHourlyMargin
+    ? getDriverOwnedVehicleShare({ hourlyBaseAmount: baseAmount, billedHours })
+    : null;
+  const driverShareAmount = fixedMarginShare?.driverShareAmount ?? Number((baseAmount * ratio).toFixed(2));
+  const companyShareAmount = fixedMarginShare?.companyShareAmount ?? Number((baseAmount - driverShareAmount).toFixed(2));
+  const driverShareRatio = fixedMarginShare?.driverShareRatio ?? ratio;
 
   return {
     hourlyBilledHours: billedHours,
     hourlyBaseAmount: baseAmount,
     driverShareAmount,
     companyShareAmount,
-    driverShareRatio: ratio,
+    driverShareRatio,
     shareSource: source,
   };
 };

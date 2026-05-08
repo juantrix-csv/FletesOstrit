@@ -8,12 +8,14 @@ describe('billing', () => {
     expect(getBilledHoursFromMinutes(70)).toBe(1);
   });
 
-  it('moves to the next half-hour block after the 10 minute grace', () => {
+  it('moves to the next half-hour block every 30 minutes after the 10 minute grace', () => {
     expect(getBilledHoursFromMinutes(71)).toBe(1.5);
-    expect(getBilledHoursFromMinutes(130)).toBe(1.5);
-    expect(getBilledHoursFromMinutes(131)).toBe(2);
-    expect(getBilledHoursFromMinutes(190)).toBe(2);
-    expect(getBilledHoursFromMinutes(191)).toBe(2.5);
+    expect(getBilledHoursFromMinutes(100)).toBe(1.5);
+    expect(getBilledHoursFromMinutes(101)).toBe(2);
+    expect(getBilledHoursFromMinutes(130)).toBe(2);
+    expect(getBilledHoursFromMinutes(131)).toBe(2.5);
+    expect(getBilledHoursFromMinutes(160)).toBe(2.5);
+    expect(getBilledHoursFromMinutes(161)).toBe(3);
   });
 
   it('supports millisecond durations', () => {

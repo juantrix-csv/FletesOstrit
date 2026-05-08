@@ -2,6 +2,7 @@ import type { Driver, DriverLocation, Job, Lead, LocationData, Vehicle } from '.
 import { invalidateCachedQueries, setCachedQueryData, updateMatchingCachedQueries } from './queryCache';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
+export type AdvertisingMonthlyCosts = Record<string, number>;
 
 type ApiActivitySnapshot = {
   pendingRequests: number;
@@ -355,6 +356,22 @@ export const setFixedMonthlyCost = (value: number | null) =>
   fetchJson<{ value: number | null }>('/settings/fixed-monthly-cost', {
     method: 'PUT',
     body: JSON.stringify({ value }),
+  });
+
+export const getAdvertisingMonthlyCost = () => fetchJson<{ value: number | null }>('/settings/advertising-monthly-cost');
+
+export const setAdvertisingMonthlyCost = (value: number | null) =>
+  fetchJson<{ value: number | null }>('/settings/advertising-monthly-cost', {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
+export const getAdvertisingMonthlyCosts = () => fetchJson<{ costs: AdvertisingMonthlyCosts }>('/settings/advertising-monthly-costs');
+
+export const setAdvertisingMonthlyCosts = (costs: AdvertisingMonthlyCosts) =>
+  fetchJson<{ costs: AdvertisingMonthlyCosts }>('/settings/advertising-monthly-costs', {
+    method: 'PUT',
+    body: JSON.stringify({ costs }),
   });
 
 export const getTripCostPerHour = () => fetchJson<{ value: number | null }>('/settings/trip-cost-per-hour');

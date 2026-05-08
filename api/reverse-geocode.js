@@ -8,6 +8,7 @@ import {
   getOpenMapsRequestOptions,
   normalizeOpenMapsReverseGeocodeResult,
 } from './_openmaps.js';
+import { preferOpenMaps } from './_mapPreference.js';
 
 const readJsonSafe = async (response) => {
   try {
@@ -37,7 +38,25 @@ export default async function handler(req, res) {
   }
 
   try {
-    if (hasMapboxAccessToken()) {
+    const tryOpenMaps = async () => {
+      const response = await fetch(
+        buildOpenMapsReverseGeocodeUrl(lat, lon),
+        getOpenMapsRequestOptions()
+      );
+      if (!response.ok) {
+        return false;
+      }
+
+      const data = await readJsonSafe(response);
+      res.status(200).json(normalizeOpenMapsReverseGeocodeResult(data));
+      return true;
+    };
+
+    const tryMapbox = async () => {
+      if (!hasMapboxAccessToken()) {
+        return false;
+      }
+
       try {
         const response = await fetch(buildMapboxReverseGeocodeUrl(lat, lon));
         const data = await readJsonSafe(response);
@@ -49,24 +68,24 @@ export default async function handler(req, res) {
           }
 
           res.status(200).json(normalizeMapboxReverseGeocodeResult(data));
-          return;
+          return true;
         }
       } catch {
         // Fall back to OpenStreetMap providers on upstream Mapbox failures.
       }
+
+      return false;
+    };
+
+    const handlers = preferOpenMaps()
+      ? [tryOpenMaps, tryMapbox]
+      : [tryMapbox, tryOpenMaps];
+
+    for (const execute of handlers) {
+      if (await execute()) return;
     }
 
-    const fallbackResponse = await fetch(
-      buildOpenMapsReverseGeocodeUrl(lat, lon),
-      getOpenMapsRequestOptions()
-    );
-    if (!fallbackResponse.ok) {
-      res.status(502).json({ error: 'Reverse geocode failed' });
-      return;
-    }
-
-    const fallbackData = await readJsonSafe(fallbackResponse);
-    res.status(200).json(normalizeOpenMapsReverseGeocodeResult(fallbackData));
+    res.status(502).json({ error: 'Reverse geocode failed' });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

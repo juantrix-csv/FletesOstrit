@@ -8,6 +8,7 @@ import {
   getOpenMapsRequestOptions,
   normalizeOpenMapsDirectionsResult,
 } from './_openmaps.js';
+import { preferOpenMaps } from './_mapPreference.js';
 
 const readJsonSafe = async (response) => {
   try {
@@ -42,7 +43,34 @@ export default async function handler(req, res) {
   }
 
   try {
-    if (hasMapboxAccessToken()) {
+    const tryOpenMaps = async () => {
+      const response = await fetch(
+        buildOpenMapsDirectionsUrl(points),
+        getOpenMapsRequestOptions()
+      );
+      if (!response.ok) {
+        return false;
+      }
+
+      const data = await readJsonSafe(response);
+      if (!Array.isArray(data?.routes) || data.routes.length === 0) {
+        res.status(200).json({
+          geometry: null,
+          distanceMeters: null,
+          durationSeconds: null,
+        });
+        return true;
+      }
+
+      res.status(200).json(normalizeOpenMapsDirectionsResult(data));
+      return true;
+    };
+
+    const tryMapbox = async () => {
+      if (!hasMapboxAccessToken()) {
+        return false;
+      }
+
       try {
         const response = await fetch(buildMapboxDirectionsUrl(points));
         const data = await readJsonSafe(response);
@@ -58,33 +86,24 @@ export default async function handler(req, res) {
           }
 
           res.status(200).json(normalizeMapboxDirectionsResult(data));
-          return;
+          return true;
         }
       } catch {
         // Fall back to OpenStreetMap providers on upstream Mapbox failures.
       }
+
+      return false;
+    };
+
+    const handlers = preferOpenMaps()
+      ? [tryOpenMaps, tryMapbox]
+      : [tryMapbox, tryOpenMaps];
+
+    for (const execute of handlers) {
+      if (await execute()) return;
     }
 
-    const fallbackResponse = await fetch(
-      buildOpenMapsDirectionsUrl(points),
-      getOpenMapsRequestOptions()
-    );
-    if (!fallbackResponse.ok) {
-      res.status(502).json({ error: 'Route failed' });
-      return;
-    }
-
-    const fallbackData = await readJsonSafe(fallbackResponse);
-    if (!Array.isArray(fallbackData?.routes) || fallbackData.routes.length === 0) {
-      res.status(200).json({
-        geometry: null,
-        distanceMeters: null,
-        durationSeconds: null,
-      });
-      return;
-    }
-
-    res.status(200).json(normalizeOpenMapsDirectionsResult(fallbackData));
+    res.status(502).json({ error: 'Route failed' });
   } catch {
     res.status(500).json({ error: 'Server error' });
   }

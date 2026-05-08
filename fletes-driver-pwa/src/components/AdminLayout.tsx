@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { BarChart3, CalendarDays, Menu, Package, Phone, Settings, Truck, Users } from 'lucide-react';
+import { canAccessAdminTab, getAllowedAdminTabs, resolveAdminTab } from '../lib/adminAccess';
+import type { AdminTab } from '../lib/adminAccess';
 import { cn } from '../lib/utils';
 import { clearAdminSession, getAdminSession } from '../lib/adminSession';
 
-const navItems = [
+const navItems: { key: AdminTab; label: string; to: string; Icon: typeof Package }[] = [
   { key: 'jobs', label: 'Fletes', to: '/admin?tab=jobs', Icon: Package },
   { key: 'leads', label: 'Perdidas', to: '/admin?tab=leads', Icon: Phone },
   { key: 'drivers', label: 'Conductores', to: '/admin?tab=drivers', Icon: Users },
@@ -12,16 +14,12 @@ const navItems = [
   { key: 'analytics', label: 'Analiticas', to: '/admin?tab=analytics', Icon: BarChart3 },
 ];
 
-const bottomItems = [
+const bottomItems: { key: AdminTab; label: string; to: string; Icon: typeof Settings }[] = [
   { key: 'settings', label: 'Configuracion', to: '/admin?tab=settings', Icon: Settings },
 ];
 
 const resolveActiveTab = (loc: string, search: string) => {
-  const param = new URLSearchParams(search).get('tab');
-  if (param === 'jobs' || param === 'leads' || param === 'drivers' || param === 'calendar' || param === 'analytics' || param === 'settings') return param;
-  const pathTab = loc.split('/')[2];
-  if (pathTab === 'jobs' || pathTab === 'leads' || pathTab === 'drivers' || pathTab === 'calendar' || pathTab === 'analytics' || pathTab === 'settings') return pathTab;
-  return 'jobs';
+  return resolveAdminTab(new URLSearchParams(search).get('tab')) ?? resolveAdminTab(loc.split('/')[2]) ?? 'jobs';
 };
 
 export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
@@ -31,14 +29,11 @@ export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
   const session = getAdminSession();
   const isOwner = session?.role === 'owner';
   const roleLabel = session?.role === 'owner' ? 'Dueno' : session?.role === 'assistant' ? 'Asistente' : 'Sin sesion';
-  const visibleNavItems = isOwner ? navItems : navItems.filter((item) => item.key !== 'analytics');
+  const allowedTabs = getAllowedAdminTabs(session?.role);
+  const visibleNavItems = navItems.filter((item) => allowedTabs.includes(item.key));
   const visibleBottomItems = isOwner ? bottomItems : [];
-  const allowedTabs = new Set(isOwner
-    ? ['jobs', 'leads', 'drivers', 'calendar', 'analytics', 'settings']
-    : ['jobs', 'leads', 'drivers', 'calendar']
-  );
   const resolvedTab = resolveActiveTab(loc.pathname, loc.search);
-  const activeTab = allowedTabs.has(resolvedTab) ? resolvedTab : 'jobs';
+  const activeTab = canAccessAdminTab(session?.role, resolvedTab) ? resolvedTab : 'jobs';
 
   useEffect(() => {
     setMobileOpen(false);

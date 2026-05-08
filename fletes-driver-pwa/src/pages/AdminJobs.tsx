@@ -21,6 +21,8 @@ import {
   downloadJobsHistory,
   driverLocationsListQueryKey,
   driversListQueryKey,
+  getAdvertisingMonthlyCost,
+  getAdvertisingMonthlyCosts,
   getFixedMonthlyCost,
   getHelperHourlyRate,
   getHourlyRate,
@@ -34,6 +36,8 @@ import {
   listDrivers,
   listJobs,
   listVehicles,
+  setAdvertisingMonthlyCost,
+  setAdvertisingMonthlyCosts,
   setFixedMonthlyCost,
   setDriverVehicleDriverShare,
   setHelperHourlyRate,
@@ -46,10 +50,12 @@ import {
   updateJob,
   vehiclesListQueryKey,
 } from '../lib/api';
+import type { AdvertisingMonthlyCosts } from '../lib/api';
 import { calculateDistance, cn, formatDuration, getScheduledAtMs } from '../lib/utils';
 import { getDriverColors } from '../lib/driverColors';
 import { reorderList } from '../lib/reorder';
 import { getAdminSession } from '../lib/adminSession';
+import { canAccessAdminTab } from '../lib/adminAccess';
 import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '../lib/queryCache';
 import { getRouteEstimate } from '../lib/routeEstimate';
 import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from '../lib/billing';
@@ -83,7 +89,7 @@ const vehicleOwnershipLabels: Record<VehicleOwnershipType, string> = {
   driver: 'Del chofer',
 };
 const OWNER_ACCOUNT_DRIVER_CODE = '6666';
-const EXTERNAL_DRIVER_COMPANY_HOURLY_MARGIN = 10000;
+const DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN = 10000;
 const SCHEDULING_ASSISTANT_COST_PER_JOB = 4000;
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -97,6 +103,17 @@ const startOfWeek = (date: Date) => {
 const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
 const buildDateKey = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const buildMonthKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const buildRecentMonthOptions = (date: Date, count: number) => (
+  Array.from({ length: count }, (_, index) => {
+    const monthDate = new Date(date.getFullYear(), date.getMonth() - (count - 1 - index), 1);
+    return {
+      key: buildMonthKey(monthDate),
+      label: monthFormatter.format(monthDate),
+    };
+  })
+);
 const isSameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 const isSameMonth = (a: Date, b: Date) =>
@@ -554,11 +571,11 @@ export default function AdminJobs() {
     resolveAdminTab(searchParams.get('tab')) ?? resolveAdminTab(section) ?? 'jobs'
   ), [searchParams, section]);
   const tab = useMemo<AdminTab>(() => {
-    if (!isOwner && (resolvedTab === 'analytics' || resolvedTab === 'settings')) {
+    if (!canAccessAdminTab(adminRole, resolvedTab)) {
       return 'jobs';
     }
     return resolvedTab;
-  }, [isOwner, resolvedTab]);
+  }, [adminRole, resolvedTab]);
   const jobsCacheKey = jobsListQueryKey();
   const driversCacheKey = driversListQueryKey();
   const vehiclesCacheKey = vehiclesListQueryKey();
@@ -573,12 +590,16 @@ export default function AdminJobs() {
     }
   }, [adminRole, navigate]);
   useEffect(() => {
-    if (!isOwner && (resolvedTab === 'analytics' || resolvedTab === 'settings')) {
+    if (!canAccessAdminTab(adminRole, resolvedTab)) {
       navigate('/admin?tab=jobs', { replace: true });
     }
-  }, [isOwner, navigate, resolvedTab]);
+  }, [adminRole, navigate, resolvedTab]);
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const calendarDayScrollRef = useRef<HTMLDivElement>(null);
+  const calendarWeekScrollRef = useRef<HTMLDivElement>(null);
+  const [calendarScrollLeft, setCalendarScrollLeft] = useState(0);
+  const [calendarScrollMax, setCalendarScrollMax] = useState(0);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [jobs, setJobs] = useState<Job[]>(() => jobsCacheEntry?.data ?? []);
   const [drivers, setDrivers] = useState<Driver[]>(() => driversCacheEntry?.data ?? []);
@@ -621,6 +642,7 @@ export default function AdminJobs() {
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>(() => locationsCacheEntry?.data ?? []);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
+  const [expandedDriverHistoryId, setExpandedDriverHistoryId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedMapJobId, setSelectedMapJobId] = useState<string | null>(null);
   const [openJobMenuId, setOpenJobMenuId] = useState<string | null>(null);
@@ -630,6 +652,9 @@ export default function AdminJobs() {
   const [ownerVehicleDriverShareInput, setOwnerVehicleDriverShareInput] = useState('');
   const [driverVehicleDriverShareInput, setDriverVehicleDriverShareInput] = useState('');
   const [fixedMonthlyCostInput, setFixedMonthlyCostInput] = useState('');
+  const [advertisingMonthlyCostInput, setAdvertisingMonthlyCostInput] = useState('');
+  const [advertisingMonthlyCosts, setAdvertisingMonthlyCostsState] = useState<AdvertisingMonthlyCosts>({});
+  const [advertisingMonthlyCostDrafts, setAdvertisingMonthlyCostDrafts] = useState<Record<string, string>>({});
   const [tripCostPerHourInput, setTripCostPerHourInput] = useState('');
   const [tripCostPerKmInput, setTripCostPerKmInput] = useState('');
   const [operationsBaseLocation, setOperationsBaseLocation] = useState<LocationData | null>(null);
@@ -644,6 +669,8 @@ export default function AdminJobs() {
   const [savingOwnerVehicleDriverShare, setSavingOwnerVehicleDriverShare] = useState(false);
   const [savingDriverVehicleDriverShare, setSavingDriverVehicleDriverShare] = useState(false);
   const [savingFixedMonthlyCost, setSavingFixedMonthlyCost] = useState(false);
+  const [savingAdvertisingMonthlyCost, setSavingAdvertisingMonthlyCost] = useState(false);
+  const [savingAdvertisingMonthlyCosts, setSavingAdvertisingMonthlyCosts] = useState(false);
   const [savingTripCostPerHour, setSavingTripCostPerHour] = useState(false);
   const [savingTripCostPerKm, setSavingTripCostPerKm] = useState(false);
   const [savingOperationsBaseLocation, setSavingOperationsBaseLocation] = useState(false);
@@ -698,6 +725,7 @@ export default function AdminJobs() {
     ? clampRatio(driverVehicleDriverSharePercentValue / 100)
     : (2 / 3);
   const fixedMonthlyCostValue = useMemo(() => parseHourlyRate(fixedMonthlyCostInput), [fixedMonthlyCostInput]);
+  const advertisingMonthlyCostValue = useMemo(() => parseHourlyRate(advertisingMonthlyCostInput), [advertisingMonthlyCostInput]);
   const tripCostPerHourValue = useMemo(() => parseHourlyRate(tripCostPerHourInput), [tripCostPerHourInput]);
   const tripCostPerKmValue = useMemo(() => parseHourlyRate(tripCostPerKmInput), [tripCostPerKmInput]);
   const hasVehicleHourlyRates = useMemo(
@@ -910,6 +938,32 @@ export default function AdminJobs() {
     }
   };
 
+  const loadAdvertisingMonthlyCost = async () => {
+    try {
+      const data = await getAdvertisingMonthlyCost();
+      setAdvertisingMonthlyCostInput(data.value != null ? String(data.value) : '');
+    } catch {
+      toast.error('No se pudo cargar el costo mensual de publicidad');
+    }
+  };
+
+  const loadAdvertisingMonthlyCosts = async () => {
+    try {
+      const data = await getAdvertisingMonthlyCosts();
+      const costs = data.costs ?? {};
+      setAdvertisingMonthlyCostsState(costs);
+      const recentMonths = buildRecentMonthOptions(new Date(), 12);
+      setAdvertisingMonthlyCostDrafts(
+        Object.fromEntries(recentMonths.map((month) => [
+          month.key,
+          costs[month.key] != null ? String(costs[month.key]) : '',
+        ])),
+      );
+    } catch {
+      toast.error('No se pudo cargar el historial de publicidad');
+    }
+  };
+
   const loadTripCostPerHour = async () => {
     try {
       const data = await getTripCostPerHour();
@@ -1071,6 +1125,8 @@ export default function AdminJobs() {
     loadOwnerVehicleDriverShare();
     loadDriverVehicleDriverShare();
     loadFixedMonthlyCost();
+    loadAdvertisingMonthlyCost();
+    loadAdvertisingMonthlyCosts();
     loadTripCostPerHour();
     loadTripCostPerKm();
     loadOperationsBaseLocation();
@@ -1544,6 +1600,82 @@ export default function AdminJobs() {
     }
   };
 
+  const handleSaveAdvertisingMonthlyCost = async () => {
+    const parsed = parseHourlyRate(advertisingMonthlyCostInput);
+    if (advertisingMonthlyCostInput.trim() && parsed == null) {
+      toast.error('Costo mensual de publicidad invalido');
+      return;
+    }
+    try {
+      setSavingAdvertisingMonthlyCost(true);
+      const monthKey = buildMonthKey(new Date());
+      const nextCosts = { ...advertisingMonthlyCosts };
+      if (parsed == null) {
+        delete nextCosts[monthKey];
+      } else {
+        nextCosts[monthKey] = parsed;
+      }
+      const [saved, savedCosts] = await Promise.all([
+        setAdvertisingMonthlyCost(parsed),
+        setAdvertisingMonthlyCosts(nextCosts),
+      ]);
+      setAdvertisingMonthlyCostInput(saved.value != null ? String(saved.value) : '');
+      setAdvertisingMonthlyCostsState(savedCosts.costs ?? {});
+      setAdvertisingMonthlyCostDrafts((prev) => ({
+        ...prev,
+        [monthKey]: parsed != null ? String(parsed) : '',
+      }));
+      toast.success('Costo mensual de publicidad actualizado');
+    } catch {
+      toast.error('No se pudo guardar el costo mensual de publicidad');
+    } finally {
+      setSavingAdvertisingMonthlyCost(false);
+    }
+  };
+
+  const handleSaveAdvertisingMonthlyCosts = async () => {
+    const recentMonths = buildRecentMonthOptions(new Date(), 12);
+    const nextCosts = { ...advertisingMonthlyCosts };
+    for (const month of recentMonths) {
+      const rawValue = (advertisingMonthlyCostDrafts[month.key] ?? '').trim();
+      const parsed = parseHourlyRate(rawValue);
+      if (rawValue && parsed == null) {
+        toast.error(`Costo de publicidad invalido en ${month.label}`);
+        return;
+      }
+      if (parsed == null) {
+        delete nextCosts[month.key];
+      } else {
+        nextCosts[month.key] = parsed;
+      }
+    }
+
+    try {
+      setSavingAdvertisingMonthlyCosts(true);
+      const currentMonthKey = buildMonthKey(new Date());
+      const currentMonthCost = nextCosts[currentMonthKey] ?? null;
+      const [savedCosts, savedCurrentCost] = await Promise.all([
+        setAdvertisingMonthlyCosts(nextCosts),
+        setAdvertisingMonthlyCost(currentMonthCost),
+      ]);
+      const costs = savedCosts.costs ?? {};
+      setAdvertisingMonthlyCostsState(costs);
+      setAdvertisingMonthlyCostInput(savedCurrentCost.value != null ? String(savedCurrentCost.value) : '');
+      setAdvertisingMonthlyCostDrafts((prev) => ({
+        ...prev,
+        ...Object.fromEntries(recentMonths.map((month) => [
+          month.key,
+          costs[month.key] != null ? String(costs[month.key]) : '',
+        ])),
+      }));
+      toast.success('Historial de publicidad actualizado');
+    } catch {
+      toast.error('No se pudo guardar el historial de publicidad');
+    } finally {
+      setSavingAdvertisingMonthlyCosts(false);
+    }
+  };
+
   const handleSaveTripCostPerHour = async () => {
     const parsed = parseHourlyRate(tripCostPerHourInput);
     if (tripCostPerHourInput.trim() && parsed == null) {
@@ -1755,11 +1887,15 @@ export default function AdminJobs() {
     entry: { job: Job; durationMs: number | null },
     hourlyValue: number,
     driver: Driver | null,
+    vehicle: Vehicle | null,
   ) => {
     if (!isExternalDriver(driver)) return hourlyValue;
     const billedHours = getEntryBilledHours(entry);
-    if (billedHours == null) return hourlyValue;
-    return Math.min(hourlyValue, billedHours * EXTERNAL_DRIVER_COMPANY_HOURLY_MARGIN);
+    if (vehicle?.ownershipType === 'driver' && billedHours != null) {
+      return roundMoney(Math.min(hourlyValue, billedHours * DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN));
+    }
+    const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
+    return roundMoney(hourlyValue - (hourlyValue * driverShareRatio));
   };
   const getSchedulingAssistantCost = () => SCHEDULING_ASSISTANT_COST_PER_JOB;
   const getEntryHourDistribution = (entry: { job: Job; durationMs: number | null }) => {
@@ -1768,8 +1904,8 @@ export default function AdminJobs() {
     const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
     const vehicle = getEntryVehicle(entry);
     if (isExternalDriver(driver)) {
-      const ownerShare = getEntryCompanyHourlyMargin(entry, hourlyValue, driver);
-      const driverShare = Math.max(0, hourlyValue - ownerShare);
+      const ownerShare = getEntryCompanyHourlyMargin(entry, hourlyValue, driver, vehicle);
+      const driverShare = roundMoney(Math.max(0, hourlyValue - ownerShare));
       return {
         hourlyValue,
         driverShare,
@@ -1808,18 +1944,55 @@ export default function AdminJobs() {
       vehicle,
     };
   };
-  const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
+  const getEntryCompanyRevenue = (entry: { job: Job; durationMs: number | null }) => {
     const revenue = getEntryTotal(entry);
     if (revenue == null) return null;
+    const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
+    if (!isExternalDriver(driver)) return revenue;
+
+    const hourlyDistribution = getEntryHourDistribution(entry);
+    const baseValue = getEntryHourlyValue(entry);
+    const helperRevenue = baseValue != null ? Math.max(0, revenue - baseValue) : 0;
+    const companyHourlyRevenue = hourlyDistribution?.ownerShare ?? baseValue ?? revenue;
+    return Math.max(0, Math.min(revenue, companyHourlyRevenue + helperRevenue));
+  };
+  const getEntryDriverDebt = (entry: { job: Job; durationMs: number | null }, driver: Driver | null) => {
+    const payment = getJobCollectedPayment(entry.job);
+    const collectedTotal = payment.total;
+    if (collectedTotal == null) {
+      return {
+        collectedTotal: null,
+        driverKept: null,
+        ownerDebt: null,
+      };
+    }
+    if (!isExternalDriver(driver)) {
+      return {
+        collectedTotal,
+        driverKept: collectedTotal,
+        ownerDebt: 0,
+      };
+    }
+    const hourlyDistribution = getEntryHourDistribution(entry);
+    const driverShare = Math.max(0, hourlyDistribution?.driverShare ?? 0);
+    const driverKept = roundMoney(Math.min(collectedTotal, driverShare));
+    const ownerDebt = roundMoney(Math.max(0, collectedTotal - driverKept));
+    return {
+      collectedTotal,
+      driverKept,
+      ownerDebt,
+    };
+  };
+  const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
+    const companyRevenue = getEntryCompanyRevenue(entry);
+    if (companyRevenue == null) return null;
     const hourlyDistribution = getEntryHourDistribution(entry);
     const billedHours = getEntryBilledHours(entry);
-    const baseValue = getEntryHourlyValue(entry);
     const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
     const helpersCount = entry.job.helpersCount ?? 0;
     const helpersCost = helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
       ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
-    const helperRevenue = baseValue != null ? Math.max(0, revenue - baseValue) : 0;
     const driverCost = isExternalDriver(driver)
       ? 0
       : (hourlyDistribution?.driverShare ?? 0);
@@ -1827,8 +2000,7 @@ export default function AdminJobs() {
     const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null
       ? distanceKm * tripCostPerKmValue
       : 0;
-    const companyHourlyMargin = hourlyDistribution?.ownerShare ?? baseValue ?? revenue;
-    return companyHourlyMargin + helperRevenue - helpersCost - fuelCost - driverCost - getSchedulingAssistantCost();
+    return companyRevenue - helpersCost - fuelCost - driverCost - getSchedulingAssistantCost();
   };
   const getJobEstimatedTotal = (job: Job) => {
     const collectedPayment = getJobCollectedPayment(job);
@@ -1845,12 +2017,21 @@ export default function AdminJobs() {
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
   const ownerVehicleDriverShareLabel = percentFormatter.format(ownerVehicleDriverShareRatio);
-  const driverVehicleDriverShareLabel = percentFormatter.format(driverVehicleDriverShareRatio);
+  const driverOwnedVehicleCompanyMarginLabel = currencyFormatter.format(DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN);
   const now = new Date();
   const currentMonthLabel = monthFormatter.format(now);
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
+  const currentMonthKey = buildMonthKey(now);
   const daysElapsedInMonth = Math.max(1, now.getDate());
+  const recentAdvertisingMonths = useMemo(
+    () => buildRecentMonthOptions(now, 12),
+    [currentMonth, currentYear],
+  );
+  const advertisingCostByMonth = useMemo(() => ({
+    ...advertisingMonthlyCosts,
+    ...(advertisingMonthlyCostValue != null ? { [currentMonthKey]: advertisingMonthlyCostValue } : {}),
+  }), [advertisingMonthlyCosts, advertisingMonthlyCostValue, currentMonthKey]);
   const completedThisMonth = useMemo(() => (
     completedHistory.filter((entry) => {
       if (entry.endMs == null) return false;
@@ -1858,6 +2039,14 @@ export default function AdminJobs() {
       return endDate.getMonth() === currentMonth && endDate.getFullYear() === currentYear;
     })
   ), [completedHistory, currentMonth, currentYear]);
+  const advertisingBillingDays = Math.min(30, Math.ceil(daysElapsedInMonth / 7) * 7);
+  const currentAdvertisingMonthlyCost = advertisingCostByMonth[currentMonthKey] ?? null;
+  const advertisingCostToDate = currentAdvertisingMonthlyCost != null
+    ? (currentAdvertisingMonthlyCost / 30) * advertisingBillingDays
+    : null;
+  const advertisingCostPerClient = advertisingCostToDate != null && completedThisMonth.length > 0
+    ? advertisingCostToDate / completedThisMonth.length
+    : null;
   const distanceStats = useMemo(() => {
     let total = 0;
     let count = 0;
@@ -1969,6 +2158,14 @@ export default function AdminJobs() {
   const fixedMonthlyCostLabel = fixedMonthlyCostValue != null
     ? currencyFormatter.format(fixedMonthlyCostValue)
     : 'Sin configurar';
+  const advertisingMonthlyCostLabel = currentAdvertisingMonthlyCost != null
+    ? currencyFormatter.format(currentAdvertisingMonthlyCost)
+    : 'Sin configurar';
+  const advertisingCostPerClientLabel = currentAdvertisingMonthlyCost == null
+    ? 'Sin configurar'
+    : advertisingCostPerClient != null
+      ? currencyFormatter.format(advertisingCostPerClient)
+      : 'N/D';
   const operationsBaseLocationLabel = operationsBaseLocation?.address ?? 'Sin configurar';
   const costPerHourLabel = tripCostPerHourValue != null ? `${currencyFormatter.format(tripCostPerHourValue)}/h` : null;
   const costPerKmLabel = tripCostPerKmValue != null ? `${currencyFormatter.format(tripCostPerKmValue)}/km` : null;
@@ -2002,6 +2199,11 @@ export default function AdminJobs() {
   const distanceMeta = distanceStats.count > 0 && distanceStats.average != null
     ? `Promedio ${currentMonthLabel}: ${distanceAvgLabel}${distanceStats.realCount < distanceStats.count ? ` (${distanceStats.realCount} con GPS)` : ''}`
     : `Sin datos de distancia ${currentMonthLabel}.`;
+  const advertisingCostPerClientMeta = currentAdvertisingMonthlyCost == null
+    ? 'Carga el costo mensual de publicidad.'
+    : completedThisMonth.length > 0
+      ? `${completedThisMonth.length} fletes en ${currentMonthLabel}; ${advertisingBillingDays}/30 dias de publicidad.`
+      : `Sin fletes completados en ${currentMonthLabel}.`;
   const recurringMeta = recurringClientStats.total > 0
     ? `${recurringClientStats.recurring} de ${recurringClientStats.total} con telefono.`
     : 'Sin telefonos cargados.';
@@ -2014,10 +2216,20 @@ export default function AdminJobs() {
       if (entry.endMs == null) return sum;
       const endDate = new Date(entry.endMs);
       if (endDate.getMonth() !== month || endDate.getFullYear() !== year) return sum;
-      const total = getEntryTotal(entry);
+      const total = getEntryCompanyRevenue(entry);
       return total != null ? sum + total : sum;
     }, 0);
-  }, [completedHistory, hourlyRateValue, hasVehicleHourlyRates, helperHourlyRateValue, hasChargeOverrides, vehiclesById, driversById]);
+  }, [
+    completedHistory,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    hasVehicleHourlyRates,
+    hasChargeOverrides,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const monthlyGrossLabel = monthlyGrossTotal != null
     ? currencyFormatter.format(monthlyGrossTotal)
     : 'Configura el precio';
@@ -2039,7 +2251,7 @@ export default function AdminJobs() {
       const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
       const target = byKey.get(key);
       if (!target) return;
-      const total = getEntryTotal(entry);
+      const total = getEntryCompanyRevenue(entry);
       if (total == null) return;
       target.total += total;
       const net = getEntryNetTotal(entry);
@@ -2084,6 +2296,78 @@ export default function AdminJobs() {
       return { value, label: formatCurrencyTick(value) };
     });
   }, [dailyRevenueMaxValue]);
+  const weeklyAdvertisingSeries = useMemo(() => {
+    const currentWeekStart = startOfWeek(now);
+    const rangeEnd = addDays(startOfDay(now), 1);
+    const weekStarts = Array.from({ length: 52 }, (_, index) => addDays(currentWeekStart, -7 * (51 - index)));
+    return weekStarts.map((weekStart) => {
+      const weekEnd = addDays(weekStart, 7);
+      const effectiveEnd = weekEnd < rangeEnd ? weekEnd : rangeEnd;
+      const count = completedHistory.filter((entry) => (
+        entry.endMs != null &&
+        entry.endMs >= weekStart.getTime() &&
+        entry.endMs < effectiveEnd.getTime()
+      )).length;
+      let advertisingCost = 0;
+      let missingCost = false;
+      for (let cursor = startOfDay(weekStart); cursor < effectiveEnd; cursor = addDays(cursor, 1)) {
+        const monthCost = advertisingCostByMonth[buildMonthKey(cursor)];
+        if (monthCost == null) {
+          missingCost = true;
+        } else {
+          advertisingCost += monthCost / 30;
+        }
+      }
+      const value = !missingCost && count > 0 ? advertisingCost / count : null;
+      return {
+        key: buildDateKey(weekStart),
+        weekStart,
+        weekEnd,
+        label: `${String(weekStart.getDate()).padStart(2, '0')} ${monthShortFormatter.format(weekStart)}`,
+        count,
+        advertisingCost,
+        missingCost,
+        value,
+      };
+    });
+  }, [advertisingCostByMonth, completedHistory, now]);
+  const weeklyAdvertisingMaxValue = useMemo(() => {
+    const values = weeklyAdvertisingSeries
+      .map((item) => item.value)
+      .filter((value): value is number => value != null && Number.isFinite(value));
+    return Math.max(0, ...values);
+  }, [weeklyAdvertisingSeries]);
+  const weeklyAdvertisingScaleMax = weeklyAdvertisingMaxValue > 0 ? weeklyAdvertisingMaxValue : 1;
+  const weeklyAdvertisingTicks = useMemo(() => {
+    const steps = 4;
+    return Array.from({ length: steps + 1 }, (_, index) => {
+      const value = weeklyAdvertisingMaxValue > 0 ? (weeklyAdvertisingMaxValue * (steps - index)) / steps : 0;
+      return { value, label: formatCurrencyTick(value) };
+    });
+  }, [weeklyAdvertisingMaxValue]);
+  const weeklyAdvertisingSegments = useMemo(() => {
+    const segments: Array<Array<{ item: typeof weeklyAdvertisingSeries[number]; index: number }>> = [];
+    let currentSegment: Array<{ item: typeof weeklyAdvertisingSeries[number]; index: number }> = [];
+    weeklyAdvertisingSeries.forEach((item, index) => {
+      if (item.value == null) {
+        if (currentSegment.length > 0) {
+          segments.push(currentSegment);
+          currentSegment = [];
+        }
+        return;
+      }
+      currentSegment.push({ item, index });
+    });
+    if (currentSegment.length > 0) segments.push(currentSegment);
+    return segments;
+  }, [weeklyAdvertisingSeries]);
+  const latestWeeklyAdvertisingPoint = [...weeklyAdvertisingSeries].reverse().find((item) => item.value != null) ?? null;
+  const weeklyAdvertisingLatestLabel = latestWeeklyAdvertisingPoint?.value != null
+    ? currencyFormatter.format(latestWeeklyAdvertisingPoint.value)
+    : 'N/D';
+  const weeklyAdvertisingMeta = latestWeeklyAdvertisingPoint != null
+    ? `${latestWeeklyAdvertisingPoint.count} fletes en la semana del ${latestWeeklyAdvertisingPoint.label}.`
+    : 'Carga costos mensuales de publicidad y fletes completados.';
   const monthlyRevenueSeries = useMemo(() => {
     const now = new Date();
     const months = Array.from({ length: 12 }, (_, index) => {
@@ -2099,7 +2383,7 @@ export default function AdminJobs() {
       const key = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}`;
       const target = byKey.get(key);
       if (!target) return;
-      const total = getEntryTotal(entry);
+      const total = getEntryCompanyRevenue(entry);
       if (total == null) return;
       target.total += total;
       const net = getEntryNetTotal(entry);
@@ -2236,13 +2520,9 @@ export default function AdminJobs() {
       if (payment.total == null) return;
 
       const driver = driversById.get(driverId) ?? null;
-      const hourlyDistribution = getEntryHourDistribution(entry);
-      const driverKept = isExternalDriver(driver)
-        ? Math.max(0, Math.min(payment.total, hourlyDistribution?.driverShare ?? 0))
-        : payment.total;
-      const ownerDebt = isExternalDriver(driver)
-        ? Math.max(0, payment.total - driverKept)
-        : 0;
+      const debt = getEntryDriverDebt(entry, driver);
+      const ownerDebt = debt.ownerDebt ?? 0;
+      const driverKept = debt.driverKept ?? 0;
       const current = summary.get(driverId) ?? {
         collectedTrips: 0,
         collectedTotal: 0,
@@ -2412,9 +2692,11 @@ export default function AdminJobs() {
         missing += 1;
         return;
       }
-      total += estimate;
       const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
       const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
+      total += isExternalDriver(driver) && billedHours != null
+        ? billedHours * DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN
+        : estimate;
       const jobHourlyRate = getJobHourlyRateValue(item.job);
       const baseValue = jobHourlyRate != null && billedHours != null
         ? billedHours * jobHourlyRate
@@ -2424,9 +2706,13 @@ export default function AdminJobs() {
         ? billedHours * helperHourlyRateValue * helpersCount
         : 0;
       const helperRevenue = baseValue != null ? Math.max(0, estimate - baseValue) : 0;
-      const companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver)
-        ? Math.min(baseValue, billedHours * EXTERNAL_DRIVER_COMPANY_HOURLY_MARGIN)
-        : (baseValue ?? estimate);
+      const vehicle = getJobVehicle(item.job);
+      const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
+      const companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver) && vehicle?.ownershipType === 'driver'
+        ? Math.min(baseValue, billedHours * DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN)
+        : baseValue != null
+          ? baseValue - (baseValue * driverShareRatio)
+          : estimate;
       const distanceKm = jobDistanceKmById.get(item.job.id) ?? null;
       const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null
         ? distanceKm * tripCostPerKmValue
@@ -2434,7 +2720,59 @@ export default function AdminJobs() {
       netTotal += companyHourlyMargin + helperRevenue - helpersCost - fuelCost - getSchedulingAssistantCost();
     });
     return { total, netTotal, missing, count, totalMinutes };
-  }, [calendarView, calendarDate, scheduledJobs, hourlyRateValue, helperHourlyRateValue, tripCostPerKmValue, jobDistanceKmById, driversById, vehiclesById]);
+  }, [
+    calendarView,
+    calendarDate,
+    scheduledJobs,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    tripCostPerKmValue,
+    jobDistanceKmById,
+    driversById,
+    vehiclesById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
+  const driverJobHistoryById = useMemo(() => {
+    const map = new Map<string, Array<{
+      entry: typeof completedHistory[number];
+      payment: ReturnType<typeof getJobCollectedPayment>;
+      vehicle: Vehicle | null;
+      billedHours: number | null;
+      hourlyValue: number | null;
+      totalValue: number | null;
+      hourlyDistribution: ReturnType<typeof getEntryHourDistribution>;
+      debt: ReturnType<typeof getEntryDriverDebt>;
+    }>>();
+
+    completedHistory.forEach((entry) => {
+      const driverId = entry.job.driverId;
+      if (!driverId) return;
+      const driver = driversById.get(driverId) ?? null;
+      const items = map.get(driverId) ?? [];
+      items.push({
+        entry,
+        payment: getJobCollectedPayment(entry.job),
+        vehicle: getEntryVehicle(entry),
+        billedHours: getEntryBilledHours(entry),
+        hourlyValue: getEntryHourlyValue(entry),
+        totalValue: getEntryTotal(entry),
+        hourlyDistribution: getEntryHourDistribution(entry),
+        debt: getEntryDriverDebt(entry, driver),
+      });
+      map.set(driverId, items);
+    });
+
+    return map;
+  }, [
+    completedHistory,
+    driversById,
+    vehiclesById,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
   const handleCalendarToday = () => setCalendarDate(new Date());
   const moveCalendar = (direction: -1 | 1) => {
     setCalendarDate((prev) => {
@@ -2483,6 +2821,58 @@ export default function AdminJobs() {
     ? '1 flete'
     : `${calendarEstimateSummary.count} fletes`;
   const calendarTotalHoursLabel = `${decimalFormatter.format(calendarEstimateSummary.totalMinutes / 60)} h`;
+  const getCalendarScrollElement = () => {
+    if (calendarView === 'day') return calendarDayScrollRef.current;
+    if (calendarView === 'week') return calendarWeekScrollRef.current;
+    return null;
+  };
+  const syncCalendarScrollState = (element: HTMLDivElement | null = getCalendarScrollElement()) => {
+    if (!element) {
+      setCalendarScrollLeft(0);
+      setCalendarScrollMax(0);
+      return;
+    }
+    const max = Math.max(0, element.scrollWidth - element.clientWidth);
+    setCalendarScrollMax(max);
+    setCalendarScrollLeft(Math.min(max, element.scrollLeft));
+  };
+  const handleCalendarScrollRange = (value: string) => {
+    const nextLeft = Number(value);
+    const element = getCalendarScrollElement();
+    if (!element || !Number.isFinite(nextLeft)) return;
+    element.scrollLeft = nextLeft;
+    syncCalendarScrollState(element);
+  };
+
+  useEffect(() => {
+    if (calendarView === 'month') {
+      syncCalendarScrollState(null);
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => syncCalendarScrollState());
+    const handleResize = () => syncCalendarScrollState();
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [calendarView, calendarDate, calendarGridHeight, scheduledJobs.length]);
+
+  const calendarHorizontalRange = calendarView !== 'month' && (
+    <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <input
+        type="range"
+        min="0"
+        max={Math.max(0, Math.round(calendarScrollMax))}
+        step="1"
+        value={Math.min(Math.round(calendarScrollLeft), Math.round(calendarScrollMax))}
+        onChange={(event) => handleCalendarScrollRange(event.target.value)}
+        disabled={calendarScrollMax <= 0}
+        aria-label="Mover calendario horizontalmente"
+        className="calendar-horizontal-range"
+      />
+    </div>
+  );
 
   if (!adminRole) {
     return null;
@@ -3366,9 +3756,14 @@ export default function AdminJobs() {
                 </div>
 
                 {calendarView === 'day' && (
-                  <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_220px]">
-                    <div className="rounded-2xl border bg-white p-3">
-                      <div className="grid grid-cols-[56px_1fr]">
+                  <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
+                    <div className="min-w-0">
+                      <div
+                        ref={calendarDayScrollRef}
+                        onScroll={(event) => syncCalendarScrollState(event.currentTarget)}
+                        className="calendar-horizontal-scroll overflow-x-auto rounded-2xl border bg-white p-3 pb-4"
+                      >
+                        <div className="grid min-w-[760px] grid-cols-[56px_1fr]">
                         <div className="flex flex-col" style={{ height: calendarGridHeight }}>
                           {calendarHours.map((hour) => (
                             <div
@@ -3452,7 +3847,9 @@ export default function AdminJobs() {
                             );
                           })}
                         </div>
+                        </div>
                       </div>
+                      {calendarHorizontalRange}
                     </div>
                     <div className="rounded-2xl border bg-gray-50 p-3 text-xs">
                       <p className="text-[11px] uppercase tracking-wide text-gray-400">Huecos disponibles</p>
@@ -3476,7 +3873,11 @@ export default function AdminJobs() {
 
                 {calendarView === 'week' && (
                   <div className="mt-4 rounded-2xl border bg-white p-3">
-                    <div className="overflow-x-auto">
+                    <div
+                      ref={calendarWeekScrollRef}
+                      onScroll={(event) => syncCalendarScrollState(event.currentTarget)}
+                      className="calendar-horizontal-scroll overflow-x-auto pb-4"
+                    >
                       <div className="min-w-[1280px]">
                         <div className="grid grid-cols-[56px_repeat(7,1fr)] text-[11px] text-gray-500">
                           <div />
@@ -3590,6 +3991,7 @@ export default function AdminJobs() {
                         </div>
                       </div>
                     </div>
+                    {calendarHorizontalRange}
                   </div>
                 )}
 
@@ -3871,10 +4273,15 @@ export default function AdminJobs() {
                     };
                     const debtDraft = driverDebtDrafts[driver.id] ?? '';
                     const isSettlingDebt = settlingDriverId === driver.id;
+                    const driverHistory = driverJobHistoryById.get(driver.id) ?? [];
+                    const isHistoryExpanded = expandedDriverHistoryId === driver.id;
                     return (
                       <div
                         key={driver.id}
-                        className="flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm"
+                        className={cn(
+                          "flex h-full flex-col justify-between rounded-xl border bg-white p-4 shadow-sm",
+                          isHistoryExpanded ? "sm:col-span-2 lg:col-span-3" : ""
+                        )}
                         style={{ borderColor: driverColors.border }}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -3986,12 +4393,96 @@ export default function AdminJobs() {
                           </button>
                           <button
                             type="button"
+                            onClick={() => setExpandedDriverHistoryId((current) => (current === driver.id ? null : driver.id))}
+                            className="rounded border px-2 py-1 text-xs font-semibold text-gray-700"
+                          >
+                            {isHistoryExpanded ? 'Ocultar historial' : `Ver historial (${driverHistory.length})`}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleDeleteDriver(driver.id)}
                             className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-500"
                           >
                             Eliminar
                           </button>
                         </div>
+                        {isHistoryExpanded && (
+                          <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-gray-400">Historial de trabajos</p>
+                                <p className="text-sm text-gray-600">
+                                  {driverHistory.length > 0
+                                    ? `${driverHistory.length} fletes completados asignados a este conductor.`
+                                    : 'Sin fletes completados asignados.'}
+                                </p>
+                              </div>
+                              {canSeeMoney && (
+                                <div className="text-right text-xs text-gray-600">
+                                  <p>Cobrado: <span className="font-semibold text-gray-900">{currencyFormatter.format(debtSummary.collectedTotal)}</span></p>
+                                  <p>Conductor: <span className="font-semibold text-gray-900">{currencyFormatter.format(debtSummary.driverKept)}</span></p>
+                                </div>
+                              )}
+                            </div>
+                            {driverHistory.length > 0 && (
+                              <div className="mt-3 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                                {driverHistory.map((item) => {
+                                  const { entry, payment, vehicle, billedHours, hourlyValue, totalValue, hourlyDistribution, debt } = item;
+                                  const job = entry.job;
+                                  const statusMeta = getStatusBadge(job.status);
+                                  const completedAt = entry.endMs != null
+                                    ? new Date(entry.endMs).toLocaleString('es-AR')
+                                    : job.scheduledAt != null
+                                      ? new Date(job.scheduledAt).toLocaleString('es-AR')
+                                      : job.scheduledDate ?? 'Sin fecha';
+                                  const distanceKm = jobDistanceKmById.get(job.id) ?? null;
+                                  const billedHoursLabel = billedHours != null ? `${billedHours.toFixed(2).replace(/\.?0+$/, '')} h` : 'N/D';
+                                  return (
+                                    <div key={job.id} className="rounded-lg border bg-white p-3">
+                                      <div className="flex flex-wrap items-start justify-between gap-2">
+                                        <div>
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <p className="font-semibold text-gray-900">{job.clientName}</p>
+                                            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusMeta.className)}>
+                                              {statusMeta.label}
+                                            </span>
+                                          </div>
+                                          <p className="text-xs text-gray-500">{completedAt}</p>
+                                          <p className="mt-1 text-xs text-gray-600">
+                                            {job.pickup?.address || 'Origen sin direccion'} {'->'} {job.dropoff?.address || 'Destino sin direccion'}
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedJobId(job.id)}
+                                          className="rounded border px-2 py-1 text-xs font-semibold text-blue-600"
+                                        >
+                                          Ver detalle
+                                        </button>
+                                      </div>
+                                      <div className="mt-3 grid gap-2 text-xs text-gray-600 sm:grid-cols-2 lg:grid-cols-4">
+                                        <p><span className="font-semibold text-gray-800">Vehiculo:</span> {vehicle?.name ?? 'Sin vehiculo'}</p>
+                                        <p><span className="font-semibold text-gray-800">Horas:</span> {billedHoursLabel}</p>
+                                        <p><span className="font-semibold text-gray-800">Distancia:</span> {distanceKm != null ? `${decimalFormatter.format(distanceKm)} km` : 'N/D'}</p>
+                                        <p><span className="font-semibold text-gray-800">Pago:</span> {getPaymentMethodLabel(payment.method)}</p>
+                                        {canSeeMoney && (
+                                          <>
+                                            <p><span className="font-semibold text-gray-800">Cobrado:</span> {payment.total != null ? currencyFormatter.format(payment.total) : 'Sin cargar'}</p>
+                                            <p><span className="font-semibold text-gray-800">Estimado:</span> {totalValue != null ? currencyFormatter.format(totalValue) : 'N/D'}</p>
+                                            <p><span className="font-semibold text-gray-800">Base horaria:</span> {hourlyValue != null ? currencyFormatter.format(hourlyValue) : 'N/D'}</p>
+                                            <p><span className="font-semibold text-gray-800">Conductor:</span> {hourlyDistribution?.driverShare != null ? currencyFormatter.format(hourlyDistribution.driverShare) : 'N/D'}</p>
+                                            <p><span className="font-semibold text-gray-800">Dueno:</span> {hourlyDistribution?.ownerShare != null ? currencyFormatter.format(hourlyDistribution.ownerShare) : 'N/D'}</p>
+                                            <p><span className="font-semibold text-gray-800">Deuda generada:</span> {debt.ownerDebt != null ? currencyFormatter.format(debt.ownerDebt) : 'Sin cobro'}</p>
+                                          </>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -4109,6 +4600,11 @@ export default function AdminJobs() {
                   <p className="text-sm text-gray-500">{recurringMeta}</p>
                 </div>
                 <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-sm uppercase tracking-wide text-gray-400">Costo por cliente promedio</p>
+                  <p className="text-3xl font-semibold text-gray-900">{advertisingCostPerClientLabel}</p>
+                  <p className="text-sm text-gray-500">{advertisingCostPerClientMeta}</p>
+                </div>
+                <div className="rounded-2xl border bg-white p-4 shadow-sm">
                   <p className="text-sm uppercase tracking-wide text-gray-400">Costo fijo mensual</p>
                   <p className="text-3xl font-semibold text-gray-900">{fixedMonthlyCostLabel}</p>
                   <p className="text-sm text-gray-500">Se prorratea en el margen.</p>
@@ -4128,7 +4624,7 @@ export default function AdminJobs() {
                     <div className="flex items-center gap-2 text-sm text-gray-500">
                       <span className="inline-flex items-center gap-1">
                         <span className="h-3 w-3 rounded-full bg-sky-600" />
-                        Bruto
+                        Facturacion tuya
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <span className="h-3 w-3 rounded-full bg-orange-500" />
@@ -4139,7 +4635,7 @@ export default function AdminJobs() {
                 </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-gray-400">Bruto acumulado</p>
+                      <p className="text-xs uppercase tracking-wide text-gray-400">Facturacion tuya</p>
                       <p className="text-3xl font-semibold text-sky-600">{dailyTotalLabel}</p>
                     </div>
                     <div>
@@ -4234,6 +4730,70 @@ export default function AdminJobs() {
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Costo por cliente por semana</p>
+                    <p className="text-xl font-semibold text-gray-900">Ultimas 52 semanas</p>
+                    <p className="text-sm text-gray-500">Publicidad asignada a la semana dividida por fletes completados esa semana.</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-3xl font-semibold text-rose-700">{weeklyAdvertisingLatestLabel}</p>
+                    <p className="text-sm text-gray-500">{weeklyAdvertisingMeta}</p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <svg viewBox="0 0 720 240" className="h-56 w-full">
+                    {weeklyAdvertisingTicks.map((tick, index) => {
+                      const y = 20 + (150 * index) / (weeklyAdvertisingTicks.length - 1);
+                      return (
+                        <g key={tick.value}>
+                          <line x1={90} y1={y} x2={700} y2={y} stroke="#e5e7eb" strokeDasharray="4 6" />
+                          <text x={78} y={y + 4} fontSize="12" textAnchor="end" fill="#6b7280">
+                            {tick.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                    {weeklyAdvertisingSegments.map((segment, segmentIndex) => (
+                      <polyline
+                        key={`weekly-ad-segment-${segmentIndex}`}
+                        fill="none"
+                        stroke="#be123c"
+                        strokeWidth="2.5"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                        points={segment.map(({ item, index }) => {
+                          const x = 90 + (610 * (weeklyAdvertisingSeries.length === 1 ? 0.5 : index / (weeklyAdvertisingSeries.length - 1)));
+                          const y = 20 + (150 * (1 - ((item.value ?? 0) / weeklyAdvertisingScaleMax)));
+                          return `${x},${y}`;
+                        }).join(' ')}
+                      />
+                    ))}
+                    {weeklyAdvertisingSeries.map((item, index) => {
+                      const x = 90 + (610 * (weeklyAdvertisingSeries.length === 1 ? 0.5 : index / (weeklyAdvertisingSeries.length - 1)));
+                      const value = item.value ?? 0;
+                      const y = 20 + (150 * (1 - value / weeklyAdvertisingScaleMax));
+                      const showLabel = index === 0 || index === weeklyAdvertisingSeries.length - 1 || index % 8 === 0;
+                      return (
+                        <g key={item.key}>
+                          {item.value != null ? (
+                            <circle cx={x} cy={y} r="4.5" fill="#be123c" />
+                          ) : (
+                            <circle cx={x} cy={170} r="2.5" fill="#d1d5db" />
+                          )}
+                          {showLabel && (
+                            <text x={x} y="208" textAnchor="middle" fontSize="11" fill="#6b7280">
+                              {item.label}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
                     <p className="text-sm uppercase tracking-wide text-gray-400">Ingresos por mes</p>
                     <p className="text-xl font-semibold text-gray-900">Progreso de los ultimos 12 meses</p>
                   </div>
@@ -4244,7 +4804,7 @@ export default function AdminJobs() {
                     <div className="flex items-center gap-2 text-sm text-gray-500">
                       <span className="inline-flex items-center gap-1">
                         <span className="h-3 w-3 rounded-full bg-emerald-600" />
-                        Bruto
+                        Facturacion tuya
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <span className="h-3 w-3 rounded-full bg-orange-500" />
@@ -4424,7 +4984,7 @@ export default function AdminJobs() {
                   <div>
                     <p className="text-sm uppercase tracking-wide text-gray-400">Historial</p>
                     <p className="text-xl font-semibold text-gray-900">Fletes realizados</p>
-                    <p className="text-sm text-gray-500">Total bruto {currentMonthLabel}: {monthlyGrossLabel}</p>
+                    <p className="text-sm text-gray-500">Facturacion tuya {currentMonthLabel}: {monthlyGrossLabel}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-gray-500">{completedHistory.length} completados</span>
@@ -4765,7 +5325,7 @@ export default function AdminJobs() {
                   <div className="mt-4 border-t border-gray-100 pt-4">
                     <p className="text-sm font-semibold text-gray-900">Reparto del valor hora (chofer)</p>
                     <p className="text-xs text-gray-500">
-                      Vehiculo del dueno: {ownerVehicleDriverShareLabel} para chofer. Vehiculo del chofer: {driverVehicleDriverShareLabel} para chofer.
+                      Vehiculo del dueno: {ownerVehicleDriverShareLabel} para chofer. Vehiculo del chofer: {driverOwnedVehicleCompanyMarginLabel}/h para el dueno.
                     </p>
                     <div className="mt-3 grid gap-4 sm:grid-cols-2">
                       <div>
@@ -4791,26 +5351,13 @@ export default function AdminJobs() {
                         </button>
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">Vehiculo del chofer (%)</p>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          placeholder="Ej: 66.67"
-                          value={driverVehicleDriverShareInput}
-                          onChange={(event) => setDriverVehicleDriverShareInput(event.target.value)}
-                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSaveDriverVehicleDriverShare}
-                          disabled={savingDriverVehicleDriverShare}
-                          className="mt-2 w-full rounded border border-cyan-200 px-2 py-1 text-xs font-semibold text-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {savingDriverVehicleDriverShare ? 'Guardando...' : 'Guardar reparto chofer'}
-                        </button>
+                        <p className="text-sm font-semibold text-gray-900">Vehiculo del chofer</p>
+                        <p className="mt-2 rounded border border-cyan-100 bg-cyan-50 px-2 py-1 text-sm font-semibold text-cyan-800">
+                          {driverOwnedVehicleCompanyMarginLabel}/h para el dueno
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                          Se prorratea por las horas facturadas del viaje, incluyendo medias horas.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -4839,6 +5386,64 @@ export default function AdminJobs() {
                       >
                         {savingFixedMonthlyCost ? 'Guardando...' : 'Guardar costo fijo'}
                       </button>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Costo mensual de publicidad</p>
+                      <p className="text-xs text-gray-500">Actual: {advertisingMonthlyCostLabel}</p>
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        placeholder="Ej: 300000"
+                        value={advertisingMonthlyCostInput}
+                        onChange={(event) => setAdvertisingMonthlyCostInput(event.target.value)}
+                        className="mt-2 w-full rounded border px-2 py-1 text-sm"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveAdvertisingMonthlyCost}
+                        disabled={savingAdvertisingMonthlyCost}
+                        className="mt-2 w-full rounded border border-emerald-200 px-2 py-1 text-xs font-semibold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingAdvertisingMonthlyCost ? 'Guardando...' : 'Guardar publicidad'}
+                      </button>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">Historial mensual de publicidad</p>
+                          <p className="text-xs text-gray-500">Se usa para calcular el costo por cliente semanal del ultimo ano.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleSaveAdvertisingMonthlyCosts}
+                          disabled={savingAdvertisingMonthlyCosts}
+                          className="rounded border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingAdvertisingMonthlyCosts ? 'Guardando...' : 'Guardar historial'}
+                        </button>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {recentAdvertisingMonths.map((month) => (
+                          <label key={month.key} className="block">
+                            <span className="text-xs text-gray-500">{month.label}</span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              placeholder="Sin cargar"
+                              value={advertisingMonthlyCostDrafts[month.key] ?? ''}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setAdvertisingMonthlyCostDrafts((prev) => ({ ...prev, [month.key]: value }));
+                              }}
+                              className="mt-1 w-full rounded border bg-white px-2 py-1 text-sm"
+                            />
+                          </label>
+                        ))}
+                      </div>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
                       <div>
