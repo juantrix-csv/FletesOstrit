@@ -6,7 +6,12 @@ export const BILLING_STEP_HOURS = 0.5;
 export const getBilledHoursFromMinutes = (durationMinutes: number | null | undefined) => {
   if (durationMinutes == null || !Number.isFinite(durationMinutes)) return null;
   if (durationMinutes <= 0) return 0;
-  return Math.max(1, Math.ceil(durationMinutes / BILLING_STEP_MINUTES));
+
+  const firstHourThresholdMinutes = BILLING_FIRST_HOUR_MINUTES + BILLING_GRACE_MINUTES;
+  if (durationMinutes <= firstHourThresholdMinutes) return 1;
+
+  const extraBlocks = Math.ceil((durationMinutes - firstHourThresholdMinutes) / BILLING_STEP_MINUTES);
+  return 1 + extraBlocks * BILLING_STEP_HOURS;
 };
 
 export const getBilledHoursFromDurationMs = (durationMs: number | null | undefined) => {

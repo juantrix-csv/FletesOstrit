@@ -50,10 +50,10 @@ describe('job pricing', () => {
 
     expect(breakdown.distantBaseExtraMinutes).toBe(16);
     expect(breakdown.chargeableDurationMs).toBe(76 * 60 * 1000);
-    expect(breakdown.billedHours).toBe(2);
-    expect(breakdown.baseAmount).toBe(2000);
+    expect(breakdown.billedHours).toBe(1.5);
+    expect(breakdown.baseAmount).toBe(1500);
     expect(breakdown.helpersAmount).toBe(0);
-    expect(breakdown.computedTotal).toBe(2000);
+    expect(breakdown.computedTotal).toBe(1500);
   });
 
   it('adds helper charges to the final computed total', () => {
@@ -113,8 +113,8 @@ describe('job pricing', () => {
 
     expect(breakdown.distantBaseExtraMinutes).toBe(16);
     expect(breakdown.chargeableDurationMs).toBe(71 * 60 * 1000);
-    expect(breakdown.billedHours).toBe(2);
-    expect(breakdown.computedTotal).toBe(2000);
+    expect(breakdown.billedHours).toBe(1.5);
+    expect(breakdown.computedTotal).toBe(1500);
   });
 
   it('starts charging from arrival at pickup when both start timestamps exist', () => {
@@ -176,7 +176,7 @@ describe('job pricing', () => {
     expect(breakdown.source).toBe('computed');
   });
 
-  it('rounds a four-hour job with one extra minute up to five hours', () => {
+  it('keeps a four-hour job with one extra minute within the next half-hour block', () => {
     const breakdown = getJobChargeBreakdown(makeJob({
       timestamps: {
         startLoadingAt: '2026-01-01T10:00:00.000Z',
@@ -190,7 +190,7 @@ describe('job pricing', () => {
     });
 
     expect(breakdown.durationMs).toBe((4 * 60 + 1) * 60 * 1000);
-    expect(breakdown.billedHours).toBe(5);
-    expect(breakdown.computedTotal).toBe(5000);
+    expect(breakdown.billedHours).toBe(4);
+    expect(breakdown.computedTotal).toBe(4000);
   });
 });

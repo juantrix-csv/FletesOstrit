@@ -107,10 +107,10 @@ test('finance snapshot includes accounting totals, filters, and driver debt', ()
 
   assert.equal(payload.generatedAt, '2026-04-14T00:00:00.000Z');
   assert.equal(payload.jobs.length, 1);
-  assert.equal(payload.jobs[0].billedHours, 2);
-  assert.equal(payload.jobs[0].hourlyBaseAmount, 20000);
-  assert.equal(payload.jobs[0].helpersAmount, 4000);
-  assert.equal(payload.jobs[0].expectedTotal, 24000);
+  assert.equal(payload.jobs[0].billedHours, 1.5);
+  assert.equal(payload.jobs[0].hourlyBaseAmount, 15000);
+  assert.equal(payload.jobs[0].helpersAmount, 3000);
+  assert.equal(payload.jobs[0].expectedTotal, 18000);
   assert.equal(payload.jobs[0].totalBilled, 17000);
   assert.equal(payload.jobs[0].costs.tripCostByHour, 1500);
   assert.equal(payload.jobs[0].costs.tripCostByKm, 1250);
@@ -164,8 +164,8 @@ test('finance jobs use job vehicle hourly rate before the global rate', () => {
 
   assert.equal(payload.jobs[0].vehicle.name, 'F100 con carro');
   assert.equal(payload.jobs[0].hourlyRate, 45000);
-  assert.equal(payload.jobs[0].hourlyBaseAmount, 90000);
-  assert.equal(payload.jobs[0].expectedTotal, 94000);
+  assert.equal(payload.jobs[0].hourlyBaseAmount, 67500);
+  assert.equal(payload.jobs[0].expectedTotal, 70500);
 });
 
 test('finance net subtracts hourly, distance, and driver share variable costs from gross billing', () => {

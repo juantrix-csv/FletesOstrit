@@ -18,10 +18,8 @@ test('billing advances in half-hour steps after each 30 minute block plus 10 min
 });
 
 test('billing supports millisecond inputs', () => {
-  assert.equal(getBilledHoursFromDurationMs(60 * 60 * 1000), 1);
-  assert.equal(getBilledHoursFromDurationMs(61 * 60 * 1000), 2);
-  assert.equal(getBilledHoursFromDurationMs(4 * 60 * 60 * 1000), 4);
-  assert.equal(getBilledHoursFromDurationMs((4 * 60 * 60 * 1000) + 1), 5);
+  assert.equal(getBilledHoursFromDurationMs(70 * 60 * 1000), 1);
+  assert.equal(getBilledHoursFromDurationMs(71 * 60 * 1000), 1.5);
 });
 
 test('billing handles null, invalid, and non-positive durations', () => {
