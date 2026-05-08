@@ -146,12 +146,14 @@ export default function JobWorkflow() {
     if (d < 100) toast.success("Estas en el punto", { id: 'at-point' });
   }, [coords, job?.id, job?.status, target?.lat, target?.lng]);
 
+  const realStartAt = job?.timestamps.startLoadingAt ?? job?.timestamps.startJobAt;
+
   useEffect(() => {
     if (!job) return;
-    if (!job.timestamps.startJobAt || job.status === 'DONE') return;
+    if (!realStartAt || job.status === 'DONE') return;
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [job?.id, job?.status, job?.timestamps.startJobAt]);
+  }, [job?.id, job?.status, realStartAt]);
 
   useEffect(() => {
     let active = true;
@@ -263,7 +265,7 @@ export default function JobWorkflow() {
   const startAvailable = isStartWindowOpen(job.scheduledDate, job.scheduledTime, new Date(), job.scheduledAt);
   const scheduledAtMs = getScheduledAtMs(job.scheduledDate, job.scheduledTime, job.scheduledAt);
   const availableAt = scheduledAtMs != null ? new Date(scheduledAtMs - 60 * 60 * 1000) : null;
-  const startTime = job.timestamps.startJobAt ? new Date(job.timestamps.startJobAt).getTime() : null;
+  const startTime = realStartAt ? new Date(realStartAt).getTime() : null;
   const endTime = job.status === 'DONE' && job.timestamps.endUnloadingAt ? new Date(job.timestamps.endUnloadingAt).getTime() : null;
   const elapsedMs = startTime ? Math.max(0, (endTime ?? nowTick) - startTime) : null;
   const formatElapsed = (ms: number) => {
@@ -386,10 +388,8 @@ export default function JobWorkflow() {
   const next = async (st: JobStatus) => {
     const now = new Date().toISOString();
     const timestampsPatch: Job['timestamps'] = {};
-    if (st === 'TO_PICKUP' && !job.timestamps.startJobAt) {
-      timestampsPatch.startJobAt = now;
-    }
     if (st === 'LOADING' && !job.timestamps.startLoadingAt) {
+      timestampsPatch.startJobAt = job.timestamps.startJobAt ?? now;
       timestampsPatch.startLoadingAt = now;
     }
     if (st === 'TO_DROPOFF') {

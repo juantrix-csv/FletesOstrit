@@ -38,8 +38,8 @@ const buildDoneJob = ({
   const end = endAt instanceof Date
     ? endAt
     : new Date(Date.now() - (daysAgo ?? 0) * 24 * 60 * 60 * 1000);
-  const start = new Date(end.getTime() - durationMinutes * 60 * 1000);
-  const startLoadingAt = new Date(start.getTime() + 5 * 60 * 1000);
+  const startLoadingAt = new Date(end.getTime() - durationMinutes * 60 * 1000);
+  const start = new Date(startLoadingAt.getTime() - 5 * 60 * 1000);
   const endLoadingAt = new Date(startLoadingAt.getTime() + 10 * 60 * 1000);
   const endTripAt = new Date(end.getTime() - 8 * 60 * 1000);
   const startUnloadingAt = endTripAt;

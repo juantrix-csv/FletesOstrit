@@ -2,10 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from '../lib/billing.js';
 
-test('billing keeps one hour until 70 minutes', () => {
+test('billing keeps the minimum charge at one hour through the first hour', () => {
   assert.equal(getBilledHoursFromMinutes(1), 1);
   assert.equal(getBilledHoursFromMinutes(60), 1);
-  assert.equal(getBilledHoursFromMinutes(70), 1);
 });
 
 test('billing advances in half-hour steps after each 30 minute block plus 10 minute grace', () => {
@@ -19,8 +18,10 @@ test('billing advances in half-hour steps after each 30 minute block plus 10 min
 });
 
 test('billing supports millisecond inputs', () => {
-  assert.equal(getBilledHoursFromDurationMs(70 * 60 * 1000), 1);
-  assert.equal(getBilledHoursFromDurationMs(71 * 60 * 1000), 1.5);
+  assert.equal(getBilledHoursFromDurationMs(60 * 60 * 1000), 1);
+  assert.equal(getBilledHoursFromDurationMs(61 * 60 * 1000), 2);
+  assert.equal(getBilledHoursFromDurationMs(4 * 60 * 60 * 1000), 4);
+  assert.equal(getBilledHoursFromDurationMs((4 * 60 * 60 * 1000) + 1), 5);
 });
 
 test('billing handles null, invalid, and non-positive durations', () => {

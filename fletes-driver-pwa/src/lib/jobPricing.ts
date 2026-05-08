@@ -23,8 +23,8 @@ export const parseTimestampMs = (value?: string) => {
 };
 
 export const getJobStartMs = (job: Job) =>
-  parseTimestampMs(job.timestamps.startJobAt)
-  ?? parseTimestampMs(job.timestamps.startLoadingAt)
+  parseTimestampMs(job.timestamps.startLoadingAt)
+  ?? parseTimestampMs(job.timestamps.startJobAt)
   ?? parseTimestampMs(job.timestamps.startTripAt)
   ?? parseTimestampMs(job.timestamps.startUnloadingAt)
   ?? null;
