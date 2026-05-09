@@ -2025,6 +2025,40 @@ export default function AdminJobs() {
       ownerDebt,
     };
   };
+  const getEntryExpenseBreakdown = (entry: { job: Job; durationMs: number | null }) => {
+    const billedHours = getEntryBilledHours(entry);
+    const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
+    const helpersCount = entry.job.helpersCount ?? 0;
+    const durationHours = entry.durationMs != null
+      ? entry.durationMs / 3600000
+      : Number.isFinite(entry.job.estimatedDurationMinutes)
+        ? (entry.job.estimatedDurationMinutes as number) / 60
+        : null;
+    const distanceKm = jobDistanceKmById.get(entry.job.id) ?? null;
+    const hourlyDistribution = getEntryHourDistribution(entry);
+    const driverShare = isExternalDriver(driver) ? 0 : (hourlyDistribution?.driverShare ?? 0);
+    const helpersCost = helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
+      ? billedHours * helperHourlyRateValue * helpersCount
+      : 0;
+    const timeCost = tripCostPerHourValue != null && durationHours != null && Number.isFinite(durationHours)
+      ? durationHours * tripCostPerHourValue
+      : 0;
+    const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null && Number.isFinite(distanceKm)
+      ? distanceKm * tripCostPerKmValue
+      : 0;
+    const schedulingCost = getSchedulingAssistantCost();
+
+    return {
+      driverShare,
+      helpersCost,
+      timeCost,
+      fuelCost,
+      schedulingCost,
+      total: driverShare + helpersCost + timeCost + fuelCost + schedulingCost,
+      missingTimeCost: tripCostPerHourValue != null && (durationHours == null || !Number.isFinite(durationHours)),
+      missingFuelCost: tripCostPerKmValue != null && !isExternalDriver(driver) && (distanceKm == null || !Number.isFinite(distanceKm)),
+    };
+  };
   const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
     const companyRevenue = getEntryCompanyRevenue(entry);
     if (companyRevenue == null) return null;
@@ -2275,6 +2309,97 @@ export default function AdminJobs() {
   const monthlyGrossLabel = monthlyGrossTotal != null
     ? currencyFormatter.format(monthlyGrossTotal)
     : 'Configura el precio';
+  const monthlyExpenseBreakdown = useMemo(() => {
+    const summary = {
+      gross: 0,
+      driverShare: 0,
+      helpersCost: 0,
+      timeCost: 0,
+      fuelCost: 0,
+      schedulingCost: 0,
+      fixedCost: fixedMonthlyCostValue ?? 0,
+      advertisingCost: advertisingCostToDate ?? 0,
+      trips: 0,
+      missingTimeCost: 0,
+      missingFuelCost: 0,
+    };
+
+    completedThisMonth.forEach((entry) => {
+      const revenue = getEntryCompanyRevenue(entry);
+      if (revenue == null) return;
+      const expenses = getEntryExpenseBreakdown(entry);
+      summary.gross += revenue;
+      summary.driverShare += expenses.driverShare;
+      summary.helpersCost += expenses.helpersCost;
+      summary.timeCost += expenses.timeCost;
+      summary.fuelCost += expenses.fuelCost;
+      summary.schedulingCost += expenses.schedulingCost;
+      summary.trips += 1;
+      if (expenses.missingTimeCost) summary.missingTimeCost += 1;
+      if (expenses.missingFuelCost) summary.missingFuelCost += 1;
+    });
+
+    const variableExpenses = summary.driverShare
+      + summary.helpersCost
+      + summary.timeCost
+      + summary.fuelCost
+      + summary.schedulingCost;
+    const totalExpenses = variableExpenses + summary.fixedCost + summary.advertisingCost;
+    const net = summary.gross - totalExpenses;
+    const percentOfGross = (value: number) => (summary.gross > 0 ? value / summary.gross : null);
+    const rows = [
+      { key: 'driver', label: 'Choferes y reparto', value: summary.driverShare, tone: 'bg-blue-500' },
+      { key: 'helpers', label: 'Ayudantes', value: summary.helpersCost, tone: 'bg-emerald-500' },
+      { key: 'time', label: 'Costo por hora', value: summary.timeCost, tone: 'bg-violet-500' },
+      { key: 'fuel', label: 'Costo por km', value: summary.fuelCost, tone: 'bg-amber-500' },
+      { key: 'scheduling', label: 'Gestion de agenda', value: summary.schedulingCost, tone: 'bg-slate-500' },
+      { key: 'fixed', label: 'Costo fijo mensual', value: summary.fixedCost, tone: 'bg-rose-500' },
+      { key: 'advertising', label: 'Publicidad', value: summary.advertisingCost, tone: 'bg-cyan-500' },
+    ].map((row) => {
+      const ratio = percentOfGross(row.value);
+      return {
+        ...row,
+        amountLabel: currencyFormatter.format(roundMoney(row.value)),
+        percentLabel: ratio != null ? percentFormatter.format(ratio) : 'N/D',
+        width: `${Math.min(100, Math.max(0, (ratio ?? 0) * 100))}%`,
+      };
+    });
+
+    return {
+      ...summary,
+      variableExpenses: roundMoney(variableExpenses),
+      totalExpenses: roundMoney(totalExpenses),
+      net: roundMoney(net),
+      expenseRatio: percentOfGross(totalExpenses),
+      netRatio: percentOfGross(net),
+      rows,
+    };
+  }, [
+    completedThisMonth,
+    fixedMonthlyCostValue,
+    advertisingCostToDate,
+    hourlyRateValue,
+    helperHourlyRateValue,
+    tripCostPerHourValue,
+    tripCostPerKmValue,
+    jobDistanceKmById,
+    vehiclesById,
+    driversById,
+    ownerVehicleDriverShareRatio,
+    driverVehicleDriverShareRatio,
+  ]);
+  const monthlyExpenseGrossLabel = currencyFormatter.format(roundMoney(monthlyExpenseBreakdown.gross));
+  const monthlyExpenseTotalLabel = currencyFormatter.format(monthlyExpenseBreakdown.totalExpenses);
+  const monthlyExpenseNetLabel = currencyFormatter.format(monthlyExpenseBreakdown.net);
+  const monthlyExpenseRatioLabel = monthlyExpenseBreakdown.expenseRatio != null
+    ? percentFormatter.format(monthlyExpenseBreakdown.expenseRatio)
+    : 'N/D';
+  const monthlyExpenseNetRatioLabel = monthlyExpenseBreakdown.netRatio != null
+    ? percentFormatter.format(monthlyExpenseBreakdown.netRatio)
+    : 'N/D';
+  const monthlyExpenseMeta = monthlyExpenseBreakdown.trips > 0
+    ? `${monthlyExpenseBreakdown.trips} fletes cerrados en ${currentMonthLabel}.`
+    : `Sin fletes cerrados en ${currentMonthLabel}.`;
   const dailyRevenueSeries = useMemo(() => {
     const now = new Date();
     const month = now.getMonth();
@@ -4651,6 +4776,56 @@ export default function AdminJobs() {
                   <p className="text-3xl font-semibold text-gray-900">{fixedMonthlyCostLabel}</p>
                   <p className="text-sm text-gray-500">Se prorratea en el margen.</p>
                 </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm uppercase tracking-wide text-gray-400">Gastos sobre bruto</p>
+                    <p className="text-xl font-semibold text-gray-900">Desglose de {currentMonthLabel}</p>
+                    <p className="text-sm text-gray-500">{monthlyExpenseMeta}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs uppercase tracking-wide text-gray-400">Bruto mensual</p>
+                    <p className="text-2xl font-semibold text-gray-900">{monthlyExpenseGrossLabel}</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-xl border border-sky-100 bg-sky-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-sky-700">Bruto</p>
+                    <p className="mt-1 text-2xl font-semibold text-sky-700">{monthlyExpenseGrossLabel}</p>
+                  </div>
+                  <div className="rounded-xl border border-red-100 bg-red-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-red-700">Gastos</p>
+                    <p className="mt-1 text-2xl font-semibold text-red-700">{monthlyExpenseTotalLabel}</p>
+                    <p className="text-sm text-red-700/80">{monthlyExpenseRatioLabel} del bruto</p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-emerald-700">Neto</p>
+                    <p className="mt-1 text-2xl font-semibold text-emerald-700">{monthlyExpenseNetLabel}</p>
+                    <p className="text-sm text-emerald-700/80">{monthlyExpenseNetRatioLabel} del bruto</p>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {monthlyExpenseBreakdown.rows.map((row) => (
+                    <div key={row.key}>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <span className="font-medium text-gray-700">{row.label}</span>
+                        <span className="text-gray-500">{row.amountLabel} | {row.percentLabel}</span>
+                      </div>
+                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-gray-100">
+                        <div className={`h-full ${row.tone}`} style={{ width: row.width }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {(monthlyExpenseBreakdown.missingTimeCost > 0 || monthlyExpenseBreakdown.missingFuelCost > 0) && (
+                  <p className="mt-3 text-sm text-amber-700">
+                    Hay gastos sin calcular por falta de datos:
+                    {monthlyExpenseBreakdown.missingTimeCost > 0 ? ` ${monthlyExpenseBreakdown.missingTimeCost} sin tiempo` : ''}
+                    {monthlyExpenseBreakdown.missingFuelCost > 0 ? ` ${monthlyExpenseBreakdown.missingFuelCost} sin km` : ''}.
+                  </p>
+                )}
               </div>
 
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
