@@ -281,6 +281,7 @@ type PaymentDraft = {
   cashAmount: string;
   transferAmount: string;
 };
+type DurationCorrectionDrafts = Record<string, string>;
 type PaymentStatusView = 'paid' | 'pending';
 
 const toStoredMoney = (value?: number | null) => (Number.isFinite(value) ? Number(value) : null);
@@ -676,6 +677,8 @@ export default function AdminJobs() {
   const [savingOperationsBaseLocation, setSavingOperationsBaseLocation] = useState(false);
   const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
   const [savingPaymentJobId, setSavingPaymentJobId] = useState<string | null>(null);
+  const [durationCorrectionDrafts, setDurationCorrectionDrafts] = useState<DurationCorrectionDrafts>({});
+  const [savingDurationJobId, setSavingDurationJobId] = useState<string | null>(null);
   const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditJobDraft>(emptyEditDraft);
   const [savingEditId, setSavingEditId] = useState<string | null>(null);
@@ -1795,6 +1798,45 @@ export default function AdminJobs() {
       toast.error('No se pudo eliminar el cobro');
     } finally {
       setSavingPaymentJobId(null);
+    }
+  };
+
+  const handleSaveDurationCorrection = async (job: Job, currentDurationMs: number | null) => {
+    const startMs = getJobStartMs(job);
+    if (startMs == null) {
+      toast.error('Este flete no tiene inicio registrado');
+      return;
+    }
+
+    const fallbackHours = currentDurationMs != null ? String(Number((currentDurationMs / 3600000).toFixed(2))) : '';
+    const draft = (durationCorrectionDrafts[job.id] ?? fallbackHours).trim();
+    const hours = parseDurationHours(draft);
+    if (hours == null) {
+      toast.error('Duracion invalida');
+      return;
+    }
+
+    const durationMinutes = Math.max(1, Math.round(hours * 60));
+    const endUnloadingAt = new Date(startMs + durationMinutes * 60000).toISOString();
+
+    try {
+      setSavingDurationJobId(job.id);
+      const updated = await updateJob(job.id, {
+        timestamps: {
+          endUnloadingAt,
+        },
+      });
+      setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
+      setDurationCorrectionDrafts((prev) => {
+        const next = { ...prev };
+        delete next[job.id];
+        return next;
+      });
+      toast.success('Duracion actualizada');
+    } catch {
+      toast.error('No se pudo actualizar la duracion');
+    } finally {
+      setSavingDurationJobId(null);
     }
   };
 
@@ -5051,6 +5093,9 @@ export default function AdminJobs() {
                       const endLabel = entry.endMs != null ? new Date(entry.endMs).toLocaleString() : 'Sin datos';
                       const paymentDraft = paymentDrafts[entry.job.id] ?? buildPaymentDraft(entry.job);
                       const isSavingCharge = savingPaymentJobId === entry.job.id;
+                      const durationDraft = durationCorrectionDrafts[entry.job.id]
+                        ?? (entry.durationMs != null ? String(Number((entry.durationMs / 3600000).toFixed(2))) : '');
+                      const isSavingDuration = savingDurationJobId === entry.job.id;
                       return (
                         <div key={entry.job.id} className="rounded border border-gray-100 bg-gray-50 px-3 py-2">
                           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -5103,6 +5148,34 @@ export default function AdminJobs() {
                               <p className="text-sm text-gray-500">Regla reparto: {shareRuleLabel}</p>
                               <p className="text-sm text-gray-500">Ayudantes: {helpersValueLabel}</p>
                               <p className="text-sm text-gray-500">Duracion: {durationLabel}</p>
+                            </div>
+                          </div>
+                          <div className="mt-3 rounded-xl border border-white bg-white p-3">
+                            <div className="flex flex-wrap items-end gap-2">
+                              <div className="min-w-[180px] flex-1">
+                                <span className="text-xs uppercase tracking-wide text-gray-400">Corregir duracion real (horas)</span>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  min="0.01"
+                                  step="0.25"
+                                  placeholder="2.5"
+                                  value={durationDraft}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setDurationCorrectionDrafts((prev) => ({ ...prev, [entry.job.id]: value }));
+                                  }}
+                                  className="mt-1 w-full rounded border px-2 py-1 text-sm"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleSaveDurationCorrection(entry.job, entry.durationMs)}
+                                disabled={isSavingDuration || entry.startMs == null}
+                                className="rounded border border-indigo-200 px-3 py-2 text-sm font-semibold text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isSavingDuration ? 'Guardando...' : 'Guardar duracion'}
+                              </button>
                             </div>
                           </div>
                           <div className="mt-3 rounded-xl border border-white bg-white p-3">
