@@ -79,6 +79,25 @@ const calendarStartHour = 6;
 const calendarEndHour = 22;
 const calendarHourHeight = 56;
 const calendarHours = Array.from({ length: calendarEndHour - calendarStartHour }, (_, index) => calendarStartHour + index);
+const expensePieColors = ['#2563eb', '#059669', '#7c3aed', '#f59e0b', '#475569', '#e11d48', '#0891b2'];
+const describePieSlice = (startRatio: number, endRatio: number) => {
+  const cx = 50;
+  const cy = 50;
+  const radius = 42;
+  const startAngle = startRatio * Math.PI * 2 - Math.PI / 2;
+  const endAngle = endRatio * Math.PI * 2 - Math.PI / 2;
+  const startX = cx + radius * Math.cos(startAngle);
+  const startY = cy + radius * Math.sin(startAngle);
+  const endX = cx + radius * Math.cos(endAngle);
+  const endY = cy + radius * Math.sin(endAngle);
+  const largeArcFlag = endRatio - startRatio > 0.5 ? 1 : 0;
+  return [
+    `M ${cx} ${cy}`,
+    `L ${startX} ${startY}`,
+    `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY}`,
+    'Z',
+  ].join(' ');
+};
 const vehicleSizeLabels: Record<'chico' | 'mediano' | 'grande', string> = {
   chico: 'Chico',
   mediano: 'Mediano',
@@ -1994,9 +2013,14 @@ export default function AdminJobs() {
 
     const hourlyDistribution = getEntryHourDistribution(entry);
     const baseValue = getEntryHourlyValue(entry);
-    const helperRevenue = baseValue != null ? Math.max(0, revenue - baseValue) : 0;
     const companyHourlyRevenue = hourlyDistribution?.ownerShare ?? baseValue ?? revenue;
-    return Math.max(0, Math.min(revenue, companyHourlyRevenue + helperRevenue));
+    return Math.max(0, Math.min(revenue, companyHourlyRevenue));
+  };
+  const getEntryExternalHelperRevenue = (entry: { job: Job; durationMs: number | null }, driver: Driver | null) => {
+    if (!isExternalDriver(driver)) return 0;
+    const revenue = getEntryTotal(entry);
+    const baseValue = getEntryHourlyValue(entry);
+    return revenue != null && baseValue != null ? Math.max(0, revenue - baseValue) : 0;
   };
   const getEntryDriverDebt = (entry: { job: Job; durationMs: number | null }, driver: Driver | null) => {
     const payment = getJobCollectedPayment(entry.job);
@@ -2017,7 +2041,8 @@ export default function AdminJobs() {
     }
     const hourlyDistribution = getEntryHourDistribution(entry);
     const driverShare = Math.max(0, hourlyDistribution?.driverShare ?? 0);
-    const driverKept = roundMoney(Math.min(collectedTotal, driverShare));
+    const helperRevenue = getEntryExternalHelperRevenue(entry, driver);
+    const driverKept = roundMoney(Math.min(collectedTotal, driverShare + helperRevenue));
     const ownerDebt = roundMoney(Math.max(0, collectedTotal - driverKept));
     return {
       collectedTotal,
@@ -2063,22 +2088,8 @@ export default function AdminJobs() {
   const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
     const companyRevenue = getEntryCompanyRevenue(entry);
     if (companyRevenue == null) return null;
-    const hourlyDistribution = getEntryHourDistribution(entry);
-    const billedHours = getEntryBilledHours(entry);
-    const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
-    const helpersCount = entry.job.helpersCount ?? 0;
-    const ownerPaysHelpers = isOwnerAccountDriver(driver);
-    const helpersCost = ownerPaysHelpers && helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
-      ? billedHours * helperHourlyRateValue * helpersCount
-      : 0;
-    const driverCost = isExternalDriver(driver)
-      ? 0
-      : (hourlyDistribution?.driverShare ?? 0);
-    const distanceKm = jobDistanceKmById.get(entry.job.id) ?? null;
-    const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null
-      ? distanceKm * tripCostPerKmValue
-      : 0;
-    return companyRevenue - helpersCost - fuelCost - driverCost - getSchedulingAssistantCost();
+    const expenses = getEntryExpenseBreakdown(entry);
+    return companyRevenue - expenses.total;
   };
   const getJobEstimatedTotal = (job: Job) => {
     const collectedPayment = getJobCollectedPayment(job);
@@ -2146,15 +2157,15 @@ export default function AdminJobs() {
     return completedHistory.filter((entry) => entry.endMs != null && isSameDay(new Date(entry.endMs), today)).length;
   }, [completedHistory, now]);
   const tripsPerDayAvg = completedThisMonth.length / daysElapsedInMonth;
-  const fixedCostPerTrip = fixedMonthlyCostValue != null && completedThisMonth.length > 0
-    ? fixedMonthlyCostValue / completedThisMonth.length
+  const monthlyOverheadCostPerTrip = completedThisMonth.length > 0
+    ? ((fixedMonthlyCostValue ?? 0) + (advertisingCostToDate ?? 0)) / completedThisMonth.length
     : 0;
   const realHourlyStats = useMemo(() => {
     let revenueTotal = 0;
     let hoursTotal = 0;
     let trips = 0;
     completedHistory.forEach((entry) => {
-      const revenue = getEntryTotal(entry);
+      const revenue = getEntryCompanyRevenue(entry);
       if (revenue == null || entry.durationMs == null) return;
       const hours = entry.durationMs / 3600000;
       if (!Number.isFinite(hours) || hours <= 0) return;
@@ -2169,35 +2180,16 @@ export default function AdminJobs() {
     let total = 0;
     let count = 0;
     completedThisMonth.forEach((entry) => {
-      const revenue = getEntryTotal(entry);
-      if (revenue == null) return;
-      const durationHours = entry.durationMs != null
-        ? entry.durationMs / 3600000
-        : Number.isFinite(entry.job.estimatedDurationMinutes)
-          ? (entry.job.estimatedDurationMinutes as number) / 60
-          : null;
-      const distanceKm = jobDistanceKmById.get(entry.job.id) ?? null;
-      let variableCost = 0;
-      if (tripCostPerHourValue != null) {
-        if (durationHours == null || !Number.isFinite(durationHours)) return;
-        variableCost += durationHours * tripCostPerHourValue;
-      }
-      if (tripCostPerKmValue != null) {
-        if (distanceKm == null || !Number.isFinite(distanceKm)) return;
-        variableCost += distanceKm * tripCostPerKmValue;
-      }
-      const hourlyDistribution = getEntryHourDistribution(entry);
-      if (hourlyDistribution != null) {
-        variableCost += hourlyDistribution.driverShare;
-      }
-      const net = revenue - variableCost - fixedCostPerTrip;
+      const netBeforeOverhead = getEntryNetTotal(entry);
+      if (netBeforeOverhead == null) return;
+      const net = netBeforeOverhead - monthlyOverheadCostPerTrip;
       total += net;
       count += 1;
     });
     return { average: count > 0 ? total / count : null, count };
   }, [
     completedThisMonth,
-    fixedCostPerTrip,
+    monthlyOverheadCostPerTrip,
     jobDistanceKmById,
     tripCostPerHourValue,
     tripCostPerKmValue,
@@ -2350,13 +2342,13 @@ export default function AdminJobs() {
     const net = summary.gross - totalExpenses;
     const percentOfGross = (value: number) => (summary.gross > 0 ? value / summary.gross : null);
     const rows = [
-      { key: 'driver', label: 'Choferes y reparto', value: summary.driverShare, tone: 'bg-blue-500' },
-      { key: 'helpers', label: 'Ayudantes', value: summary.helpersCost, tone: 'bg-emerald-500' },
-      { key: 'time', label: 'Costo por hora', value: summary.timeCost, tone: 'bg-violet-500' },
-      { key: 'fuel', label: 'Costo por km', value: summary.fuelCost, tone: 'bg-amber-500' },
-      { key: 'scheduling', label: 'Gestion de agenda', value: summary.schedulingCost, tone: 'bg-slate-500' },
-      { key: 'fixed', label: 'Costo fijo mensual', value: summary.fixedCost, tone: 'bg-rose-500' },
-      { key: 'advertising', label: 'Publicidad', value: summary.advertisingCost, tone: 'bg-cyan-500' },
+      { key: 'driver', label: 'Choferes y reparto', value: summary.driverShare, color: expensePieColors[0] },
+      { key: 'helpers', label: 'Ayudantes', value: summary.helpersCost, color: expensePieColors[1] },
+      { key: 'time', label: 'Costo por hora', value: summary.timeCost, color: expensePieColors[2] },
+      { key: 'fuel', label: 'Costo por km', value: summary.fuelCost, color: expensePieColors[3] },
+      { key: 'scheduling', label: 'Gestion de agenda', value: summary.schedulingCost, color: expensePieColors[4] },
+      { key: 'fixed', label: 'Costo fijo mensual', value: summary.fixedCost, color: expensePieColors[5] },
+      { key: 'advertising', label: 'Publicidad', value: summary.advertisingCost, color: expensePieColors[6] },
     ].map((row) => {
       const ratio = percentOfGross(row.value);
       return {
@@ -2366,6 +2358,19 @@ export default function AdminJobs() {
         width: `${Math.min(100, Math.max(0, (ratio ?? 0) * 100))}%`,
       };
     });
+    let pieCursor = 0;
+    const pieRows = rows
+      .filter((row) => row.value > 0 && totalExpenses > 0)
+      .map((row) => {
+        const start = pieCursor;
+        const end = pieCursor + row.value / totalExpenses;
+        pieCursor = end;
+        return {
+          ...row,
+          path: describePieSlice(start, end),
+          expensePercentLabel: percentFormatter.format(row.value / totalExpenses),
+        };
+      });
 
     return {
       ...summary,
@@ -2375,6 +2380,7 @@ export default function AdminJobs() {
       expenseRatio: percentOfGross(totalExpenses),
       netRatio: percentOfGross(net),
       rows,
+      pieRows,
     };
   }, [
     completedThisMonth,
@@ -2425,7 +2431,7 @@ export default function AdminJobs() {
       target.total += total;
       const net = getEntryNetTotal(entry);
       if (net != null) {
-        target.net += net;
+        target.net += net - monthlyOverheadCostPerTrip;
       }
     });
     let runningTotal = 0;
@@ -2445,6 +2451,8 @@ export default function AdminJobs() {
     driversById,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
+    tripCostPerHourValue,
+    monthlyOverheadCostPerTrip,
   ]);
   const dailyRevenueMaxValue = useMemo(() => {
     const maxValue = Math.max(0, ...dailyRevenueSeries.map((item) => Math.max(item.total, item.net)));
@@ -2560,11 +2568,21 @@ export default function AdminJobs() {
         target.net += net;
       }
     });
-    return months;
+    return months.map((item) => {
+      if (item.total <= 0) return item;
+      const monthlyAdvertisingCost = advertisingCostByMonth[item.key] ?? 0;
+      return {
+        ...item,
+        net: item.net - (fixedMonthlyCostValue ?? 0) - monthlyAdvertisingCost,
+      };
+    });
   }, [
     completedHistory,
     hourlyRateValue,
     helperHourlyRateValue,
+    fixedMonthlyCostValue,
+    advertisingCostByMonth,
+    tripCostPerHourValue,
     tripCostPerKmValue,
     jobDistanceKmById,
     vehiclesById,
@@ -2875,7 +2893,7 @@ export default function AdminJobs() {
       const helpersCost = ownerPaysHelpers && helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
         ? billedHours * helperHourlyRateValue * helpersCount
         : 0;
-      const helperRevenue = baseValue != null ? Math.max(0, estimate - baseValue) : 0;
+      const helperRevenue = !isExternalDriver(driver) && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
       const vehicle = getJobVehicle(item.job);
       const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
       const companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver) && vehicle?.ownershipType === 'driver'
@@ -2887,7 +2905,10 @@ export default function AdminJobs() {
       const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null
         ? distanceKm * tripCostPerKmValue
         : 0;
-      netTotal += companyHourlyMargin + helperRevenue - helpersCost - fuelCost - getSchedulingAssistantCost();
+      const timeCost = tripCostPerHourValue != null && Number.isFinite(item.durationMinutes)
+        ? (item.durationMinutes / 60) * tripCostPerHourValue
+        : 0;
+      netTotal += companyHourlyMargin + helperRevenue - helpersCost - fuelCost - timeCost - getSchedulingAssistantCost();
     });
     return { total, netTotal, missing, count, totalMinutes };
   }, [
@@ -2896,6 +2917,7 @@ export default function AdminJobs() {
     scheduledJobs,
     hourlyRateValue,
     helperHourlyRateValue,
+    tripCostPerHourValue,
     tripCostPerKmValue,
     jobDistanceKmById,
     driversById,
@@ -4809,18 +4831,43 @@ export default function AdminJobs() {
                     <p className="text-sm text-emerald-700/80">{monthlyExpenseNetRatioLabel} del bruto</p>
                   </div>
                 </div>
-                <div className="mt-4 space-y-3">
-                  {monthlyExpenseBreakdown.rows.map((row) => (
-                    <div key={row.key}>
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <span className="font-medium text-gray-700">{row.label}</span>
-                        <span className="text-gray-500">{row.amountLabel} | {row.percentLabel}</span>
-                      </div>
-                      <div className="mt-1 h-2 overflow-hidden rounded-full bg-gray-100">
-                        <div className={`h-full ${row.tone}`} style={{ width: row.width }} />
+                <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(220px,320px)_1fr]">
+                  <div className="flex items-center justify-center">
+                    <div className="relative h-64 w-64">
+                      <svg viewBox="0 0 100 100" className="h-full w-full">
+                        {monthlyExpenseBreakdown.pieRows.length > 0 ? (
+                          monthlyExpenseBreakdown.pieRows.map((row) => (
+                            <path
+                              key={row.key}
+                              d={row.path}
+                              fill={row.color}
+                              stroke="#ffffff"
+                              strokeWidth="1.4"
+                            />
+                          ))
+                        ) : (
+                          <circle cx="50" cy="50" r="42" fill="#e5e7eb" />
+                        )}
+                        <circle cx="50" cy="50" r="22" fill="#ffffff" />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                        <span className="text-xs uppercase tracking-wide text-gray-400">Gastos</span>
+                        <span className="text-lg font-semibold text-gray-900">{monthlyExpenseTotalLabel}</span>
+                        <span className="text-sm text-gray-500">{monthlyExpenseRatioLabel}</span>
                       </div>
                     </div>
-                  ))}
+                  </div>
+                  <div className="grid content-center gap-3 sm:grid-cols-2">
+                    {monthlyExpenseBreakdown.rows.map((row) => (
+                      <div key={row.key} className="flex items-start gap-3 rounded-lg border border-gray-100 p-3">
+                        <span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: row.color }} />
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-800">{row.label}</p>
+                          <p className="text-sm text-gray-500">{row.amountLabel} | {row.percentLabel} del bruto</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 {(monthlyExpenseBreakdown.missingTimeCost > 0 || monthlyExpenseBreakdown.missingFuelCost > 0) && (
                   <p className="mt-3 text-sm text-amber-700">
