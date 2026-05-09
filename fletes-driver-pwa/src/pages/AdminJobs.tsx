@@ -1959,6 +1959,10 @@ export default function AdminJobs() {
     return roundMoney(hourlyValue - (hourlyValue * driverShareRatio));
   };
   const getSchedulingAssistantCost = () => SCHEDULING_ASSISTANT_COST_PER_JOB;
+  const getPaidHelpersCountForOwner = (helpersCount: number) => {
+    if (helpersCount <= 0) return 0;
+    return helpersCount >= 2 ? helpersCount - 1 : helpersCount;
+  };
   const getEntryHourDistribution = (entry: { job: Job; durationMs: number | null }) => {
     const hourlyValue = getEntryHourlyValue(entry);
     if (hourlyValue == null) return null;
@@ -2063,8 +2067,9 @@ export default function AdminJobs() {
     const hourlyDistribution = getEntryHourDistribution(entry);
     const driverShare = isExternalDriver(driver) ? 0 : (hourlyDistribution?.driverShare ?? 0);
     const ownerPaysHelpers = isOwnerAccountDriver(driver);
-    const helpersCost = ownerPaysHelpers && helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
-      ? billedHours * helperHourlyRateValue * helpersCount
+    const paidHelpersCount = ownerPaysHelpers ? getPaidHelpersCountForOwner(helpersCount) : 0;
+    const helpersCost = helperHourlyRateValue != null && paidHelpersCount > 0 && billedHours != null
+      ? billedHours * helperHourlyRateValue * paidHelpersCount
       : 0;
     const timeCost = tripCostPerHourValue != null && durationHours != null && Number.isFinite(durationHours)
       ? durationHours * tripCostPerHourValue
@@ -2890,8 +2895,9 @@ export default function AdminJobs() {
         : null;
       const helpersCount = item.job.helpersCount ?? 0;
       const ownerPaysHelpers = isOwnerAccountDriver(driver);
-      const helpersCost = ownerPaysHelpers && helperHourlyRateValue != null && helpersCount > 0 && billedHours != null
-        ? billedHours * helperHourlyRateValue * helpersCount
+      const paidHelpersCount = ownerPaysHelpers ? getPaidHelpersCountForOwner(helpersCount) : 0;
+      const helpersCost = helperHourlyRateValue != null && paidHelpersCount > 0 && billedHours != null
+        ? billedHours * helperHourlyRateValue * paidHelpersCount
         : 0;
       const helperRevenue = !isExternalDriver(driver) && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
       const vehicle = getJobVehicle(item.job);
