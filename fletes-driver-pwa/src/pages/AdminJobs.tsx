@@ -47,6 +47,7 @@ import {
   setTripCostPerHour,
   setTripCostPerKm,
   updateDriver,
+  updateVehicle,
   updateJob,
   vehiclesListQueryKey,
 } from '../lib/api';
@@ -659,6 +660,7 @@ export default function AdminJobs() {
   const [vehicleHourlyRateInput, setVehicleHourlyRateInput] = useState('');
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
+  const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>(() => locationsCacheEntry?.data ?? []);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
@@ -1386,7 +1388,27 @@ export default function AdminJobs() {
     }
   };
 
-  const handleCreateVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
+  const resetVehicleForm = () => {
+    setVehicleName('');
+    setVehicleSize('mediano');
+    setVehicleOwnershipType('owner');
+    setVehicleHourlyRateInput('');
+    setVehicleCostPerKmInput('');
+    setVehicleFixedMonthlyInput('');
+    setEditingVehicleId(null);
+  };
+
+  const handleEditVehicle = (vehicle: Vehicle) => {
+    setEditingVehicleId(vehicle.id);
+    setVehicleName(vehicle.name);
+    setVehicleSize(vehicle.size);
+    setVehicleOwnershipType(vehicle.ownershipType);
+    setVehicleHourlyRateInput(Number.isFinite(vehicle.hourlyRate) ? String(vehicle.hourlyRate) : '');
+    setVehicleCostPerKmInput(String(vehicle.costPerKm));
+    setVehicleFixedMonthlyInput(String(vehicle.fixedMonthlyCost));
+  };
+
+  const handleSaveVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!vehicleName.trim()) {
       toast.error('Nombre del vehiculo obligatorio');
@@ -1418,27 +1440,31 @@ export default function AdminJobs() {
     try {
       setSavingVehicle(true);
       const now = new Date().toISOString();
-      const created = await createVehicle({
-        id: uuidv4(),
+      const payload = {
         name: vehicleName.trim(),
         size: vehicleSize,
         ownershipType: vehicleOwnershipType,
         hourlyRate,
         costPerKm: costPerKm as number,
         fixedMonthlyCost: fixedMonthlyCost as number,
-        createdAt: now,
         updatedAt: now,
-      });
-      setVehicles((prev) => [created, ...prev]);
-      setVehicleName('');
-      setVehicleSize('mediano');
-      setVehicleOwnershipType('owner');
-      setVehicleHourlyRateInput('');
-      setVehicleCostPerKmInput('');
-      setVehicleFixedMonthlyInput('');
-      toast.success('Vehiculo creado');
+      };
+      if (editingVehicleId) {
+        const updated = await updateVehicle(editingVehicleId, payload);
+        setVehicles((prev) => prev.map((vehicle) => (vehicle.id === updated.id ? updated : vehicle)));
+        toast.success('Vehiculo actualizado');
+      } else {
+        const created = await createVehicle({
+          id: uuidv4(),
+          ...payload,
+          createdAt: now,
+        });
+        setVehicles((prev) => [created, ...prev]);
+        toast.success('Vehiculo creado');
+      }
+      resetVehicleForm();
     } catch {
-      toast.error('No se pudo crear el vehiculo');
+      toast.error(editingVehicleId ? 'No se pudo actualizar el vehiculo' : 'No se pudo crear el vehiculo');
     } finally {
       setSavingVehicle(false);
     }
@@ -1505,6 +1531,9 @@ export default function AdminJobs() {
       setVehicles((prev) => prev.filter((vehicle) => vehicle.id !== id));
       setDrivers((prev) => prev.map((driver) => (driver.vehicleId === id ? { ...driver, vehicleId: null } : driver)));
       setJobs((prev) => prev.map((job) => (job.vehicleId === id ? { ...job, vehicleId: null } : job)));
+      if (editingVehicleId === id) {
+        resetVehicleForm();
+      }
       toast.success('Vehiculo eliminado');
     } catch {
       toast.error('No se pudo eliminar el vehiculo');
@@ -4331,7 +4360,7 @@ export default function AdminJobs() {
                   </div>
                   <span className="text-xs text-gray-400">{vehicles.length} registrados</span>
                 </div>
-                <form onSubmit={handleCreateVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]">
+                <form onSubmit={handleSaveVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]">
                   <div>
                     <label className="text-xs text-gray-500">Nombre</label>
                     <input
@@ -4404,13 +4433,24 @@ export default function AdminJobs() {
                     />
                   </div>
                   <div className="flex items-end">
-                    <button
-                      type="submit"
-                      disabled={savingVehicle}
-                      className="w-full rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                    >
-                      {savingVehicle ? 'Guardando...' : 'Agregar'}
-                    </button>
+                    <div className="flex w-full gap-2">
+                      <button
+                        type="submit"
+                        disabled={savingVehicle}
+                        className="flex-1 rounded bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                      >
+                        {savingVehicle ? 'Guardando...' : editingVehicleId ? 'Guardar' : 'Agregar'}
+                      </button>
+                      {editingVehicleId && (
+                        <button
+                          type="button"
+                          onClick={resetVehicleForm}
+                          className="rounded border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-600"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </form>
                 <div className="space-y-2">
@@ -4439,13 +4479,22 @@ export default function AdminJobs() {
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.fixedMonthlyCost)}</span> mensual
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteVehicle(vehicle.id)}
-                            className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-500"
-                          >
-                            Eliminar
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEditVehicle(vehicle)}
+                              className="rounded border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteVehicle(vehicle.id)}
+                              className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-500"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
