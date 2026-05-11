@@ -23,7 +23,6 @@ import {
   driversListQueryKey,
   getAdvertisingMonthlyCost,
   getAdvertisingMonthlyCosts,
-  getDriverVehicleCompanyHourlyMargin,
   getFixedMonthlyCost,
   getHelperHourlyRate,
   getHourlyRate,
@@ -39,7 +38,6 @@ import {
   listVehicles,
   setAdvertisingMonthlyCost,
   setAdvertisingMonthlyCosts,
-  setDriverVehicleCompanyHourlyMargin,
   setFixedMonthlyCost,
   setDriverVehicleDriverShare,
   setHelperHourlyRate,
@@ -660,6 +658,7 @@ export default function AdminJobs() {
   const [vehicleSize, setVehicleSize] = useState<'chico' | 'mediano' | 'grande'>('mediano');
   const [vehicleOwnershipType, setVehicleOwnershipType] = useState<VehicleOwnershipType>('owner');
   const [vehicleHourlyRateInput, setVehicleHourlyRateInput] = useState('');
+  const [vehicleCompanyHourlyMarginInput, setVehicleCompanyHourlyMarginInput] = useState('');
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
@@ -675,7 +674,6 @@ export default function AdminJobs() {
   const [helperHourlyRateInput, setHelperHourlyRateInput] = useState('');
   const [ownerVehicleDriverShareInput, setOwnerVehicleDriverShareInput] = useState('');
   const [driverVehicleDriverShareInput, setDriverVehicleDriverShareInput] = useState('');
-  const [driverVehicleCompanyHourlyMarginInput, setDriverVehicleCompanyHourlyMarginInput] = useState('');
   const [fixedMonthlyCostInput, setFixedMonthlyCostInput] = useState('');
   const [advertisingMonthlyCostInput, setAdvertisingMonthlyCostInput] = useState('');
   const [advertisingMonthlyCosts, setAdvertisingMonthlyCostsState] = useState<AdvertisingMonthlyCosts>({});
@@ -693,7 +691,6 @@ export default function AdminJobs() {
   const [savingHelperHourlyRate, setSavingHelperHourlyRate] = useState(false);
   const [savingOwnerVehicleDriverShare, setSavingOwnerVehicleDriverShare] = useState(false);
   const [savingDriverVehicleDriverShare, setSavingDriverVehicleDriverShare] = useState(false);
-  const [savingDriverVehicleCompanyHourlyMargin, setSavingDriverVehicleCompanyHourlyMargin] = useState(false);
   const [savingFixedMonthlyCost, setSavingFixedMonthlyCost] = useState(false);
   const [savingAdvertisingMonthlyCost, setSavingAdvertisingMonthlyCost] = useState(false);
   const [savingAdvertisingMonthlyCosts, setSavingAdvertisingMonthlyCosts] = useState(false);
@@ -752,10 +749,11 @@ export default function AdminJobs() {
   const driverVehicleDriverShareRatio = driverVehicleDriverSharePercentValue != null
     ? clampRatio(driverVehicleDriverSharePercentValue / 100)
     : (2 / 3);
-  const driverVehicleCompanyHourlyMarginValue = useMemo(
-    () => parseHourlyRate(driverVehicleCompanyHourlyMarginInput),
-    [driverVehicleCompanyHourlyMarginInput],
-  ) ?? DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN;
+  const getVehicleCompanyHourlyMargin = (vehicle: Vehicle | null) => (
+    Number.isFinite(vehicle?.companyHourlyMargin)
+      ? Number(vehicle?.companyHourlyMargin)
+      : DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN
+  );
   const fixedMonthlyCostValue = useMemo(() => parseHourlyRate(fixedMonthlyCostInput), [fixedMonthlyCostInput]);
   const advertisingMonthlyCostValue = useMemo(() => parseHourlyRate(advertisingMonthlyCostInput), [advertisingMonthlyCostInput]);
   const tripCostPerHourValue = useMemo(() => parseHourlyRate(tripCostPerHourInput), [tripCostPerHourInput]);
@@ -961,15 +959,6 @@ export default function AdminJobs() {
     }
   };
 
-  const loadDriverVehicleCompanyHourlyMargin = async () => {
-    try {
-      const data = await getDriverVehicleCompanyHourlyMargin();
-      setDriverVehicleCompanyHourlyMarginInput(data.value != null ? String(data.value) : '');
-    } catch {
-      toast.error('No se pudo cargar el margen del dueno');
-    }
-  };
-
   const loadFixedMonthlyCost = async () => {
     try {
       const data = await getFixedMonthlyCost();
@@ -1165,7 +1154,6 @@ export default function AdminJobs() {
     loadHelperHourlyRate();
     loadOwnerVehicleDriverShare();
     loadDriverVehicleDriverShare();
-    loadDriverVehicleCompanyHourlyMargin();
     loadFixedMonthlyCost();
     loadAdvertisingMonthlyCost();
     loadAdvertisingMonthlyCosts();
@@ -1411,6 +1399,7 @@ export default function AdminJobs() {
     setVehicleSize('mediano');
     setVehicleOwnershipType('owner');
     setVehicleHourlyRateInput('');
+    setVehicleCompanyHourlyMarginInput('');
     setVehicleCostPerKmInput('');
     setVehicleFixedMonthlyInput('');
     setEditingVehicleId(null);
@@ -1422,6 +1411,7 @@ export default function AdminJobs() {
     setVehicleSize(vehicle.size);
     setVehicleOwnershipType(vehicle.ownershipType);
     setVehicleHourlyRateInput(Number.isFinite(vehicle.hourlyRate) ? String(vehicle.hourlyRate) : '');
+    setVehicleCompanyHourlyMarginInput(Number.isFinite(vehicle.companyHourlyMargin) ? String(vehicle.companyHourlyMargin) : '');
     setVehicleCostPerKmInput(String(vehicle.costPerKm));
     setVehicleFixedMonthlyInput(String(vehicle.fixedMonthlyCost));
   };
@@ -1435,6 +1425,11 @@ export default function AdminJobs() {
     const hourlyRate = parseMoneyInput(vehicleHourlyRateInput);
     if (vehicleHourlyRateInput.trim() && hourlyRate == null) {
       toast.error('Precio por hora invalido');
+      return;
+    }
+    const companyHourlyMargin = parseMoneyInput(vehicleCompanyHourlyMarginInput);
+    if (vehicleCompanyHourlyMarginInput.trim() && companyHourlyMargin == null) {
+      toast.error('Margen del dueno invalido');
       return;
     }
     const costPerKm = parseMoneyInput(vehicleCostPerKmInput);
@@ -1463,6 +1458,7 @@ export default function AdminJobs() {
         size: vehicleSize,
         ownershipType: vehicleOwnershipType,
         hourlyRate,
+        companyHourlyMargin: vehicleOwnershipType === 'driver' ? companyHourlyMargin : null,
         costPerKm: costPerKm as number,
         fixedMonthlyCost: fixedMonthlyCost as number,
         updatedAt: now,
@@ -1648,24 +1644,6 @@ export default function AdminJobs() {
       toast.error('No se pudo guardar el reparto de vehiculo del chofer');
     } finally {
       setSavingDriverVehicleDriverShare(false);
-    }
-  };
-
-  const handleSaveDriverVehicleCompanyHourlyMargin = async () => {
-    const parsed = parseHourlyRate(driverVehicleCompanyHourlyMarginInput);
-    if (driverVehicleCompanyHourlyMarginInput.trim() && parsed == null) {
-      toast.error('Margen del dueno invalido');
-      return;
-    }
-    try {
-      setSavingDriverVehicleCompanyHourlyMargin(true);
-      const saved = await setDriverVehicleCompanyHourlyMargin(parsed);
-      setDriverVehicleCompanyHourlyMarginInput(saved.value != null ? String(saved.value) : '');
-      toast.success('Margen del dueno actualizado');
-    } catch {
-      toast.error('No se pudo guardar el margen del dueno');
-    } finally {
-      setSavingDriverVehicleCompanyHourlyMargin(false);
     }
   };
 
@@ -2018,7 +1996,7 @@ export default function AdminJobs() {
     if (!isExternalDriver(driver)) return hourlyValue;
     const billedHours = getEntryBilledHours(entry);
     if (vehicle?.ownershipType === 'driver' && billedHours != null) {
-      return roundMoney(Math.min(hourlyValue, billedHours * driverVehicleCompanyHourlyMarginValue));
+      return roundMoney(Math.min(hourlyValue, billedHours * getVehicleCompanyHourlyMargin(vehicle)));
     }
     const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
     return roundMoney(hourlyValue - (hourlyValue * driverShareRatio));
@@ -2176,7 +2154,7 @@ export default function AdminJobs() {
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
   const ownerVehicleDriverShareLabel = percentFormatter.format(ownerVehicleDriverShareRatio);
-  const driverOwnedVehicleCompanyMarginLabel = currencyFormatter.format(driverVehicleCompanyHourlyMarginValue);
+  const driverOwnedVehicleCompanyMarginLabel = currencyFormatter.format(DRIVER_OWNED_VEHICLE_COMPANY_HOURLY_MARGIN);
   const now = new Date();
   const currentMonthLabel = monthFormatter.format(now);
   const currentMonth = now.getMonth();
@@ -2269,7 +2247,6 @@ export default function AdminJobs() {
     driversById,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
   ]);
   const recurringClientStats = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2370,7 +2347,6 @@ export default function AdminJobs() {
     driversById,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
   ]);
   const monthlyGrossLabel = monthlyGrossTotal != null
     ? currencyFormatter.format(monthlyGrossTotal)
@@ -2467,7 +2443,6 @@ export default function AdminJobs() {
     driversById,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
   ]);
   const monthlyExpenseGrossLabel = currencyFormatter.format(roundMoney(monthlyExpenseBreakdown.gross));
   const monthlyExpenseTotalLabel = currencyFormatter.format(monthlyExpenseBreakdown.totalExpenses);
@@ -2524,7 +2499,6 @@ export default function AdminJobs() {
     driversById,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
     tripCostPerHourValue,
     monthlyOverheadCostPerTrip,
   ]);
@@ -2663,7 +2637,6 @@ export default function AdminJobs() {
     driversById,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
   ]);
   const monthlyRevenueMaxValue = useMemo(() => {
     const maxValue = Math.max(0, ...monthlyRevenueSeries.map((item) => Math.max(item.total, item.net)));
@@ -2835,7 +2808,6 @@ export default function AdminJobs() {
     hourlyRateValue,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
   ]);
   const selectedDriverJob = useMemo(() => {
     if (!selectedDriverId) return null;
@@ -2957,8 +2929,9 @@ export default function AdminJobs() {
       }
       const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
       const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
-      total += isExternalDriver(driver) && billedHours != null
-        ? billedHours * driverVehicleCompanyHourlyMarginValue
+      const vehicle = getJobVehicle(item.job);
+      total += isExternalDriver(driver) && billedHours != null && vehicle?.ownershipType === 'driver'
+        ? billedHours * getVehicleCompanyHourlyMargin(vehicle)
         : estimate;
       const jobHourlyRate = getJobHourlyRateValue(item.job);
       const baseValue = jobHourlyRate != null && billedHours != null
@@ -2971,10 +2944,9 @@ export default function AdminJobs() {
         ? billedHours * helperHourlyRateValue * paidHelpersCount
         : 0;
       const helperRevenue = !isExternalDriver(driver) && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
-      const vehicle = getJobVehicle(item.job);
       const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
       const companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver) && vehicle?.ownershipType === 'driver'
-        ? Math.min(baseValue, billedHours * driverVehicleCompanyHourlyMarginValue)
+        ? Math.min(baseValue, billedHours * getVehicleCompanyHourlyMargin(vehicle))
         : baseValue != null
           ? baseValue - (baseValue * driverShareRatio)
           : estimate;
@@ -3001,7 +2973,6 @@ export default function AdminJobs() {
     vehiclesById,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
   ]);
   const driverJobHistoryById = useMemo(() => {
     const map = new Map<string, Array<{
@@ -3042,7 +3013,6 @@ export default function AdminJobs() {
     helperHourlyRateValue,
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
-    driverVehicleCompanyHourlyMarginValue,
   ]);
   const handleCalendarToday = () => setCalendarDate(new Date());
   const moveCalendar = (direction: -1 | 1) => {
@@ -4404,7 +4374,7 @@ export default function AdminJobs() {
                   </div>
                   <span className="text-xs text-gray-400">{vehicles.length} registrados</span>
                 </div>
-                <form onSubmit={handleSaveVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]">
+                <form onSubmit={handleSaveVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_auto]">
                   <div>
                     <label className="text-xs text-gray-500">Nombre</label>
                     <input
@@ -4448,6 +4418,19 @@ export default function AdminJobs() {
                       min="0"
                       step="0.01"
                       className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Margen dueno</label>
+                    <input
+                      value={vehicleCompanyHourlyMarginInput}
+                      onChange={(event) => setVehicleCompanyHourlyMarginInput(event.target.value)}
+                      placeholder="Ej: 10000"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={vehicleOwnershipType !== 'driver'}
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm disabled:bg-gray-100 disabled:text-gray-400"
                     />
                   </div>
                   <div>
@@ -4520,6 +4503,11 @@ export default function AdminJobs() {
                               {Number.isFinite(vehicle.hourlyRate) ? currencyFormatter.format(Number(vehicle.hourlyRate)) : 'Usa precio global'}
                             </span> / h
                           </div>
+                          {vehicle.ownershipType === 'driver' && (
+                            <div className="text-xs text-gray-600">
+                              <span className="font-semibold text-gray-800">{currencyFormatter.format(getVehicleCompanyHourlyMargin(vehicle))}</span> margen
+                            </div>
+                          )}
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.fixedMonthlyCost)}</span> mensual
                           </div>
@@ -4646,6 +4634,9 @@ export default function AdminJobs() {
                                   {currencyFormatter.format(assignedVehicle.costPerKm)} / km
                                   {Number.isFinite(assignedVehicle.hourlyRate)
                                     ? ` | ${currencyFormatter.format(Number(assignedVehicle.hourlyRate))} / h`
+                                    : ''}
+                                  {assignedVehicle.ownershipType === 'driver'
+                                    ? ` | Margen dueno ${currencyFormatter.format(getVehicleCompanyHourlyMargin(assignedVehicle))} / h`
                                     : ''}
                                 </p>
                               )}
@@ -5722,7 +5713,7 @@ export default function AdminJobs() {
                   <div className="mt-4 border-t border-gray-100 pt-4">
                     <p className="text-sm font-semibold text-gray-900">Reparto del valor hora (chofer)</p>
                     <p className="text-xs text-gray-500">
-                      Vehiculo del dueno: {ownerVehicleDriverShareLabel} para chofer. Vehiculo del chofer: {driverOwnedVehicleCompanyMarginLabel}/h para el dueno.
+                      Vehiculo del dueno: {ownerVehicleDriverShareLabel} para chofer. El margen de vehiculo del chofer se define en cada vehiculo.
                     </p>
                     <div className="mt-3 grid gap-4 sm:grid-cols-2">
                       <div>
@@ -5749,27 +5740,8 @@ export default function AdminJobs() {
                       </div>
                       <div>
                         <p className="text-sm font-semibold text-gray-900">Vehiculo del chofer</p>
-                        <p className="text-xs text-gray-500">Actual: {driverOwnedVehicleCompanyMarginLabel}/h para el dueno</p>
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          step="0.01"
-                          placeholder="Ej: 10000"
-                          value={driverVehicleCompanyHourlyMarginInput}
-                          onChange={(event) => setDriverVehicleCompanyHourlyMarginInput(event.target.value)}
-                          className="mt-2 w-full rounded border px-2 py-1 text-sm"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSaveDriverVehicleCompanyHourlyMargin}
-                          disabled={savingDriverVehicleCompanyHourlyMargin}
-                          className="mt-2 w-full rounded border border-cyan-200 px-2 py-1 text-xs font-semibold text-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {savingDriverVehicleCompanyHourlyMargin ? 'Guardando...' : 'Guardar margen dueno'}
-                        </button>
-                        <p className="mt-2 text-xs text-gray-500">
-                          Se resta del precio hora por cada hora facturada; el resto queda para el chofer.
+                        <p className="mt-2 rounded border border-cyan-100 bg-cyan-50 px-2 py-1 text-xs text-cyan-800">
+                          Cargalo en la tarjeta Vehiculos, campo Margen dueno. Si queda vacio usa {driverOwnedVehicleCompanyMarginLabel}/h.
                         </p>
                       </div>
                     </div>

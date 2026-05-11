@@ -343,6 +343,7 @@ export const ensureSchema = async () => {
       size TEXT NOT NULL,
       ownership_type TEXT NOT NULL DEFAULT 'owner',
       hourly_rate DOUBLE PRECISION,
+      company_hourly_margin DOUBLE PRECISION,
       cost_per_km DOUBLE PRECISION NOT NULL,
       fixed_monthly_cost DOUBLE PRECISION NOT NULL,
       created_at TEXT NOT NULL,
@@ -351,6 +352,7 @@ export const ensureSchema = async () => {
   `;
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS ownership_type TEXT;`;
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION;`;
+  await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS company_hourly_margin DOUBLE PRECISION;`;
   await sql`UPDATE vehicles SET ownership_type = 'owner' WHERE ownership_type IS NULL;`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET DEFAULT 'owner';`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET NOT NULL;`;
@@ -569,7 +571,9 @@ const buildJobShareSnapshot = async (job) => {
     ? getDriverOwnedVehicleShare({
       hourlyBaseAmount: baseAmount,
       billedHours,
-      companyHourlyMargin: await getSetting('driverVehicleCompanyHourlyMargin'),
+      companyHourlyMargin: Number.isFinite(vehicle?.companyHourlyMargin)
+        ? Number(vehicle.companyHourlyMargin)
+        : await getSetting('driverVehicleCompanyHourlyMargin'),
     })
     : null;
   const driverShareAmount = fixedMarginShare?.driverShareAmount ?? Number((baseAmount * ratio).toFixed(2));
@@ -1208,6 +1212,7 @@ const normalizeVehicleRow = (row) => ({
   size: row.size,
   ownershipType: row.ownership_type === 'driver' ? 'driver' : 'owner',
   hourlyRate: row.hourly_rate != null ? Number(row.hourly_rate) : null,
+  companyHourlyMargin: row.company_hourly_margin != null ? Number(row.company_hourly_margin) : null,
   costPerKm: row.cost_per_km != null ? Number(row.cost_per_km) : 0,
   fixedMonthlyCost: row.fixed_monthly_cost != null ? Number(row.fixed_monthly_cost) : 0,
   createdAt: row.created_at,
@@ -1233,13 +1238,14 @@ export const createVehicle = async (vehicle) => {
   const updatedAt = vehicle.updatedAt ?? createdAt;
   await sql`
     INSERT INTO vehicles (
-      id, name, size, ownership_type, hourly_rate, cost_per_km, fixed_monthly_cost, created_at, updated_at
+      id, name, size, ownership_type, hourly_rate, company_hourly_margin, cost_per_km, fixed_monthly_cost, created_at, updated_at
     ) VALUES (
       ${vehicle.id},
       ${vehicle.name},
       ${vehicle.size},
       ${vehicle.ownershipType ?? 'owner'},
       ${Number.isFinite(vehicle.hourlyRate) ? Number(vehicle.hourlyRate) : null},
+      ${Number.isFinite(vehicle.companyHourlyMargin) ? Number(vehicle.companyHourlyMargin) : null},
       ${vehicle.costPerKm},
       ${vehicle.fixedMonthlyCost},
       ${createdAt},
@@ -1263,6 +1269,7 @@ export const updateVehicle = async (id, patch) => {
       size = ${next.size},
       ownership_type = ${next.ownershipType ?? 'owner'},
       hourly_rate = ${Number.isFinite(next.hourlyRate) ? Number(next.hourlyRate) : null},
+      company_hourly_margin = ${Number.isFinite(next.companyHourlyMargin) ? Number(next.companyHourlyMargin) : null},
       cost_per_km = ${next.costPerKm},
       fixed_monthly_cost = ${next.fixedMonthlyCost},
       created_at = ${next.createdAt},

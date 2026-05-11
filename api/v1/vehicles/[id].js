@@ -41,6 +41,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid hourlyRate' });
       return;
     }
+    if (Object.prototype.hasOwnProperty.call(body, 'companyHourlyMargin') && !isOptionalNonNegativeNumber(body.companyHourlyMargin)) {
+      res.status(400).json({ error: 'Invalid companyHourlyMargin' });
+      return;
+    }
     if (Object.prototype.hasOwnProperty.call(body, 'costPerKm') && !isNonNegativeNumber(body.costPerKm)) {
       res.status(400).json({ error: 'Invalid costPerKm' });
       return;

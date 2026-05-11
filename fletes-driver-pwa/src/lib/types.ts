@@ -20,6 +20,7 @@ export interface Vehicle {
   size: VehicleSize;
   ownershipType: VehicleOwnershipType;
   hourlyRate?: number | null;
+  companyHourlyMargin?: number | null;
   costPerKm: number;
   fixedMonthlyCost: number;
   createdAt: string;

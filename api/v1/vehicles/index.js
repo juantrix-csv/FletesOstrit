@@ -50,6 +50,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid hourlyRate' });
       return;
     }
+    if (!isOptionalNonNegativeNumber(body.companyHourlyMargin)) {
+      res.status(400).json({ error: 'Invalid companyHourlyMargin' });
+      return;
+    }
     if (!isNonNegativeNumber(body.costPerKm)) {
       res.status(400).json({ error: 'Invalid costPerKm' });
       return;
@@ -69,6 +73,7 @@ export default async function handler(req, res) {
       size: body.size,
       ownershipType,
       hourlyRate: body.hourlyRate ?? null,
+      companyHourlyMargin: body.companyHourlyMargin ?? null,
       costPerKm: body.costPerKm,
       fixedMonthlyCost: body.fixedMonthlyCost,
       createdAt: body.createdAt,
