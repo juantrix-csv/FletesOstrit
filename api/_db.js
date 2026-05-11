@@ -566,7 +566,11 @@ const buildJobShareSnapshot = async (job) => {
   }
 
   const fixedMarginShare = fixedCompanyHourlyMargin
-    ? getDriverOwnedVehicleShare({ hourlyBaseAmount: baseAmount, billedHours })
+    ? getDriverOwnedVehicleShare({
+      hourlyBaseAmount: baseAmount,
+      billedHours,
+      companyHourlyMargin: await getSetting('driverVehicleCompanyHourlyMargin'),
+    })
     : null;
   const driverShareAmount = fixedMarginShare?.driverShareAmount ?? Number((baseAmount * ratio).toFixed(2));
   const companyShareAmount = fixedMarginShare?.companyShareAmount ?? Number((baseAmount - driverShareAmount).toFixed(2));

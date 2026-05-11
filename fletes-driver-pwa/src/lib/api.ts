@@ -350,6 +350,14 @@ export const setDriverVehicleDriverShare = (value: number | null) =>
     body: JSON.stringify({ value }),
   });
 
+export const getDriverVehicleCompanyHourlyMargin = () => fetchJson<{ value: number | null }>('/settings/driver-vehicle-company-hourly-margin');
+
+export const setDriverVehicleCompanyHourlyMargin = (value: number | null) =>
+  fetchJson<{ value: number | null }>('/settings/driver-vehicle-company-hourly-margin', {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
 export const getFixedMonthlyCost = () => fetchJson<{ value: number | null }>('/settings/fixed-monthly-cost');
 
 export const setFixedMonthlyCost = (value: number | null) =>

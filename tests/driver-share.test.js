@@ -21,3 +21,15 @@ test('driver-owned vehicle keeps 10000 per billed hour for the company', () => {
     driverShareRatio: 50000 / 70000,
   });
 });
+
+test('driver-owned vehicle uses configured company hourly margin', () => {
+  assert.deepEqual(getDriverOwnedVehicleShare({
+    hourlyBaseAmount: 90000,
+    billedHours: 2,
+    companyHourlyMargin: 15000,
+  }), {
+    driverShareAmount: 60000,
+    companyShareAmount: 30000,
+    driverShareRatio: 60000 / 90000,
+  });
+});

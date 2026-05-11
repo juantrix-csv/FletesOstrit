@@ -70,6 +70,7 @@ const resolveSettingKey = (raw) => {
   if (raw === 'trip-cost-per-km') return 'tripCostPerKm';
   if (raw === 'owner-vehicle-driver-share') return 'ownerVehicleDriverShare';
   if (raw === 'driver-vehicle-driver-share') return 'driverVehicleDriverShare';
+  if (raw === 'driver-vehicle-company-hourly-margin') return 'driverVehicleCompanyHourlyMargin';
   if (raw === 'operations-base-location') return 'operationsBaseLocation';
   return null;
 };
