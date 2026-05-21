@@ -4,14 +4,9 @@ import App from './App';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './index.css';
 import { setupPwaUpdater } from './lib/pwaUpdater';
+import { initializeTheme } from './lib/theme';
 
-document.documentElement.classList.add('dark');
-document.documentElement.style.colorScheme = 'dark';
-
-const themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-if (themeColor) {
-  themeColor.content = '#020617';
-}
+initializeTheme();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
 

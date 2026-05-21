@@ -1,32 +1,45 @@
 import type maplibregl from 'maplibre-gl';
 import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
+import type { AppTheme } from './theme';
 
-export const OPEN_MAP_STYLE: StyleSpecification = {
-  version: 8,
-  name: 'Fletes Ostrit Open Map',
-  sources: {
-    'carto-dark': {
-      type: 'raster',
-      tiles: [
-        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+const createOpenMapStyle = (theme: AppTheme): StyleSpecification => {
+  const sourceId = theme === 'dark' ? 'carto-dark' : 'carto-light';
+  const palette = theme === 'dark' ? 'dark_all' : 'light_all';
+
+  return {
+    version: 8,
+    name: 'Fletes Ostrit Open Map',
+    sources: {
+      [sourceId]: {
+        type: 'raster',
+        tiles: [
+          `https://a.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
+          `https://b.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
+          `https://c.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
+          `https://d.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
+        ],
+        tileSize: 256,
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      },
     },
-  },
-  layers: [
-    {
-      id: 'carto-dark',
-      type: 'raster',
-      source: 'carto-dark',
-      minzoom: 0,
-      maxzoom: 20,
-    },
-  ],
+    layers: [
+      {
+        id: sourceId,
+        type: 'raster',
+        source: sourceId,
+        minzoom: 0,
+        maxzoom: 20,
+      },
+    ],
+  };
 };
+
+export const OPEN_MAP_STYLES: Record<AppTheme, StyleSpecification> = {
+  dark: createOpenMapStyle('dark'),
+  light: createOpenMapStyle('light'),
+};
+
+export const OPEN_MAP_STYLE = OPEN_MAP_STYLES.dark;
 
 const ONEWAY_FORWARD_LAYER_ID = 'fletes-ostrit-oneway-forward';
 const ONEWAY_REVERSE_LAYER_ID = 'fletes-ostrit-oneway-reverse';

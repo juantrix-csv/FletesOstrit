@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { Truck } from 'lucide-react';
+import { Moon, Sun, Truck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { APP_VERSION } from '../lib/appVersion';
 import { AdminLayout } from './AdminLayout';
 import { useApiActivity } from '../hooks/useApiActivity';
+import { useTheme } from '../hooks/useTheme';
 
 const GlobalApiFeedback = () => {
   const { pendingMutations } = useApiActivity();
@@ -26,6 +27,31 @@ const GlobalApiFeedback = () => {
   );
 };
 
+const ThemeToggle = () => {
+  const { theme, toggleTheme } = useTheme();
+  const isDark = theme === 'dark';
+  const Icon = isDark ? Sun : Moon;
+
+  return (
+    <button
+      type="button"
+      onClick={toggleTheme}
+      aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+      title={isDark ? 'Modo claro' : 'Modo oscuro'}
+      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-100"
+    >
+      <Icon size={17} />
+    </button>
+  );
+};
+
+const TopControls = () => (
+  <div className="fixed right-3 top-2 z-[60] flex items-center gap-2">
+    <span className="text-[10px] text-gray-400">build {APP_VERSION}</span>
+    <ThemeToggle />
+  </div>
+);
+
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
   const navClass = (p: string) => cn("flex flex-col items-center w-full text-xs", loc.pathname === p ? "text-blue-600" : "text-gray-500");
@@ -43,9 +69,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
   if (isAdminRoute) {
     return (
       <div className="min-h-screen bg-slate-100">
-        <div className="fixed top-2 right-3 z-50 text-[10px] text-gray-400">
-          build {APP_VERSION}
-        </div>
+        <TopControls />
         <GlobalApiFeedback />
         <AdminLayout>{children}</AdminLayout>
         <Toaster />
@@ -55,9 +79,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <div className="flex flex-col min-h-screen h-[100dvh] bg-gray-50">
-      <div className="fixed top-2 right-3 z-50 text-[10px] text-gray-400">
-        build {APP_VERSION}
-      </div>
+      <TopControls />
       <GlobalApiFeedback />
       <main className={mainClass} style={mainStyle}>{children}</main>
       {showDriverNav && (
