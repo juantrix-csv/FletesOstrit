@@ -1,17 +1,17 @@
 import type maplibregl from 'maplibre-gl';
-import type { StyleSpecification } from 'maplibre-gl';
+import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 
 export const OPEN_MAP_STYLE: StyleSpecification = {
   version: 8,
   name: 'Fletes Ostrit Open Map',
   sources: {
-    'carto-light': {
+    'carto-dark': {
       type: 'raster',
       tiles: [
-        'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-        'https://d.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+        'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+        'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
       ],
       tileSize: 256,
       attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
@@ -19,9 +19,9 @@ export const OPEN_MAP_STYLE: StyleSpecification = {
   },
   layers: [
     {
-      id: 'carto-light',
+      id: 'carto-dark',
       type: 'raster',
-      source: 'carto-light',
+      source: 'carto-dark',
       minzoom: 0,
       maxzoom: 20,
     },
