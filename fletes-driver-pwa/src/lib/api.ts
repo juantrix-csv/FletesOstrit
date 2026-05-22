@@ -151,7 +151,7 @@ const syncDeletedJobCaches = (jobId: string) => {
 };
 
 const invalidateDriverCaches = () => {
-  invalidateCachedQueries((key) => key.startsWith('drivers:list'));
+  invalidateCachedQueries((key) => key.startsWith('drivers:list') || key.startsWith('driver:code:'));
 };
 
 const invalidateVehicleCaches = () => {
@@ -202,6 +202,7 @@ export const getApiActivitySnapshot = () => activitySnapshot;
 export const jobsListQueryKey = (opts?: { driverId?: string; driverCode?: string }) => `jobs:list${toQueryString(opts)}`;
 export const jobDetailQueryKey = (id: string, opts?: { driverId?: string; driverCode?: string }) => `job:detail:${id}${toQueryString(opts)}`;
 export const driversListQueryKey = () => 'drivers:list';
+export const driverByCodeQueryKey = (code: string) => `driver:code:${code.trim().toUpperCase()}`;
 export const vehiclesListQueryKey = () => 'vehicles:list';
 export const driverLocationsListQueryKey = () => 'driver-locations:list';
 export const operationsBaseLocationQueryKey = () => 'settings:operations-base-location';
