@@ -1,8 +1,7 @@
 import type maplibregl from 'maplibre-gl';
-import type { StyleSpecification } from '@maplibre/maplibre-gl-style-spec';
 import type { AppTheme } from './theme';
 
-const createOpenMapStyle = (theme: AppTheme): StyleSpecification => {
+const createOpenMapStyle = (theme: AppTheme): maplibregl.StyleSpecification => {
   const sourceId = theme === 'dark' ? 'carto-dark' : 'carto-light';
   const palette = theme === 'dark' ? 'dark_all' : 'light_all';
 
@@ -34,7 +33,7 @@ const createOpenMapStyle = (theme: AppTheme): StyleSpecification => {
   };
 };
 
-export const OPEN_MAP_STYLES: Record<AppTheme, StyleSpecification> = {
+export const OPEN_MAP_STYLES: Record<AppTheme, maplibregl.StyleSpecification> = {
   dark: createOpenMapStyle('dark'),
   light: createOpenMapStyle('light'),
 };
