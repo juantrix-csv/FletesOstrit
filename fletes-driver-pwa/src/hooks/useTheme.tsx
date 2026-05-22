@@ -1,27 +1,48 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { applyTheme, getStoredTheme, THEME_STORAGE_KEY, type AppTheme } from '../lib/theme';
+import {
+  applyTheme,
+  getStoredThemeMode,
+  resolveThemeMode,
+  THEME_STORAGE_KEY,
+  type AppTheme,
+  type ThemeMode,
+} from '../lib/theme';
 
 type ThemeContextValue = {
   theme: AppTheme;
+  mode: ThemeMode;
   toggleTheme: () => void;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
-  const [theme, setTheme] = useState<AppTheme>(() => getStoredTheme());
+  const [mode, setMode] = useState<ThemeMode>(() => getStoredThemeMode());
+  const [theme, setTheme] = useState<AppTheme>(() => resolveThemeMode(getStoredThemeMode()));
 
   useEffect(() => {
-    applyTheme(theme);
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
+    const updateTheme = () => {
+      const nextTheme = resolveThemeMode(mode);
+      setTheme(nextTheme);
+      applyTheme(nextTheme);
+    };
+
+    updateTheme();
+    window.localStorage.setItem(THEME_STORAGE_KEY, mode);
+
+    if (mode !== 'auto') return undefined;
+
+    const intervalId = window.setInterval(updateTheme, 60000);
+    return () => window.clearInterval(intervalId);
+  }, [mode]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme,
-      toggleTheme: () => setTheme((current) => (current === 'dark' ? 'light' : 'dark')),
+      mode,
+      toggleTheme: () => setMode(theme === 'dark' ? 'light' : 'dark'),
     }),
-    [theme]
+    [mode, theme]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
