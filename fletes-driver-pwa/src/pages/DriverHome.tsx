@@ -181,20 +181,8 @@ export default function DriverHome() {
       </div>
       <div className="space-y-2">
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-amber-700">Deuda con el dueno</p>
-              <p className="mt-1 text-2xl font-bold text-amber-950">{currencyFormatter.format(debtSummary.outstandingDebt)}</p>
-            </div>
-            <div className="text-right text-[11px] text-amber-800">
-              <p>{debtSummary.collectedTrips} cobrados</p>
-              <p>Liquidado {currencyFormatter.format(debtSummary.settledAmount)}</p>
-            </div>
-          </div>
-          <p className="mt-2 text-xs text-amber-800">
-            Total a favor del dueno {currencyFormatter.format(debtSummary.grossOwnerDebt)}
-            {driverQuery.refreshing ? ' | Actualizando...' : ''}
-          </p>
+          <p className="text-[11px] uppercase tracking-wide text-amber-700">Deuda con el dueño</p>
+          <p className="mt-1 text-2xl font-bold text-amber-950">{currencyFormatter.format(debtSummary.outstandingDebt)}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
