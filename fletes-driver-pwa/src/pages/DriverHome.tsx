@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { driverByCodeQueryKey, getDriverByCode, jobsListQueryKey, listJobs } from '../lib/api';
 import type { Driver, Job, JobStatus } from '../lib/types';
@@ -51,66 +51,11 @@ const formatJobTime = (job: Job, scheduledAtMs: number | null) => {
   return new Date(scheduledAtMs).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 };
 
-const OWNER_ACCOUNT_DRIVER_CODE = '6666';
-
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
   maximumFractionDigits: 0,
 });
-
-const roundMoney = (value: number) => Number(value.toFixed(2));
-
-const toStoredMoney = (value?: number | null) => (Number.isFinite(value) ? Number(value) : null);
-
-const getCollectedPaymentTotal = (job: Job) => {
-  const cashAmount = toStoredMoney(job.cashAmount);
-  const transferAmount = toStoredMoney(job.transferAmount);
-  const hasBreakdown = cashAmount != null || transferAmount != null;
-  const chargedAmount = toStoredMoney(job.chargedAmount);
-  return hasBreakdown ? roundMoney((cashAmount ?? 0) + (transferAmount ?? 0)) : chargedAmount;
-};
-
-const getDriverDebtSummary = (jobs: Job[], driver: Driver | null) => {
-  const settledAmount = Number.isFinite(driver?.ownerDebtSettledAmount)
-    ? Number(driver?.ownerDebtSettledAmount)
-    : 0;
-
-  if (!driver || String(driver.code ?? '').trim() === OWNER_ACCOUNT_DRIVER_CODE) {
-    return {
-      collectedTrips: 0,
-      grossOwnerDebt: 0,
-      settledAmount: roundMoney(settledAmount),
-      outstandingDebt: 0,
-    };
-  }
-
-  const summary = jobs.reduce(
-    (current, job) => {
-      if (job.status !== 'DONE') return current;
-      const collectedTotal = getCollectedPaymentTotal(job);
-      if (collectedTotal == null) return current;
-
-      const driverShare = Math.max(0, toStoredMoney(job.driverShareAmount) ?? 0);
-      const hourlyBaseAmount = toStoredMoney(job.hourlyBaseAmount);
-      const helperRevenue = hourlyBaseAmount != null ? Math.max(0, collectedTotal - hourlyBaseAmount) : 0;
-      const driverKept = roundMoney(Math.min(collectedTotal, driverShare + helperRevenue));
-
-      current.collectedTrips += 1;
-      current.grossOwnerDebt += Math.max(0, collectedTotal - driverKept);
-      return current;
-    },
-    { collectedTrips: 0, grossOwnerDebt: 0 },
-  );
-
-  const grossOwnerDebt = roundMoney(summary.grossOwnerDebt);
-  return {
-    collectedTrips: summary.collectedTrips,
-    grossOwnerDebt,
-    settledAmount: roundMoney(settledAmount),
-    outstandingDebt: roundMoney(Math.max(0, grossOwnerDebt - settledAmount)),
-  };
-};
 
 export default function DriverHome() {
   const navigate = useNavigate();
@@ -133,7 +78,9 @@ export default function DriverHome() {
   });
   const jobs = jobsQuery.data ?? [];
   const currentDriver = driverQuery.data ?? null;
-  const debtSummary = useMemo(() => getDriverDebtSummary(jobs, currentDriver), [jobs, currentDriver]);
+  const outstandingDebt = Number.isFinite(currentDriver?.ownerDebtAmount)
+    ? Number(currentDriver?.ownerDebtAmount)
+    : 0;
   const loading = jobsQuery.loading;
 
   useEffect(() => {
@@ -182,7 +129,7 @@ export default function DriverHome() {
       <div className="space-y-2">
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-[11px] uppercase tracking-wide text-amber-700">Deuda con el dueño</p>
-          <p className="mt-1 text-2xl font-bold text-amber-950">{currencyFormatter.format(debtSummary.outstandingDebt)}</p>
+          <p className="mt-1 text-2xl font-bold text-amber-950">{currencyFormatter.format(outstandingDebt)}</p>
         </div>
         <div className="flex items-center gap-2">
           <button

@@ -32,6 +32,9 @@ export interface Driver {
   code: string;
   phone?: string;
   vehicleId?: string | null;
+  ownerDebtAmount?: number | null;
+  ownerDebtGrossAmount?: number | null;
+  ownerDebtUpdatedAt?: string | null;
   ownerDebtSettledAmount?: number | null;
   ownerDebtSettledAt?: string | null;
   active: boolean;

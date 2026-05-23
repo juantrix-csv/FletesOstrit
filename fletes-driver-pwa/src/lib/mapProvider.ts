@@ -11,7 +11,7 @@ export const useMapProviderFallback = () => {
   return {
     provider: 'open' as const,
     isUsingOpenProvider: true,
-    mapStyle: OPEN_MAP_STYLES[theme],
+    mapStyle: OPEN_MAP_STYLES[theme] as any,
     handleMapError: () => {},
   };
 };

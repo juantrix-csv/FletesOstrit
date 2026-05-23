@@ -2784,8 +2784,13 @@ export default function AdminJobs() {
         outstandingDebt: 0,
       };
       const settledAmount = Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : 0;
+      const storedGrossDebt = Number.isFinite(driver.ownerDebtGrossAmount) ? Number(driver.ownerDebtGrossAmount) : null;
+      const storedOutstandingDebt = Number.isFinite(driver.ownerDebtAmount) ? Number(driver.ownerDebtAmount) : null;
       current.settledAmount = settledAmount;
-      current.outstandingDebt = Math.max(0, current.grossOwnerDebt - settledAmount);
+      if (storedGrossDebt != null) {
+        current.grossOwnerDebt = storedGrossDebt;
+      }
+      current.outstandingDebt = storedOutstandingDebt ?? Math.max(0, current.grossOwnerDebt - settledAmount);
       summary.set(driver.id, current);
     });
 

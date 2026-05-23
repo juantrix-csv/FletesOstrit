@@ -326,6 +326,9 @@ export const ensureSchema = async () => {
       code TEXT NOT NULL UNIQUE,
       phone TEXT,
       vehicle_id TEXT,
+      owner_debt_amount DOUBLE PRECISION,
+      owner_debt_gross_amount DOUBLE PRECISION,
+      owner_debt_updated_at TEXT,
       owner_debt_settled_amount DOUBLE PRECISION,
       owner_debt_settled_at TEXT,
       active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -334,6 +337,9 @@ export const ensureSchema = async () => {
     );
   `;
   await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`;
+  await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_debt_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_debt_gross_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_debt_updated_at TEXT;`;
   await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_debt_settled_amount DOUBLE PRECISION;`;
   await sql`ALTER TABLE drivers ADD COLUMN IF NOT EXISTS owner_debt_settled_at TEXT;`;
   await sql`
@@ -1115,6 +1121,9 @@ const normalizeDriverRow = (row) => ({
   code: row.code,
   phone: row.phone ?? undefined,
   vehicleId: row.vehicle_id ?? undefined,
+  ownerDebtAmount: row.owner_debt_amount != null ? Number(row.owner_debt_amount) : undefined,
+  ownerDebtGrossAmount: row.owner_debt_gross_amount != null ? Number(row.owner_debt_gross_amount) : undefined,
+  ownerDebtUpdatedAt: row.owner_debt_updated_at ?? undefined,
   ownerDebtSettledAmount: row.owner_debt_settled_amount != null ? Number(row.owner_debt_settled_amount) : undefined,
   ownerDebtSettledAt: row.owner_debt_settled_at ?? undefined,
   active: row.active === true,
@@ -1122,14 +1131,111 @@ const normalizeDriverRow = (row) => ({
   updatedAt: row.updated_at,
 });
 
+const getCollectedPaymentTotal = (job) => {
+  const cashAmount = toMoneyOrNull(job.cashAmount);
+  const transferAmount = toMoneyOrNull(job.transferAmount);
+  if (cashAmount != null || transferAmount != null) {
+    return sumMoney(cashAmount, transferAmount);
+  }
+  return toMoneyOrNull(job.chargedAmount);
+};
+
+const getDriverDebtBilledHours = (job) => {
+  const timestampHours = getBilledHoursFromTimestamps(job.timestamps);
+  if (timestampHours != null) return timestampHours;
+  if (Number.isFinite(job.estimatedDurationMinutes)) {
+    return getBilledHoursFromDurationMs(Number(job.estimatedDurationMinutes) * 60000);
+  }
+  return Number.isFinite(job.hourlyBilledHours) ? Number(job.hourlyBilledHours) : null;
+};
+
+const getDriverDebtHourlyValue = async (job, driver, vehicle) => {
+  if (job.status === 'DONE' && Number.isFinite(job.hourlyBaseAmount)) {
+    return Number(job.hourlyBaseAmount);
+  }
+  const billedHours = getDriverDebtBilledHours(job);
+  const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
+  const hourlyRateSetting = await getSetting('hourlyRate');
+  const hourlyRate = vehicleHourlyRate ?? (Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null);
+  if (billedHours != null && hourlyRate != null) {
+    return Number((billedHours * hourlyRate).toFixed(2));
+  }
+  if (Number.isFinite(job.hourlyBaseAmount)) {
+    return Number(job.hourlyBaseAmount);
+  }
+  return null;
+};
+
+const refreshDriverOwnerDebt = async (driverId) => {
+  const { rows } = await sql`SELECT * FROM drivers WHERE id = ${driverId}`;
+  if (rows.length === 0) return null;
+  const driver = normalizeDriverRow(rows[0]);
+  let grossOwnerDebt = 0;
+
+  if (String(driver.code ?? '').trim() !== OWNER_ACCOUNT_DRIVER_CODE) {
+    const jobsResult = await sql`SELECT * FROM jobs WHERE driver_id = ${driverId} AND status = 'DONE'`;
+    for (const row of jobsResult.rows) {
+      const job = normalizeJobRow(row);
+      const collectedTotal = getCollectedPaymentTotal(job);
+      if (collectedTotal == null) continue;
+
+      const vehicle = await resolveJobVehicle(job, driver);
+      const hourlyValue = await getDriverDebtHourlyValue(job, driver, vehicle);
+      const helperRevenue = hourlyValue != null ? Math.max(0, collectedTotal - hourlyValue) : 0;
+      const { ratio, fixedCompanyHourlyMargin } = await resolveDriverShareRatio(job, driver, vehicle);
+      const billedHours = getDriverDebtBilledHours(job);
+      let ownerShare = hourlyValue ?? 0;
+      if (hourlyValue != null) {
+        if (fixedCompanyHourlyMargin && billedHours != null) {
+          const companyHourlyMargin = Number.isFinite(vehicle?.companyHourlyMargin)
+            ? Number(vehicle.companyHourlyMargin)
+            : await getSetting('driverVehicleCompanyHourlyMargin');
+          ownerShare = getDriverOwnedVehicleShare({
+            hourlyBaseAmount: hourlyValue,
+            billedHours,
+            companyHourlyMargin,
+          }).companyShareAmount;
+        } else {
+          ownerShare = Number((hourlyValue - (hourlyValue * ratio)).toFixed(2));
+        }
+      }
+      const driverShare = Math.max(0, (hourlyValue ?? 0) - ownerShare);
+      const driverKept = Math.min(collectedTotal, driverShare + helperRevenue);
+      grossOwnerDebt += Math.max(0, collectedTotal - driverKept);
+    }
+  }
+
+  const settledAmount = Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : 0;
+  const gross = Number(grossOwnerDebt.toFixed(2));
+  const outstanding = Number(Math.max(0, gross - settledAmount).toFixed(2));
+  const updatedAt = new Date().toISOString();
+  await sql`
+    UPDATE drivers SET
+      owner_debt_amount = ${outstanding},
+      owner_debt_gross_amount = ${gross},
+      owner_debt_updated_at = ${updatedAt}
+    WHERE id = ${driverId}
+  `;
+  return { amount: outstanding, grossAmount: gross, updatedAt };
+};
+
+const refreshAllDriverOwnerDebt = async () => {
+  const { rows } = await sql`SELECT id FROM drivers`;
+  for (const row of rows) {
+    await refreshDriverOwnerDebt(row.id);
+  }
+};
+
 export const listDrivers = async () => {
   await ensureSchema();
+  await refreshAllDriverOwnerDebt();
   const { rows } = await sql`SELECT * FROM drivers ORDER BY created_at DESC`;
   return rows.map(normalizeDriverRow);
 };
 
 export const getDriverById = async (id) => {
   await ensureSchema();
+  await refreshDriverOwnerDebt(id);
   const { rows } = await sql`SELECT * FROM drivers WHERE id = ${id}`;
   if (rows.length === 0) return null;
   return normalizeDriverRow(rows[0]);
@@ -1137,6 +1243,9 @@ export const getDriverById = async (id) => {
 
 export const getDriverByCode = async (code) => {
   await ensureSchema();
+  const match = await sql`SELECT id FROM drivers WHERE code = ${code}`;
+  if (match.rows.length === 0) return null;
+  await refreshDriverOwnerDebt(match.rows[0].id);
   const { rows } = await sql`SELECT * FROM drivers WHERE code = ${code}`;
   if (rows.length === 0) return null;
   return normalizeDriverRow(rows[0]);
@@ -1149,13 +1258,16 @@ export const createDriver = async (driver) => {
   const active = typeof driver.active === 'boolean' ? driver.active : true;
   await sql`
     INSERT INTO drivers (
-      id, name, code, phone, vehicle_id, owner_debt_settled_amount, owner_debt_settled_at, active, created_at, updated_at
+      id, name, code, phone, vehicle_id, owner_debt_amount, owner_debt_gross_amount, owner_debt_updated_at, owner_debt_settled_amount, owner_debt_settled_at, active, created_at, updated_at
     ) VALUES (
       ${driver.id},
       ${driver.name},
       ${driver.code},
       ${driver.phone ?? null},
       ${driver.vehicleId ?? null},
+      ${0},
+      ${0},
+      ${createdAt},
       ${Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : null},
       ${driver.ownerDebtSettledAt ?? null},
       ${active},
