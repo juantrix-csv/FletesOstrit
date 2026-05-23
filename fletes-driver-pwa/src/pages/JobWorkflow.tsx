@@ -250,8 +250,8 @@ export default function JobWorkflow() {
     hourlyRate: effectiveHourlyRateValue,
     helperHourlyRate: helperHourlyRateValue,
     endAtMs: job.status === 'DONE' ? undefined : nowTick,
-    distantBaseTravelMinutes: distantBaseEstimate?.farthestMinutes ?? null,
-    distantBasePoint: distantBaseEstimate?.farthestPoint ?? null,
+    distantBaseTravelMinutes: null,
+    distantBasePoint: null,
   });
   const distanceKm = dist != null ? (dist / 1000) : null;
   const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
@@ -302,7 +302,7 @@ export default function JobWorkflow() {
   const hasHelpers = (job.helpersCount ?? 0) > 0;
   const distantBaseLoading = operationsBaseLocationQuery.loading || (!!operationsBaseLocation && loadingDistantBaseEstimate);
   const pricingLoading = pricingPreview.source !== 'stored'
-    && (Boolean(job.vehicleId && vehiclesQuery.loading) || (effectiveHourlyRateValue == null && hourlyRateQuery.loading) || (hasHelpers && helperHourlyRateQuery.loading) || distantBaseLoading);
+    && (Boolean(job.vehicleId && vehiclesQuery.loading) || (effectiveHourlyRateValue == null && hourlyRateQuery.loading) || (hasHelpers && helperHourlyRateQuery.loading));
   const helperRateMissing = (job.helpersCount ?? 0) > 0 && helperHourlyRateValue == null;
   const canConfirmCompletion = !pricingLoading && pricingPreview.totalAmount != null && !actionPending;
   const displayedTotalAmount = pricingLoading ? null : pricingPreview.totalAmount;
@@ -318,7 +318,7 @@ export default function JobWorkflow() {
     : distantBaseLoading
       ? 'Calculando...'
       : operationsBaseLocation
-        ? 'No se pudo calcular'
+        ? 'Referencia operativa, no suma al cobro'
         : 'Base no configurada';
   const detailsSection = (
     <>
