@@ -1175,7 +1175,7 @@ const refreshDriverOwnerDebt = async (driverId) => {
   if (String(driver.code ?? '').trim() !== OWNER_ACCOUNT_DRIVER_CODE) {
     const jobsResult = await sql`SELECT * FROM jobs WHERE driver_id = ${driverId} AND status = 'DONE'`;
     for (const row of jobsResult.rows) {
-      const job = normalizeJobRow(row);
+      const job = normalizeRow(row);
       const collectedTotal = getCollectedPaymentTotal(job);
       if (collectedTotal == null) continue;
 
