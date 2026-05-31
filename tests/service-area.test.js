@@ -28,7 +28,7 @@ test('service-area validates coordinates', async () => {
   assert.deepEqual(res.body, { error: 'Missing coordinates' });
 });
 
-test('service-area returns approximate area when Mapbox token is missing', async () => {
+test('service-area falls back to approximate area when routed area is unavailable', async () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.MAPBOX_ACCESS_TOKEN;
   delete process.env.MAPBOX_ACCESS_TOKEN;
@@ -50,12 +50,45 @@ test('service-area returns approximate area when Mapbox token is missing', async
     process.env.MAPBOX_ACCESS_TOKEN = originalApiKey;
   }
 
-  assert.equal(fetchCount, 0);
+  assert.equal(fetchCount, 1);
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.minutes, 15);
   assert.equal(res.body.source, 'approximate');
   assert.equal(res.body.geometry.type, 'Polygon');
   assert.equal(res.body.geometry.coordinates[0].length, 97);
+});
+
+test('service-area returns routed OpenStreetMap area when Mapbox token is missing', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalApiKey = process.env.MAPBOX_ACCESS_TOKEN;
+  delete process.env.MAPBOX_ACCESS_TOKEN;
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      durations: [Array.from({ length: 96 }, (_, index) => {
+        const ringIndex = (index % 4) + 1;
+        return ringIndex * 180;
+      })],
+    }),
+  });
+
+  const req = { method: 'GET', query: { lat: '-34.9444163', lng: '-57.9535838', minutes: '15' } };
+  const res = createRes();
+  await handler(req, res);
+
+  globalThis.fetch = originalFetch;
+  if (originalApiKey == null) {
+    delete process.env.MAPBOX_ACCESS_TOKEN;
+  } else {
+    process.env.MAPBOX_ACCESS_TOKEN = originalApiKey;
+  }
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.minutes, 15);
+  assert.equal(res.body.source, 'openmaps-routed');
+  assert.equal(res.body.geometry.type, 'Polygon');
+  assert.equal(res.body.geometry.coordinates[0].length, 25);
 });
 
 test('service-area returns Mapbox isochrone geometry when available', async () => {

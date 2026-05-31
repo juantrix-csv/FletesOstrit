@@ -246,12 +246,13 @@ export default function JobWorkflow() {
   useDriverLocationSync({ session, jobId: job?.id ?? null, coords });
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
+  const distantBaseLoading = operationsBaseLocationQuery.loading || (!!operationsBaseLocation && loadingDistantBaseEstimate);
   const pricingPreview = getJobChargeBreakdown(job, {
     hourlyRate: effectiveHourlyRateValue,
     helperHourlyRate: helperHourlyRateValue,
     endAtMs: job.status === 'DONE' ? undefined : nowTick,
-    distantBaseTravelMinutes: null,
-    distantBasePoint: null,
+    distantBaseTravelMinutes: distantBaseEstimate?.farthestMinutes ?? null,
+    distantBasePoint: distantBaseEstimate?.farthestPoint ?? null,
   });
   const distanceKm = dist != null ? (dist / 1000) : null;
   const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
@@ -300,9 +301,13 @@ export default function JobWorkflow() {
   const distanceLabel = distanceValueKm != null ? `${distanceValueKm.toFixed(1)} km` : 'N/D';
   const extraStops = job.extraStops ?? [];
   const hasHelpers = (job.helpersCount ?? 0) > 0;
-  const distantBaseLoading = operationsBaseLocationQuery.loading || (!!operationsBaseLocation && loadingDistantBaseEstimate);
   const pricingLoading = pricingPreview.source !== 'stored'
-    && (Boolean(job.vehicleId && vehiclesQuery.loading) || (effectiveHourlyRateValue == null && hourlyRateQuery.loading) || (hasHelpers && helperHourlyRateQuery.loading));
+    && (
+      distantBaseLoading
+      || Boolean(job.vehicleId && vehiclesQuery.loading)
+      || (effectiveHourlyRateValue == null && hourlyRateQuery.loading)
+      || (hasHelpers && helperHourlyRateQuery.loading)
+    );
   const helperRateMissing = (job.helpersCount ?? 0) > 0 && helperHourlyRateValue == null;
   const canConfirmCompletion = !pricingLoading && pricingPreview.totalAmount != null && !actionPending;
   const displayedTotalAmount = pricingLoading ? null : pricingPreview.totalAmount;
