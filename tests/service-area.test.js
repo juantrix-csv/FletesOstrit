@@ -66,7 +66,7 @@ test('service-area returns routed OpenStreetMap area when Mapbox token is missin
   globalThis.fetch = async () => ({
     ok: true,
     json: async () => ({
-      durations: [Array.from({ length: 96 }, (_, index) => {
+      durations: [Array.from({ length: 192 }, (_, index) => {
         const ringIndex = (index % 4) + 1;
         return ringIndex * 180;
       })],
@@ -88,7 +88,7 @@ test('service-area returns routed OpenStreetMap area when Mapbox token is missin
   assert.equal(res.body.minutes, 15);
   assert.equal(res.body.source, 'openmaps-routed');
   assert.equal(res.body.geometry.type, 'Polygon');
-  assert.equal(res.body.geometry.coordinates[0].length, 25);
+  assert.equal(res.body.geometry.coordinates[0].length, 49);
 });
 
 test('service-area returns Mapbox isochrone geometry when available', async () => {
