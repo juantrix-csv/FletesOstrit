@@ -63,15 +63,22 @@ test('service-area returns routed OpenStreetMap area when Mapbox token is missin
   const originalApiKey = process.env.MAPBOX_ACCESS_TOKEN;
   delete process.env.MAPBOX_ACCESS_TOKEN;
 
-  globalThis.fetch = async () => ({
-    ok: true,
-    json: async () => ({
-      durations: [Array.from({ length: 192 }, (_, index) => {
-        const ringIndex = (index % 4) + 1;
-        return ringIndex * 180;
-      })],
-    }),
-  });
+  let fetchedDurations = 0;
+  let fetchCount = 0;
+  globalThis.fetch = async (url) => {
+    fetchCount += 1;
+    const destinations = new URL(url).searchParams.get('destinations')?.split(';') ?? [];
+    const count = destinations.filter(Boolean).length;
+    const durations = Array.from({ length: count }, (_, index) => {
+      const ringIndex = ((fetchedDurations + index) % 4) + 1;
+      return ringIndex * 180;
+    });
+    fetchedDurations += count;
+    return {
+      ok: true,
+      json: async () => ({ durations: [durations] }),
+    };
+  };
 
   const req = { method: 'GET', query: { lat: '-34.9444163', lng: '-57.9535838', minutes: '15' } };
   const res = createRes();
@@ -89,6 +96,8 @@ test('service-area returns routed OpenStreetMap area when Mapbox token is missin
   assert.equal(res.body.source, 'openmaps-routed');
   assert.equal(res.body.geometry.type, 'Polygon');
   assert.equal(res.body.geometry.coordinates[0].length, 49);
+  assert.equal(fetchCount, 3);
+  assert.equal(fetchedDurations, 192);
 });
 
 test('service-area returns Mapbox isochrone geometry when available', async () => {

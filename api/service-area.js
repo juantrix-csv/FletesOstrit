@@ -15,6 +15,7 @@ const ROUTED_AREA_VERSION = 2;
 const ROUTED_AREA_BEARINGS = 48;
 const ROUTED_AREA_RINGS = 4;
 const ROUTED_AREA_MAX_SPEED_KMH = 80;
+const ROUTED_AREA_TABLE_BATCH_SIZE = 80;
 
 const toRadians = (value) => (value * Math.PI) / 180;
 const toDegrees = (value) => (value * 180) / Math.PI;
@@ -121,6 +122,26 @@ const interpolatePoint = (from, to, ratio) => ({
   lng: from.lng + (to.lng - from.lng) * ratio,
 });
 
+const fetchRouteDurations = async (origin, samples) => {
+  const durations = [];
+
+  for (let index = 0; index < samples.length; index += ROUTED_AREA_TABLE_BATCH_SIZE) {
+    const batch = samples.slice(index, index + ROUTED_AREA_TABLE_BATCH_SIZE);
+    const response = await fetch(
+      buildOpenMapsTableUrl([origin, ...batch.map((sample) => sample.point)]),
+      getOpenMapsRequestOptions()
+    );
+    if (!response.ok) return null;
+
+    const data = await response.json().catch(() => null);
+    const batchDurations = Array.isArray(data?.durations?.[0]) ? data.durations[0] : [];
+    if (batchDurations.length !== batch.length) return null;
+    durations.push(...batchDurations);
+  }
+
+  return durations;
+};
+
 const buildRoutedServiceArea = async ({ lat, lng, minutes }) => {
   const origin = { lat, lng };
   const maxDistanceMeters = (ROUTED_AREA_MAX_SPEED_KMH * 1000 / 60) * minutes;
@@ -137,14 +158,8 @@ const buildRoutedServiceArea = async ({ lat, lng, minutes }) => {
     }
   }
 
-  const response = await fetch(
-    buildOpenMapsTableUrl([origin, ...samples.map((sample) => sample.point)]),
-    getOpenMapsRequestOptions()
-  );
-  if (!response.ok) return null;
-
-  const data = await response.json().catch(() => null);
-  const durations = Array.isArray(data?.durations?.[0]) ? data.durations[0] : [];
+  const durations = await fetchRouteDurations(origin, samples);
+  if (!durations) return null;
   if (durations.length !== samples.length) return null;
 
   const targetSeconds = minutes * 60;
