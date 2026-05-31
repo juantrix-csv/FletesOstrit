@@ -250,7 +250,14 @@ export const createDriver = async (driver: Driver) => {
 };
 
 export const updateDriver = async (id: string, patch: Partial<Driver>) => {
-  const updated = await fetchJson<Driver>(`/drivers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  const isDebtSettlement = Object.keys(patch).every((key) => (
+    key === 'ownerDebtSettledAmount' || key === 'ownerDebtSettledAt'
+  ));
+  const updated = await fetchJson<Driver>(
+    `/drivers/${id}`,
+    { method: 'PATCH', body: JSON.stringify(patch) },
+    isDebtSettlement ? { blockUi: false } : undefined,
+  );
   invalidateDriverCaches();
   invalidateCachedQueries((key) => key.startsWith('jobs:list'));
   return updated;
