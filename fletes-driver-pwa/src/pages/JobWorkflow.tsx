@@ -11,7 +11,7 @@ import toast from 'react-hot-toast';
 import { getDriverSession } from '../lib/driverSession';
 import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
 import { useCachedQuery } from '../hooks/useCachedQuery';
-import { formatBilledHours, formatDurationMs, getJobChargeBreakdown, moneyFormatter } from '../lib/jobPricing';
+import { formatBilledHours, formatDurationMs, getJobChargeBreakdown, isJuanDriver, moneyFormatter } from '../lib/jobPricing';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import { getRouteEstimate } from '../lib/routeEstimate';
 
@@ -45,6 +45,7 @@ export default function JobWorkflow() {
   } | null>(null);
   const [loadingDistantBaseEstimate, setLoadingDistantBaseEstimate] = useState(false);
   const session = getDriverSession();
+  const waiveDistantBaseExtra = isJuanDriver(session);
   const jobQuery = useCachedQuery<Job>({
     key: id && session ? jobDetailQueryKey(id, { driverId: session.driverId }) : 'job:detail:disabled',
     enabled: !!id && !!session,
@@ -250,8 +251,9 @@ export default function JobWorkflow() {
     hourlyRate: effectiveHourlyRateValue,
     helperHourlyRate: helperHourlyRateValue,
     endAtMs: job.status === 'DONE' ? undefined : nowTick,
-    distantBaseTravelMinutes: null,
-    distantBasePoint: null,
+    distantBaseTravelMinutes: distantBaseEstimate?.farthestMinutes ?? null,
+    distantBasePoint: distantBaseEstimate?.farthestPoint ?? null,
+    waiveDistantBaseExtra,
   });
   const distanceKm = dist != null ? (dist / 1000) : null;
   const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
@@ -302,7 +304,7 @@ export default function JobWorkflow() {
   const hasHelpers = (job.helpersCount ?? 0) > 0;
   const distantBaseLoading = operationsBaseLocationQuery.loading || (!!operationsBaseLocation && loadingDistantBaseEstimate);
   const pricingLoading = pricingPreview.source !== 'stored'
-    && (Boolean(job.vehicleId && vehiclesQuery.loading) || (effectiveHourlyRateValue == null && hourlyRateQuery.loading) || (hasHelpers && helperHourlyRateQuery.loading));
+    && (Boolean(job.vehicleId && vehiclesQuery.loading) || (effectiveHourlyRateValue == null && hourlyRateQuery.loading) || (hasHelpers && helperHourlyRateQuery.loading) || (!waiveDistantBaseExtra && distantBaseLoading));
   const helperRateMissing = (job.helpersCount ?? 0) > 0 && helperHourlyRateValue == null;
   const canConfirmCompletion = !pricingLoading && pricingPreview.totalAmount != null && !actionPending;
   const displayedTotalAmount = pricingLoading ? null : pricingPreview.totalAmount;
@@ -312,7 +314,9 @@ export default function JobWorkflow() {
       ? 'Destino'
       : 'Punto mas lejano';
   const distantBaseExtraLabel = pricingPreview.distantBaseTravelMinutes != null
-    ? pricingPreview.distantBaseExtraMinutes > 0
+    ? waiveDistantBaseExtra
+      ? `No aplica para Juan (${distantBasePointLabel} a ${pricingPreview.distantBaseTravelMinutes} min de la base)`
+      : pricingPreview.distantBaseExtraMinutes > 0
       ? `${pricingPreview.distantBaseExtraMinutes} min (${distantBasePointLabel} a ${pricingPreview.distantBaseTravelMinutes} min de la base)`
       : `No aplica (${distantBasePointLabel} a ${pricingPreview.distantBaseTravelMinutes} min de la base)`
     : distantBaseLoading

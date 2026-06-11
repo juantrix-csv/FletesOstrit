@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getJobChargeBreakdown } from './jobPricing';
+import { getJobChargeBreakdown, isJuanDriver } from './jobPricing';
 import type { Job } from './types';
 
 const makeJob = (overrides: Partial<Job> = {}): Job => ({
@@ -54,6 +54,21 @@ describe('job pricing', () => {
     expect(breakdown.baseAmount).toBe(1500);
     expect(breakdown.helpersAmount).toBe(0);
     expect(breakdown.computedTotal).toBe(1500);
+  });
+
+  it('does not add distant base time when the driver is exempt', () => {
+    const breakdown = getJobChargeBreakdown(makeJob(), {
+      hourlyRate: 1000,
+      helperHourlyRate: null,
+      distantBaseTravelMinutes: 45,
+      distantBasePoint: 'dropoff',
+      waiveDistantBaseExtra: true,
+    });
+
+    expect(breakdown.distantBaseTravelMinutes).toBe(45);
+    expect(breakdown.distantBaseExtraMinutes).toBe(0);
+    expect(breakdown.chargeableDurationMs).toBe(60 * 60 * 1000);
+    expect(breakdown.computedTotal).toBe(1000);
   });
 
   it('adds helper charges to the final computed total', () => {
@@ -192,5 +207,13 @@ describe('job pricing', () => {
     expect(breakdown.durationMs).toBe((4 * 60 + 1) * 60 * 1000);
     expect(breakdown.billedHours).toBe(4);
     expect(breakdown.computedTotal).toBe(4000);
+  });
+});
+
+describe('Juan driver pricing policy', () => {
+  it('matches Juan by name or code without matching similar names', () => {
+    expect(isJuanDriver({ name: 'Juan Pérez', code: '1234' })).toBe(true);
+    expect(isJuanDriver({ name: 'Otro chofer', code: 'JUAN' })).toBe(true);
+    expect(isJuanDriver({ name: 'Juanita', code: '1234' })).toBe(false);
   });
 });
