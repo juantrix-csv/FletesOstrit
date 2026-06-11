@@ -1,4 +1,4 @@
-import type { Job } from './types';
+import type { Driver, Job } from './types';
 import { getBilledHoursFromDurationMs } from './billing';
 
 export const DISTANT_BASE_THRESHOLD_MINUTES = 15;
@@ -15,6 +15,16 @@ const toMoneyOrNull = (value?: number | null) => (Number.isFinite(value) ? Numbe
 const toCeiledPositiveMinutesOrNull = (value?: number | null) => (
   Number.isFinite(value) && Number(value) > 0 ? Math.max(1, Math.ceil(Number(value))) : null
 );
+const normalizeDriverIdentity = (value?: string | null) => (
+  value?.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es-AR') ?? ''
+);
+
+export const isJuanDriver = (driver?: Pick<Driver, 'name' | 'code'> | null) => {
+  if (!driver) return false;
+  const normalizedName = normalizeDriverIdentity(driver.name);
+  const normalizedCode = normalizeDriverIdentity(driver.code);
+  return normalizedCode === 'juan' || normalizedName.split(/\s+/).includes('juan');
+};
 
 export const parseTimestampMs = (value?: string) => {
   if (!value) return null;
@@ -63,11 +73,13 @@ export const getJobChargeBreakdown = (
     endAtMs?: number | null;
     distantBaseTravelMinutes?: number | null;
     distantBasePoint?: 'pickup' | 'dropoff' | null;
+    waiveDistantBaseExtra?: boolean;
   },
 ) => {
   const durationMs = getJobDurationMs(job, opts.endAtMs);
   const distantBaseTravelMinutes = toCeiledPositiveMinutesOrNull(opts.distantBaseTravelMinutes);
-  const distantBaseExtraMinutes = distantBaseTravelMinutes != null
+  const distantBaseExtraMinutes = !opts.waiveDistantBaseExtra
+    && distantBaseTravelMinutes != null
     && distantBaseTravelMinutes > DISTANT_BASE_THRESHOLD_MINUTES
     ? distantBaseTravelMinutes
     : 0;
