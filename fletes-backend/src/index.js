@@ -703,6 +703,10 @@ app.post(`${API_PREFIX}/vehicles`, (req, res) => {
     res.status(400).json({ error: 'Invalid fixedMonthlyCost' });
     return;
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'pricePerLongDistanceKm') && !isOptionalNonNegativeNumber(body.pricePerLongDistanceKm)) {
+    res.status(400).json({ error: 'Invalid pricePerLongDistanceKm' });
+    return;
+  }
   const exists = getVehicleById(body.id);
   if (exists) {
     res.status(409).json({ error: 'Vehicle already exists' });
@@ -716,6 +720,7 @@ app.post(`${API_PREFIX}/vehicles`, (req, res) => {
     hourlyRate: body.hourlyRate ?? null,
     costPerKm: body.costPerKm,
     fixedMonthlyCost: body.fixedMonthlyCost,
+    pricePerLongDistanceKm: body.pricePerLongDistanceKm ?? null,
     createdAt: body.createdAt,
     updatedAt: body.updatedAt,
   });
@@ -746,6 +751,10 @@ app.patch(`${API_PREFIX}/vehicles/:id`, (req, res) => {
   }
   if (Object.prototype.hasOwnProperty.call(body, 'fixedMonthlyCost') && !isNonNegativeNumber(body.fixedMonthlyCost)) {
     res.status(400).json({ error: 'Invalid fixedMonthlyCost' });
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'pricePerLongDistanceKm') && !isOptionalNonNegativeNumber(body.pricePerLongDistanceKm)) {
+    res.status(400).json({ error: 'Invalid pricePerLongDistanceKm' });
     return;
   }
   const updated = updateVehicle(req.params.id, body);

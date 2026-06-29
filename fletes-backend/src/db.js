@@ -87,6 +87,9 @@ const ensureJobsColumns = () => {
   if (!columns.includes('chargedAmount')) {
     db.exec('ALTER TABLE jobs ADD COLUMN chargedAmount REAL;');
   }
+  if (!columns.includes('isLongDistance')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN isLongDistance INTEGER NOT NULL DEFAULT 0;');
+  }
 };
 
 const ensureDriversColumns = () => {
@@ -147,6 +150,9 @@ const ensureVehiclesColumns = () => {
   }
   if (!columns.includes('hourlyRate')) {
     db.exec('ALTER TABLE vehicles ADD COLUMN hourlyRate REAL;');
+  }
+  if (!columns.includes('pricePerLongDistanceKm')) {
+    db.exec('ALTER TABLE vehicles ADD COLUMN pricePerLongDistanceKm REAL;');
   }
 };
 
@@ -244,6 +250,7 @@ const toRow = (job) => ({
   helpersCount: Number.isFinite(job.helpersCount) ? job.helpersCount : null,
   estimatedDurationMinutes: Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null,
   chargedAmount: Number.isFinite(job.chargedAmount) ? job.chargedAmount : null,
+  isLongDistance: job.isLongDistance ? 1 : 0,
   status: job.status,
   flags: JSON.stringify(job.flags ?? defaultFlags),
   timestamps: JSON.stringify(job.timestamps ?? {}),
@@ -274,6 +281,7 @@ const fromRow = (row) => ({
   helpersCount: Number.isFinite(row.helpersCount) ? row.helpersCount : undefined,
   estimatedDurationMinutes: Number.isFinite(row.estimatedDurationMinutes) ? row.estimatedDurationMinutes : undefined,
   chargedAmount: Number.isFinite(row.chargedAmount) ? row.chargedAmount : undefined,
+  isLongDistance: row.isLongDistance === 1,
   status: row.status,
   flags: parseJson(row.flags, defaultFlags),
   timestamps: parseJson(row.timestamps, {}),
@@ -286,11 +294,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, vehicleId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, vehicleId, helpersCount, estimatedDurationMinutes, chargedAmount, isLongDistance, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @vehicleId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @vehicleId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @isLongDistance, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -315,6 +323,7 @@ const updateStmt = db.prepare(`
     helpersCount = @helpersCount,
     estimatedDurationMinutes = @estimatedDurationMinutes,
     chargedAmount = @chargedAmount,
+    isLongDistance = @isLongDistance,
     status = @status,
     flags = @flags,
     timestamps = @timestamps,
@@ -509,6 +518,7 @@ const toVehicleRow = (vehicle) => ({
   hourlyRate: Number.isFinite(vehicle.hourlyRate) ? vehicle.hourlyRate : null,
   costPerKm: Number.isFinite(vehicle.costPerKm) ? vehicle.costPerKm : 0,
   fixedMonthlyCost: Number.isFinite(vehicle.fixedMonthlyCost) ? vehicle.fixedMonthlyCost : 0,
+  pricePerLongDistanceKm: Number.isFinite(vehicle.pricePerLongDistanceKm) ? vehicle.pricePerLongDistanceKm : null,
   createdAt: vehicle.createdAt,
   updatedAt: vehicle.updatedAt,
 });
@@ -521,15 +531,16 @@ const fromVehicleRow = (row) => ({
   hourlyRate: Number.isFinite(row.hourlyRate) ? row.hourlyRate : null,
   costPerKm: Number.isFinite(row.costPerKm) ? row.costPerKm : 0,
   fixedMonthlyCost: Number.isFinite(row.fixedMonthlyCost) ? row.fixedMonthlyCost : 0,
+  pricePerLongDistanceKm: Number.isFinite(row.pricePerLongDistanceKm) ? row.pricePerLongDistanceKm : null,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
 
 const insertVehicleStmt = db.prepare(`
   INSERT INTO vehicles (
-    id, name, size, ownershipType, hourlyRate, costPerKm, fixedMonthlyCost, createdAt, updatedAt
+    id, name, size, ownershipType, hourlyRate, costPerKm, fixedMonthlyCost, pricePerLongDistanceKm, createdAt, updatedAt
   ) VALUES (
-    @id, @name, @size, @ownershipType, @hourlyRate, @costPerKm, @fixedMonthlyCost, @createdAt, @updatedAt
+    @id, @name, @size, @ownershipType, @hourlyRate, @costPerKm, @fixedMonthlyCost, @pricePerLongDistanceKm, @createdAt, @updatedAt
   );
 `);
 
@@ -541,6 +552,7 @@ const updateVehicleStmt = db.prepare(`
     hourlyRate = @hourlyRate,
     costPerKm = @costPerKm,
     fixedMonthlyCost = @fixedMonthlyCost,
+    pricePerLongDistanceKm = @pricePerLongDistanceKm,
     createdAt = @createdAt,
     updatedAt = @updatedAt
   WHERE id = @id;
