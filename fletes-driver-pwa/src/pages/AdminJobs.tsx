@@ -544,6 +544,26 @@ const emptyEditDraft: EditJobDraft = {
   isLongDistance: false,
 };
 
+type NewJobPricePreview =
+  | { ready: false; message: string }
+  | {
+    ready: true;
+    mode: 'long-distance';
+    total: number;
+    distanceKm: number;
+    costPerKm: number;
+  }
+  | {
+    ready: true;
+    mode: 'hourly';
+    total: number;
+    baseAmount: number;
+    helpersAmount: number;
+    billedHours: number;
+    hourlyRate: number;
+    distantBaseExtraMinutes: number;
+  };
+
 const getEstimatedDurationMinutes = (job: Job) => {
   if (Number.isFinite(job.estimatedDurationMinutes) && (job.estimatedDurationMinutes as number) > 0) {
     return job.estimatedDurationMinutes as number;
@@ -636,6 +656,8 @@ export default function AdminJobs() {
   const [newJobDriverId, setNewJobDriverId] = useState('');
   const [newJobVehicleId, setNewJobVehicleId] = useState('');
   const [newJobIsLongDistance, setNewJobIsLongDistance] = useState(false);
+  const [newJobEstimatedDurationHours, setNewJobEstimatedDurationHours] = useState('');
+  const [newJobHelpersCount, setNewJobHelpersCount] = useState('');
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
   const [extraStops, setExtraStops] = useState<LocationData[]>([]);
@@ -1198,9 +1220,9 @@ export default function AdminJobs() {
     const scheduledTime = String(fd.get('scheduledTime') || '');
     const clientPhone = String(fd.get('clientPhone') || '').trim();
     const description = String(fd.get('description') || '').trim();
-    const estimatedDurationRaw = String(fd.get('estimatedDurationHours') || '').trim();
+    const estimatedDurationRaw = newJobEstimatedDurationHours.trim();
     const estimatedHours = parseDurationHours(estimatedDurationRaw);
-    const helpersCountRaw = String(fd.get('helpersCount') || '').trim();
+    const helpersCountRaw = newJobHelpersCount.trim();
     const helpersCount = helpersCountRaw ? Number.parseInt(helpersCountRaw, 10) : undefined;
     if (helpersCountRaw && (!Number.isInteger(helpersCount) || (helpersCount ?? 0) < 0)) {
       toast.error('Cantidad de ayudantes invalida');
@@ -1243,6 +1265,8 @@ export default function AdminJobs() {
       setNewJobDriverId('');
       setNewJobVehicleId('');
       setNewJobIsLongDistance(false);
+      setNewJobEstimatedDurationHours('');
+      setNewJobHelpersCount('');
       setPickup(null);
       setDropoff(null);
       setExtraStops([]);
@@ -2319,6 +2343,80 @@ export default function AdminJobs() {
   const tripTravelDistanceLabel = baseTravelEstimate?.tripKm != null
     ? `${decimalFormatter.format(baseTravelEstimate.tripKm)} km`
     : 'N/D';
+  const newJobSelectedVehicle = newJobVehicleId ? vehiclesById.get(newJobVehicleId) ?? null : null;
+  const newJobEstimatedHoursValue = parseDurationHours(newJobEstimatedDurationHours.trim());
+  const newJobEstimatedMinutes = newJobEstimatedHoursValue != null
+    ? Math.max(1, Math.round(newJobEstimatedHoursValue * 60))
+    : null;
+  const newJobHelpersCountValue = newJobHelpersCount.trim()
+    ? Number.parseInt(newJobHelpersCount.trim(), 10)
+    : 0;
+  const newJobHelpersCountValid = Number.isInteger(newJobHelpersCountValue) && newJobHelpersCountValue >= 0;
+  const newJobDistanceKm = pickup && dropoff
+    ? baseTravelEstimate?.tripKm
+      ?? getJobDistanceKm({
+        id: 'preview',
+        clientName: '',
+        pickup,
+        dropoff,
+        extraStops,
+        status: 'PENDING',
+        flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
+        timestamps: {},
+        createdAt: '',
+        updatedAt: '',
+      } as Job)
+    : null;
+  const newJobDistantBaseExtraMinutes = baseTravelEstimate?.farthestMinutes != null && baseTravelEstimate.farthestMinutes > 15
+    ? baseTravelEstimate.farthestMinutes
+    : 0;
+  const newJobPreview: NewJobPricePreview | null = (() => {
+    if (!pickup || !dropoff || !newJobSelectedVehicle) return null;
+    if (!newJobHelpersCountValid) {
+      return { ready: false, message: 'Cantidad de ayudantes invalida.' };
+    }
+    if (newJobIsLongDistance) {
+      const costPerKm = Number.isFinite(newJobSelectedVehicle.costPerKm) ? Number(newJobSelectedVehicle.costPerKm) : null;
+      if (newJobDistanceKm == null || costPerKm == null) {
+        return { ready: false, message: 'Falta distancia o costo por km del vehiculo.' };
+      }
+      return {
+        ready: true,
+        mode: 'long-distance' as const,
+        total: roundMoney(newJobDistanceKm * costPerKm),
+        distanceKm: newJobDistanceKm,
+        costPerKm,
+      };
+    }
+    if (newJobEstimatedMinutes == null) {
+      return { ready: false, message: 'Ingresa una duracion estimada valida.' };
+    }
+    const hourlyRate = Number.isFinite(newJobSelectedVehicle.hourlyRate)
+      ? Number(newJobSelectedVehicle.hourlyRate)
+      : hourlyRateValue;
+    if (hourlyRate == null) {
+      return { ready: false, message: 'Falta precio por hora del vehiculo o precio global.' };
+    }
+    const chargeableMinutes = newJobEstimatedMinutes + newJobDistantBaseExtraMinutes;
+    const billedHours = getBilledHoursFromMinutes(chargeableMinutes);
+    if (billedHours == null) {
+      return { ready: false, message: 'No se pudo calcular las horas facturables.' };
+    }
+    const helpersAmount = helperHourlyRateValue != null && newJobHelpersCountValue > 0
+      ? billedHours * helperHourlyRateValue * newJobHelpersCountValue
+      : 0;
+    const baseAmount = billedHours * hourlyRate;
+    return {
+      ready: true,
+      mode: 'hourly' as const,
+      total: roundMoney(baseAmount + helpersAmount),
+      baseAmount: roundMoney(baseAmount),
+      helpersAmount: roundMoney(helpersAmount),
+      billedHours,
+      hourlyRate,
+      distantBaseExtraMinutes: newJobDistantBaseExtraMinutes,
+    };
+  })();
   const realHourlyMeta = realHourlyStats.trips > 0
     ? `Basado en ${realHourlyStats.trips} viajes y ${decimalFormatter.format(realHourlyStats.hoursTotal)} h.`
     : 'Sin tiempos suficientes.';
@@ -3185,6 +3283,8 @@ export default function AdminJobs() {
                             type="number"
                             min="0"
                             step="1"
+                            value={newJobHelpersCount}
+                            onChange={(event) => setNewJobHelpersCount(event.target.value)}
                             placeholder="Ayudantes requeridos"
                             className="mt-1 w-full rounded border px-3 py-2 text-sm"
                           />
@@ -3196,6 +3296,8 @@ export default function AdminJobs() {
                             type="number"
                             min="0.5"
                             step="0.5"
+                            value={newJobEstimatedDurationHours}
+                            onChange={(event) => setNewJobEstimatedDurationHours(event.target.value)}
                             placeholder="Ej: 2.5"
                             className="mt-1 w-full rounded border px-3 py-2 text-sm"
                             required
@@ -3403,6 +3505,52 @@ export default function AdminJobs() {
                           </p>
                         )}
                       </div>
+                      {pickup && dropoff && newJobSelectedVehicle && (
+                        <div className="rounded border bg-emerald-50/80 p-3 text-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="font-semibold text-emerald-950">Precio estimado del flete</p>
+                              <p className="text-xs text-emerald-800">
+                                Vehiculo: {newJobSelectedVehicle.name}
+                              </p>
+                            </div>
+                            {newJobPreview?.ready && (
+                              <p className="text-xl font-semibold text-emerald-950">
+                                {currencyFormatter.format(newJobPreview.total)}
+                              </p>
+                            )}
+                          </div>
+                          {!newJobPreview && (
+                            <p className="mt-2 text-emerald-800">
+                              Completa origen, destino y vehiculo para ver el precio.
+                            </p>
+                          )}
+                          {newJobPreview && !newJobPreview.ready && (
+                            <p className="mt-2 text-amber-800">{newJobPreview.message}</p>
+                          )}
+                          {newJobPreview?.ready && newJobPreview.mode === 'long-distance' && (
+                            <div className="mt-2 space-y-1 text-xs text-emerald-900">
+                              <p>Modo: larga distancia por km.</p>
+                              <p>
+                                {decimalFormatter.format(newJobPreview.distanceKm)} km x {currencyFormatter.format(newJobPreview.costPerKm)}/km
+                              </p>
+                            </div>
+                          )}
+                          {newJobPreview?.ready && newJobPreview.mode === 'hourly' && (
+                            <div className="mt-2 space-y-1 text-xs text-emerald-900">
+                              <p>
+                                {decimalFormatter.format(newJobPreview.billedHours)} h facturables x {currencyFormatter.format(newJobPreview.hourlyRate)}/h = {currencyFormatter.format(newJobPreview.baseAmount)}
+                              </p>
+                              {newJobPreview.helpersAmount > 0 && (
+                                <p>Ayudantes: {currencyFormatter.format(newJobPreview.helpersAmount)}</p>
+                              )}
+                              {newJobPreview.distantBaseExtraMinutes > 0 && (
+                                <p>Incluye {newJobPreview.distantBaseExtraMinutes} min extra por base lejana.</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <button
                         type="submit"
                         disabled={savingJob}
