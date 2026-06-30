@@ -260,7 +260,9 @@ const buildLeadChangeMessage = ({ current = null, next, historyNote = null }) =>
   return changes.join('. ');
 };
 
-export const ensureSchema = async () => {
+let schemaPromise = null;
+
+const runEnsureSchema = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
@@ -278,7 +280,7 @@ export const ensureSchema = async () => {
       notes TEXT,
       driver_id TEXT,
       vehicle_id TEXT,
-      is_long_distance BOOLEAN NOT NULL DEFAULT FALSE,
+      is_long_distance BOOLEAN,
       helpers_count INTEGER,
       estimated_duration_minutes INTEGER,
       charged_amount DOUBLE PRECISION,
@@ -302,7 +304,7 @@ export const ensureSchema = async () => {
   `;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`;
-  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_long_distance BOOLEAN NOT NULL DEFAULT FALSE;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_long_distance BOOLEAN;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stop_index INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS distance_meters DOUBLE PRECISION;`;
@@ -420,6 +422,16 @@ export const ensureSchema = async () => {
   await sql`UPDATE leads SET history = '[]'::jsonb WHERE history IS NULL;`;
   await sql`ALTER TABLE leads ALTER COLUMN history SET DEFAULT '[]'::jsonb;`;
   await sql`ALTER TABLE leads ALTER COLUMN history SET NOT NULL;`;
+};
+
+export const ensureSchema = async () => {
+  if (!schemaPromise) {
+    schemaPromise = runEnsureSchema().catch((error) => {
+      schemaPromise = null;
+      throw error;
+    });
+  }
+  return schemaPromise;
 };
 
 export const computeScheduledAt = (date, time) => {
