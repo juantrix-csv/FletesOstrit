@@ -56,6 +56,64 @@ describe('job pricing', () => {
     expect(breakdown.computedTotal).toBe(1500);
   });
 
+  it('includes distant base time in the final amount charged by the driver', () => {
+    const breakdown = getJobChargeBreakdown(makeJob(), {
+      hourlyRate: 10000,
+      helperHourlyRate: null,
+      distantBaseTravelMinutes: 16,
+      distantBasePoint: 'dropoff',
+    });
+
+    expect(breakdown.durationMs).toBe(60 * 60 * 1000);
+    expect(breakdown.distantBaseExtraMinutes).toBe(16);
+    expect(breakdown.chargeableDurationMs).toBe(76 * 60 * 1000);
+    expect(breakdown.billedHours).toBe(1.5);
+    expect(breakdown.baseAmount).toBe(15000);
+    expect(breakdown.totalAmount).toBe(15000);
+    expect(breakdown.source).toBe('computed');
+  });
+
+  it('includes distant base time before calculating helper charges', () => {
+    const breakdown = getJobChargeBreakdown(makeJob({ helpersCount: 2 }), {
+      hourlyRate: 10000,
+      helperHourlyRate: 2500,
+      distantBaseTravelMinutes: 16,
+      distantBasePoint: 'pickup',
+    });
+
+    expect(breakdown.billedHours).toBe(1.5);
+    expect(breakdown.baseAmount).toBe(15000);
+    expect(breakdown.helpersAmount).toBe(7500);
+    expect(breakdown.computedTotal).toBe(22500);
+    expect(breakdown.totalAmount).toBe(22500);
+  });
+
+  it('does not increase the driver final amount when the farthest point is exactly 15 minutes from base', () => {
+    const breakdown = getJobChargeBreakdown(makeJob(), {
+      hourlyRate: 10000,
+      helperHourlyRate: null,
+      distantBaseTravelMinutes: 15,
+      distantBasePoint: 'pickup',
+    });
+
+    expect(breakdown.distantBaseExtraMinutes).toBe(0);
+    expect(breakdown.billedHours).toBe(1);
+    expect(breakdown.totalAmount).toBe(10000);
+  });
+
+  it('rounds the final amount after adding long-distance base time', () => {
+    const breakdown = getJobChargeBreakdown(makeJob(), {
+      hourlyRate: 10000,
+      helperHourlyRate: null,
+      distantBaseTravelMinutes: 45,
+      distantBasePoint: 'dropoff',
+    });
+
+    expect(breakdown.chargeableDurationMs).toBe(105 * 60 * 1000);
+    expect(breakdown.billedHours).toBe(2);
+    expect(breakdown.totalAmount).toBe(20000);
+  });
+
   it('does not add distant base time when the driver is exempt', () => {
     const breakdown = getJobChargeBreakdown(makeJob(), {
       hourlyRate: 1000,

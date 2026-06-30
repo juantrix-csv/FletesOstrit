@@ -775,6 +775,10 @@ export default function AdminJobs() {
     const vehicle = getJobVehicle(job);
     return Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle?.hourlyRate) : hourlyRateValue;
   };
+  const getJobCostPerKmValue = (job: Pick<Job, 'vehicleId' | 'driverId'>) => {
+    const vehicle = getJobVehicle(job);
+    return Number.isFinite(vehicle?.costPerKm) ? Number(vehicle?.costPerKm) : tripCostPerKmValue;
+  };
 
   const loadJobs = async (options?: { silent?: boolean }) => {
     try {
@@ -2117,8 +2121,9 @@ export default function AdminJobs() {
     const timeCost = tripCostPerHourValue != null && durationHours != null && Number.isFinite(durationHours)
       ? durationHours * tripCostPerHourValue
       : 0;
-    const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null && Number.isFinite(distanceKm)
-      ? distanceKm * tripCostPerKmValue
+    const costPerKm = getJobCostPerKmValue(entry.job);
+    const fuelCost = !isExternalDriver(driver) && costPerKm != null && distanceKm != null && Number.isFinite(distanceKm)
+      ? distanceKm * costPerKm
       : 0;
     const schedulingCost = getSchedulingAssistantCost();
 
@@ -2130,7 +2135,7 @@ export default function AdminJobs() {
       schedulingCost,
       total: driverShare + helpersCost + timeCost + fuelCost + schedulingCost,
       missingTimeCost: tripCostPerHourValue != null && (durationHours == null || !Number.isFinite(durationHours)),
-      missingFuelCost: tripCostPerKmValue != null && !isExternalDriver(driver) && (distanceKm == null || !Number.isFinite(distanceKm)),
+      missingFuelCost: costPerKm != null && !isExternalDriver(driver) && (distanceKm == null || !Number.isFinite(distanceKm)),
     };
   };
   const getEntryNetTotal = (entry: { job: Job; durationMs: number | null }) => {
@@ -2956,8 +2961,9 @@ export default function AdminJobs() {
           ? baseValue - (baseValue * driverShareRatio)
           : estimate;
       const distanceKm = jobDistanceKmById.get(item.job.id) ?? null;
-      const fuelCost = !isExternalDriver(driver) && tripCostPerKmValue != null && distanceKm != null
-        ? distanceKm * tripCostPerKmValue
+      const costPerKm = getJobCostPerKmValue(item.job);
+      const fuelCost = !isExternalDriver(driver) && costPerKm != null && distanceKm != null
+        ? distanceKm * costPerKm
         : 0;
       const timeCost = tripCostPerHourValue != null && Number.isFinite(item.durationMinutes)
         ? (item.durationMinutes / 60) * tripCostPerHourValue
