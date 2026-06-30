@@ -25,6 +25,7 @@ const isNonEmptyString = (value) => typeof value === 'string' && value.trim().le
 const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 const isPositiveInteger = (value) => Number.isInteger(value) && value > 0;
 const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;
+const isOptionalBoolean = (value) => value == null || typeof value === 'boolean';
 const isLocation = (value) => (
   value &&
   typeof value.address === 'string' &&
@@ -105,6 +106,10 @@ export default async function handler(req, res) {
     }
     if (body.transferAmount != null && !isNonNegativeNumber(body.transferAmount)) {
       res.status(400).json({ error: 'Invalid transferAmount' });
+      return;
+    }
+    if (!isOptionalBoolean(body.isLongDistance)) {
+      res.status(400).json({ error: 'Invalid isLongDistance' });
       return;
     }
     if (body.driverId) {

@@ -528,6 +528,7 @@ type EditJobDraft = {
   helpersCount: string;
   driverId: string;
   vehicleId: string;
+  isLongDistance: boolean;
 };
 
 const emptyEditDraft: EditJobDraft = {
@@ -540,6 +541,7 @@ const emptyEditDraft: EditJobDraft = {
   helpersCount: '',
   driverId: '',
   vehicleId: '',
+  isLongDistance: false,
 };
 
 const getEstimatedDurationMinutes = (job: Job) => {
@@ -633,6 +635,7 @@ export default function AdminJobs() {
   const [open, setOpen] = useState(false);
   const [newJobDriverId, setNewJobDriverId] = useState('');
   const [newJobVehicleId, setNewJobVehicleId] = useState('');
+  const [newJobIsLongDistance, setNewJobIsLongDistance] = useState(false);
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
   const [extraStops, setExtraStops] = useState<LocationData[]>([]);
@@ -1228,6 +1231,7 @@ export default function AdminJobs() {
         helpersCount,
         driverId: driverIdValue || undefined,
         vehicleId: vehicleIdValue || undefined,
+        isLongDistance: newJobIsLongDistance,
         status: 'PENDING',
         flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
         timestamps: {},
@@ -1238,6 +1242,7 @@ export default function AdminJobs() {
       setOpen(false);
       setNewJobDriverId('');
       setNewJobVehicleId('');
+      setNewJobIsLongDistance(false);
       setPickup(null);
       setDropoff(null);
       setExtraStops([]);
@@ -1294,6 +1299,7 @@ export default function AdminJobs() {
       helpersCount: Number.isFinite(job.helpersCount) ? String(job.helpersCount) : '',
       driverId: job.driverId ?? '',
       vehicleId: job.vehicleId ?? getDriverDefaultVehicleId(job.driverId),
+      isLongDistance: job.isLongDistance === true,
     });
     setEditPickup(job.pickup ?? null);
     setEditDropoff(job.dropoff ?? null);
@@ -1357,6 +1363,7 @@ export default function AdminJobs() {
         helpersCount: helpersCountRaw ? helpersCount : undefined,
         driverId: editDraft.driverId ? editDraft.driverId : null,
         vehicleId: editDraft.vehicleId ? editDraft.vehicleId : null,
+        isLongDistance: editDraft.isLongDistance,
       });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
       toast.success('Flete actualizado');
@@ -3323,6 +3330,15 @@ export default function AdminJobs() {
                           </select>
                         </label>
                       </div>
+                      <label className="flex items-center gap-2 rounded border bg-amber-50/70 px-3 py-2 text-xs font-medium text-amber-800">
+                        <input
+                          type="checkbox"
+                          checked={newJobIsLongDistance}
+                          onChange={(event) => setNewJobIsLongDistance(event.target.checked)}
+                          className="rounded border-amber-300"
+                        />
+                        Flete de larga distancia
+                      </label>
                       <div className="space-y-2 rounded border bg-gray-50 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-sm font-medium">Seleccion en mapa</p>
@@ -3509,6 +3525,11 @@ export default function AdminJobs() {
                               <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase", statusBadge.className)}>
                                 {statusBadge.label}
                               </span>
+                              {job.isLongDistance && (
+                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
+                                  Larga distancia
+                                </span>
+                              )}
                             </div>
                             <p className="text-xs text-gray-500">Fecha: {job.scheduledDate || 'Sin fecha'} | Hora: {job.scheduledTime || 'Sin hora'}</p>
                             {job.description && (
@@ -3730,6 +3751,15 @@ export default function AdminJobs() {
                                 </select>
                               </label>
                             </div>
+                              <label className="mt-2 flex items-center gap-2 rounded border bg-amber-50/70 px-2 py-1.5 text-xs font-medium text-amber-800">
+                                <input
+                                  type="checkbox"
+                                  checked={editDraft.isLongDistance}
+                                  onChange={(event) => setEditDraft((prev) => ({ ...prev, isLongDistance: event.target.checked }))}
+                                  className="rounded border-amber-300"
+                                />
+                                Flete de larga distancia
+                              </label>
                               <label className="mt-2 block text-xs text-gray-500">
                                 Descripcion
                                 <textarea

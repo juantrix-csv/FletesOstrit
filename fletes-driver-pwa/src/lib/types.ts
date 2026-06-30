@@ -81,6 +81,7 @@ export interface Job {
   id: string; clientName: string; clientPhone?: string | null; description?: string; pickup: LocationData; dropoff: LocationData; extraStops?: LocationData[];
   notes?: string; helpersCount?: number; estimatedDurationMinutes?: number | null; status: JobStatus; driverId?: string | null;
   vehicleId?: string | null;
+  isLongDistance?: boolean;
   chargedAmount?: number | null;
   cashAmount?: number | null;
   transferAmount?: number | null;

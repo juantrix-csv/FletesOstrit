@@ -278,6 +278,7 @@ export const ensureSchema = async () => {
       notes TEXT,
       driver_id TEXT,
       vehicle_id TEXT,
+      is_long_distance BOOLEAN NOT NULL DEFAULT FALSE,
       helpers_count INTEGER,
       estimated_duration_minutes INTEGER,
       charged_amount DOUBLE PRECISION,
@@ -301,6 +302,7 @@ export const ensureSchema = async () => {
   `;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_long_distance BOOLEAN NOT NULL DEFAULT FALSE;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stop_index INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS distance_meters DOUBLE PRECISION;`;
@@ -453,6 +455,7 @@ const normalizeRow = (row) => {
     notes: row.notes ?? undefined,
     driverId: row.driver_id ?? undefined,
     vehicleId: row.vehicle_id ?? undefined,
+    isLongDistance: row.is_long_distance === true,
     helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
     estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
     chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : fallbackChargedAmount,
@@ -643,7 +646,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, vehicle_id, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, vehicle_id, is_long_distance, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount,
       hourly_billed_hours, hourly_base_amount, driver_share_amount, company_share_amount, driver_share_ratio, share_source, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
@@ -663,6 +666,7 @@ export const createJob = async (job) => {
       ${job.notes ?? null},
       ${job.driverId ?? null},
       ${job.vehicleId ?? null},
+      ${job.isLongDistance === true},
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
       ${Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null},
       ${payment.chargedAmount},
@@ -770,6 +774,7 @@ export const updateJob = async (id, patch) => {
       notes = ${next.notes ?? null},
       driver_id = ${next.driverId ?? null},
       vehicle_id = ${next.vehicleId ?? null},
+      is_long_distance = ${next.isLongDistance === true},
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
       charged_amount = ${payment.chargedAmount},
