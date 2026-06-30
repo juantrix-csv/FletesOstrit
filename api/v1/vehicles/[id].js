@@ -49,6 +49,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid costPerKm' });
       return;
     }
+    if (Object.prototype.hasOwnProperty.call(body, 'pricePerLongDistanceKm') && !isOptionalNonNegativeNumber(body.pricePerLongDistanceKm)) {
+      res.status(400).json({ error: 'Invalid pricePerLongDistanceKm' });
+      return;
+    }
     if (Object.prototype.hasOwnProperty.call(body, 'fixedMonthlyCost') && !isNonNegativeNumber(body.fixedMonthlyCost)) {
       res.status(400).json({ error: 'Invalid fixedMonthlyCost' });
       return;

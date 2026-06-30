@@ -551,7 +551,7 @@ type NewJobPricePreview =
     mode: 'long-distance';
     total: number;
     distanceKm: number;
-    costPerKm: number;
+    pricePerKm: number;
   }
   | {
     ready: true;
@@ -685,6 +685,7 @@ export default function AdminJobs() {
   const [vehicleHourlyRateInput, setVehicleHourlyRateInput] = useState('');
   const [vehicleCompanyHourlyMarginInput, setVehicleCompanyHourlyMarginInput] = useState('');
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
+  const [vehiclePricePerLongDistanceKmInput, setVehiclePricePerLongDistanceKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [savingVehicle, setSavingVehicle] = useState(false);
@@ -1436,6 +1437,7 @@ export default function AdminJobs() {
     setVehicleHourlyRateInput('');
     setVehicleCompanyHourlyMarginInput('');
     setVehicleCostPerKmInput('');
+    setVehiclePricePerLongDistanceKmInput('');
     setVehicleFixedMonthlyInput('');
     setEditingVehicleId(null);
   };
@@ -1448,6 +1450,7 @@ export default function AdminJobs() {
     setVehicleHourlyRateInput(Number.isFinite(vehicle.hourlyRate) ? String(vehicle.hourlyRate) : '');
     setVehicleCompanyHourlyMarginInput(Number.isFinite(vehicle.companyHourlyMargin) ? String(vehicle.companyHourlyMargin) : '');
     setVehicleCostPerKmInput(String(vehicle.costPerKm));
+    setVehiclePricePerLongDistanceKmInput(Number.isFinite(vehicle.pricePerLongDistanceKm) ? String(vehicle.pricePerLongDistanceKm) : '');
     setVehicleFixedMonthlyInput(String(vehicle.fixedMonthlyCost));
   };
 
@@ -1476,6 +1479,15 @@ export default function AdminJobs() {
       toast.error('Gasto por km obligatorio');
       return;
     }
+    const pricePerLongDistanceKm = parseMoneyInput(vehiclePricePerLongDistanceKmInput);
+    if (vehiclePricePerLongDistanceKmInput.trim() && pricePerLongDistanceKm == null) {
+      toast.error('Precio km larga distancia invalido');
+      return;
+    }
+    if (!vehiclePricePerLongDistanceKmInput.trim()) {
+      toast.error('Precio km larga distancia obligatorio');
+      return;
+    }
     const fixedMonthlyCost = parseMoneyInput(vehicleFixedMonthlyInput);
     if (vehicleFixedMonthlyInput.trim() && fixedMonthlyCost == null) {
       toast.error('Gasto fijo mensual invalido');
@@ -1495,6 +1507,7 @@ export default function AdminJobs() {
         hourlyRate,
         companyHourlyMargin: vehicleOwnershipType === 'driver' ? companyHourlyMargin : null,
         costPerKm: costPerKm as number,
+        pricePerLongDistanceKm: pricePerLongDistanceKm as number,
         fixedMonthlyCost: fixedMonthlyCost as number,
         updatedAt: now,
       };
@@ -2376,16 +2389,18 @@ export default function AdminJobs() {
       return { ready: false, message: 'Cantidad de ayudantes invalida.' };
     }
     if (newJobIsLongDistance) {
-      const costPerKm = Number.isFinite(newJobSelectedVehicle.costPerKm) ? Number(newJobSelectedVehicle.costPerKm) : null;
-      if (newJobDistanceKm == null || costPerKm == null) {
-        return { ready: false, message: 'Falta distancia o costo por km del vehiculo.' };
+      const pricePerKm = Number.isFinite(newJobSelectedVehicle.pricePerLongDistanceKm)
+        ? Number(newJobSelectedVehicle.pricePerLongDistanceKm)
+        : null;
+      if (newJobDistanceKm == null || pricePerKm == null) {
+        return { ready: false, message: 'Falta distancia o precio por km larga distancia del vehiculo.' };
       }
       return {
         ready: true,
         mode: 'long-distance' as const,
-        total: roundMoney(newJobDistanceKm * costPerKm),
+        total: roundMoney(newJobDistanceKm * pricePerKm),
         distanceKm: newJobDistanceKm,
-        costPerKm,
+        pricePerKm,
       };
     }
     if (newJobEstimatedMinutes == null) {
@@ -3532,7 +3547,7 @@ export default function AdminJobs() {
                             <div className="mt-2 space-y-1 text-xs text-emerald-900">
                               <p>Modo: larga distancia por km.</p>
                               <p>
-                                {decimalFormatter.format(newJobPreview.distanceKm)} km x {currencyFormatter.format(newJobPreview.costPerKm)}/km
+                                {decimalFormatter.format(newJobPreview.distanceKm)} km x {currencyFormatter.format(newJobPreview.pricePerKm)}/km
                               </p>
                             </div>
                           )}
@@ -4563,7 +4578,7 @@ export default function AdminJobs() {
                   </div>
                   <span className="text-xs text-gray-400">{vehicles.length} registrados</span>
                 </div>
-                <form onSubmit={handleSaveVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_auto]">
+                <form onSubmit={handleSaveVehicle} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr_1fr_auto]">
                   <div>
                     <label className="text-xs text-gray-500">Nombre</label>
                     <input
@@ -4636,6 +4651,19 @@ export default function AdminJobs() {
                     />
                   </div>
                   <div>
+                    <label className="text-xs text-gray-500">Precio km larga dist.</label>
+                    <input
+                      value={vehiclePricePerLongDistanceKmInput}
+                      onChange={(event) => setVehiclePricePerLongDistanceKmInput(event.target.value)}
+                      placeholder="0.00"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      required
+                    />
+                  </div>
+                  <div>
                     <label className="text-xs text-gray-500">Gasto fijo mensual</label>
                     <input
                       value={vehicleFixedMonthlyInput}
@@ -4686,6 +4714,13 @@ export default function AdminJobs() {
                           </div>
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.costPerKm)}</span> / km
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            <span className="font-semibold text-gray-800">
+                              {Number.isFinite(vehicle.pricePerLongDistanceKm)
+                                ? currencyFormatter.format(Number(vehicle.pricePerLongDistanceKm))
+                                : 'Sin precio'}
+                            </span> / km LD
                           </div>
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">
@@ -4821,6 +4856,9 @@ export default function AdminJobs() {
                               {assignedVehicle && (
                                 <p className="mt-1 text-[11px] text-gray-500">
                                   {currencyFormatter.format(assignedVehicle.costPerKm)} / km
+                                  {Number.isFinite(assignedVehicle.pricePerLongDistanceKm)
+                                    ? ` | LD ${currencyFormatter.format(Number(assignedVehicle.pricePerLongDistanceKm))} / km`
+                                    : ''}
                                   {Number.isFinite(assignedVehicle.hourlyRate)
                                     ? ` | ${currencyFormatter.format(Number(assignedVehicle.hourlyRate))} / h`
                                     : ''}

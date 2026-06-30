@@ -58,6 +58,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid costPerKm' });
       return;
     }
+    if (!isOptionalNonNegativeNumber(body.pricePerLongDistanceKm)) {
+      res.status(400).json({ error: 'Invalid pricePerLongDistanceKm' });
+      return;
+    }
     if (!isNonNegativeNumber(body.fixedMonthlyCost)) {
       res.status(400).json({ error: 'Invalid fixedMonthlyCost' });
       return;
@@ -75,6 +79,7 @@ export default async function handler(req, res) {
       hourlyRate: body.hourlyRate ?? null,
       companyHourlyMargin: body.companyHourlyMargin ?? null,
       costPerKm: body.costPerKm,
+      pricePerLongDistanceKm: body.pricePerLongDistanceKm ?? null,
       fixedMonthlyCost: body.fixedMonthlyCost,
       createdAt: body.createdAt,
       updatedAt: body.updatedAt,

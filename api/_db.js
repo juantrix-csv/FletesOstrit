@@ -355,6 +355,7 @@ const runEnsureSchema = async () => {
       hourly_rate DOUBLE PRECISION,
       company_hourly_margin DOUBLE PRECISION,
       cost_per_km DOUBLE PRECISION NOT NULL,
+      price_per_long_distance_km DOUBLE PRECISION,
       fixed_monthly_cost DOUBLE PRECISION NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -363,6 +364,7 @@ const runEnsureSchema = async () => {
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS ownership_type TEXT;`;
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION;`;
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS company_hourly_margin DOUBLE PRECISION;`;
+  await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS price_per_long_distance_km DOUBLE PRECISION;`;
   await sql`UPDATE vehicles SET ownership_type = 'owner' WHERE ownership_type IS NULL;`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET DEFAULT 'owner';`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET NOT NULL;`;
@@ -1343,6 +1345,7 @@ const normalizeVehicleRow = (row) => ({
   hourlyRate: row.hourly_rate != null ? Number(row.hourly_rate) : null,
   companyHourlyMargin: row.company_hourly_margin != null ? Number(row.company_hourly_margin) : null,
   costPerKm: row.cost_per_km != null ? Number(row.cost_per_km) : 0,
+  pricePerLongDistanceKm: row.price_per_long_distance_km != null ? Number(row.price_per_long_distance_km) : null,
   fixedMonthlyCost: row.fixed_monthly_cost != null ? Number(row.fixed_monthly_cost) : 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -1367,7 +1370,7 @@ export const createVehicle = async (vehicle) => {
   const updatedAt = vehicle.updatedAt ?? createdAt;
   await sql`
     INSERT INTO vehicles (
-      id, name, size, ownership_type, hourly_rate, company_hourly_margin, cost_per_km, fixed_monthly_cost, created_at, updated_at
+      id, name, size, ownership_type, hourly_rate, company_hourly_margin, cost_per_km, price_per_long_distance_km, fixed_monthly_cost, created_at, updated_at
     ) VALUES (
       ${vehicle.id},
       ${vehicle.name},
@@ -1376,6 +1379,7 @@ export const createVehicle = async (vehicle) => {
       ${Number.isFinite(vehicle.hourlyRate) ? Number(vehicle.hourlyRate) : null},
       ${Number.isFinite(vehicle.companyHourlyMargin) ? Number(vehicle.companyHourlyMargin) : null},
       ${vehicle.costPerKm},
+      ${Number.isFinite(vehicle.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null},
       ${vehicle.fixedMonthlyCost},
       ${createdAt},
       ${updatedAt}
@@ -1400,6 +1404,7 @@ export const updateVehicle = async (id, patch) => {
       hourly_rate = ${Number.isFinite(next.hourlyRate) ? Number(next.hourlyRate) : null},
       company_hourly_margin = ${Number.isFinite(next.companyHourlyMargin) ? Number(next.companyHourlyMargin) : null},
       cost_per_km = ${next.costPerKm},
+      price_per_long_distance_km = ${Number.isFinite(next.pricePerLongDistanceKm) ? Number(next.pricePerLongDistanceKm) : null},
       fixed_monthly_cost = ${next.fixedMonthlyCost},
       created_at = ${next.createdAt},
       updated_at = ${next.updatedAt}
