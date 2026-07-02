@@ -1,41 +1,11 @@
 import type maplibregl from 'maplibre-gl';
 import type { AppTheme } from './theme';
 
-const createOpenMapStyle = (theme: AppTheme): maplibregl.StyleSpecification => {
-  const sourceId = theme === 'dark' ? 'carto-dark' : 'carto-light';
-  const palette = theme === 'dark' ? 'dark_all' : 'light_all';
+const OPEN_FREE_MAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/bright';
 
-  return {
-    version: 8,
-    name: 'Fletes Ostrit Open Map',
-    sources: {
-      [sourceId]: {
-        type: 'raster',
-        tiles: [
-          `https://a.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
-          `https://b.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
-          `https://c.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
-          `https://d.basemaps.cartocdn.com/${palette}/{z}/{x}/{y}.png`,
-        ],
-        tileSize: 256,
-        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-      },
-    },
-    layers: [
-      {
-        id: sourceId,
-        type: 'raster',
-        source: sourceId,
-        minzoom: 0,
-        maxzoom: 20,
-      },
-    ],
-  };
-};
-
-export const OPEN_MAP_STYLES: Record<AppTheme, maplibregl.StyleSpecification> = {
-  dark: createOpenMapStyle('dark'),
-  light: createOpenMapStyle('light'),
+export const OPEN_MAP_STYLES: Record<AppTheme, string> = {
+  dark: OPEN_FREE_MAP_STYLE_URL,
+  light: OPEN_FREE_MAP_STYLE_URL,
 };
 
 export const OPEN_MAP_STYLE = OPEN_MAP_STYLES.dark;
@@ -61,6 +31,21 @@ const getRoadLabelLayerId = (map: maplibregl.Map) =>
     .getStyle()
     ?.layers?.find((layer) => layer.type === 'symbol' && layer.id.toLowerCase().includes('road'))
     ?.id;
+
+const STREET_NAME_LAYER_IDS = [
+  'highway-name-path',
+  'highway-name-minor',
+  'highway-name-major',
+];
+
+const TRIPLE_STREET_LABEL_SIZE = ['interpolate', ['linear'], ['zoom'], 13, 36, 14, 39] as const;
+
+const enlargeStreetLabels = (map: maplibregl.Map) => {
+  STREET_NAME_LAYER_IDS.forEach((layerId) => {
+    if (!map.getLayer(layerId)) return;
+    map.setLayoutProperty(layerId, 'text-size', TRIPLE_STREET_LABEL_SIZE);
+  });
+};
 
 const addOneWayLayer = (map: maplibregl.Map, layerId: string, textField: string, onewayValues: string[]) => {
   if (!map.getSource('composite') || map.getLayer(layerId)) return;
@@ -91,6 +76,7 @@ export const applyMapPalette = (map?: unknown) => {
   const mapInstance = map as maplibregl.Map;
   if (!mapInstance.isStyleLoaded()) return;
 
+  enlargeStreetLabels(mapInstance);
   addOneWayLayer(mapInstance, ONEWAY_FORWARD_LAYER_ID, '>', ['true', '1', 'yes']);
   addOneWayLayer(mapInstance, ONEWAY_REVERSE_LAYER_ID, '<', ['-1', 'reverse']);
 };
