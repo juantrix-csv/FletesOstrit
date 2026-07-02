@@ -2185,6 +2185,17 @@ export default function AdminJobs() {
       : 0;
     return billedHours * jobHourlyRate + helpersValue;
   };
+  const getCalendarLongDistanceDetails = (job: Job) => {
+    if (!job.isLongDistance) return null;
+    const distanceKm = getJobDistanceKm(job);
+    const total = getJobEstimatedTotal(job);
+    return {
+      distanceLabel: distanceKm != null && Number.isFinite(distanceKm)
+        ? `${decimalFormatter.format(distanceKm)} km`
+        : 'Km N/D',
+      totalLabel: total != null ? currencyFormatter.format(total) : 'Precio N/D',
+    };
+  };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
   const ownerVehicleDriverShareLabel = percentFormatter.format(ownerVehicleDriverShareRatio);
@@ -4149,6 +4160,7 @@ export default function AdminJobs() {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
                             const estimateValue = getJobEstimatedTotal(item.job);
                             const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                            const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
                             const vehicle = getJobVehicle(item.job);
@@ -4159,7 +4171,7 @@ export default function AdminJobs() {
                             const overlapColumns = layoutEntry?.columns ?? 1;
                             const isOverlapped = overlapColumns > 1;
                             const isDense = overlapColumns > 2;
-                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${estimateLabel ? `\n${estimateLabel}` : ''}`;
+                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
                             if (!style) return null;
                             return (
                               <div
@@ -4191,7 +4203,7 @@ export default function AdminJobs() {
                                 </div>
                                 <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
                                 <div className={cn("calendar-event__line", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
-                                  {formatJobRangeForDay(item.start, item.end, calendarDate)}
+                                  {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
                             );
@@ -4288,6 +4300,7 @@ export default function AdminJobs() {
                                   const style = getEventBlockStyle(item.start, item.end, day);
                                   const estimateValue = getJobEstimatedTotal(item.job);
                                   const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                  const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
                                   const vehicle = getJobVehicle(item.job);
@@ -4298,7 +4311,7 @@ export default function AdminJobs() {
                                   const overlapColumns = layoutEntry?.columns ?? 1;
                                   const isOverlapped = overlapColumns > 1;
                                   const isDense = overlapColumns > 2;
-                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${estimateLabel ? `\n${estimateLabel}` : ''}`;
+                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
                                   if (!style) return null;
                                   return (
                                     <div
@@ -4330,7 +4343,7 @@ export default function AdminJobs() {
                                       </div>
                                       <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
                                       <div className={cn("calendar-event__line", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
-                                        {formatJobRangeForDay(item.start, item.end, day)}
+                                        {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
                                     </div>
                                   );
@@ -4383,6 +4396,7 @@ export default function AdminJobs() {
                               {items.slice(0, 3).map((item) => {
                                 const estimateValue = getJobEstimatedTotal(item.job);
                                 const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                                 const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                 const driverLabel = driver?.name ?? 'Sin asignar';
                                 const vehicle = getJobVehicle(item.job);
@@ -4408,7 +4422,7 @@ export default function AdminJobs() {
                                       {calendarOwnerLabel}
                                     </div>
                                     <div className="truncate">
-                                      {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                      {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
                                     </div>
                                   </div>
                                 );
