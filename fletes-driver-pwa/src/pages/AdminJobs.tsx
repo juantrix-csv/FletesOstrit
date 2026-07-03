@@ -581,8 +581,8 @@ const isValidLocation = (loc?: LocationData | null) =>
   !!loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
 
 const getJobDistanceKm = (job: Job) => {
-  if (Number.isFinite(job.distanceKm)) return job.distanceKm as number;
-  if (Number.isFinite(job.distanceMeters)) return (job.distanceMeters as number) / 1000;
+  if (Number.isFinite(job.distanceKm) && (job.distanceKm as number) > 0) return job.distanceKm as number;
+  if (Number.isFinite(job.distanceMeters) && (job.distanceMeters as number) > 0) return (job.distanceMeters as number) / 1000;
   const points = [job.pickup, ...(job.extraStops ?? []), job.dropoff].filter(isValidLocation);
   if (points.length < 2) return null;
   let meters = 0;
