@@ -805,6 +805,10 @@ export default function AdminJobs() {
     const vehicle = getJobVehicle(job);
     return Number.isFinite(vehicle?.costPerKm) ? Number(vehicle?.costPerKm) : tripCostPerKmValue;
   };
+  const getJobLongDistancePricePerKmValue = (job: Pick<Job, 'vehicleId' | 'driverId'>) => {
+    const vehicle = getJobVehicle(job);
+    return Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle?.pricePerLongDistanceKm) : null;
+  };
 
   const loadJobs = async (options?: { silent?: boolean }) => {
     try {
@@ -2015,6 +2019,13 @@ export default function AdminJobs() {
   const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
     const collectedPayment = getJobCollectedPayment(entry.job);
     if (collectedPayment.total != null) return collectedPayment.total;
+    if (entry.job.isLongDistance === true) {
+      const distanceKm = jobDistanceKmById.get(entry.job.id) ?? getJobDistanceKm(entry.job);
+      const pricePerKm = getJobLongDistancePricePerKmValue(entry.job);
+      return distanceKm != null && pricePerKm != null
+        ? roundMoney(distanceKm * pricePerKm)
+        : null;
+    }
     const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
     const baseValue = getEntryHourlyValue(entry);
@@ -2191,6 +2202,13 @@ export default function AdminJobs() {
   const getJobEstimatedTotal = (job: Job) => {
     const collectedPayment = getJobCollectedPayment(job);
     if (collectedPayment.total != null) return collectedPayment.total;
+    if (job.isLongDistance === true) {
+      const distanceKm = jobDistanceKmById.get(job.id) ?? getJobDistanceKm(job);
+      const pricePerKm = getJobLongDistancePricePerKmValue(job);
+      return distanceKm != null && pricePerKm != null
+        ? roundMoney(distanceKm * pricePerKm)
+        : null;
+    }
     const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(job));
     const jobHourlyRate = getJobHourlyRateValue(job);
     if (jobHourlyRate == null || billedHours == null) return null;
@@ -2199,6 +2217,24 @@ export default function AdminJobs() {
       ? billedHours * helperHourlyRateValue * helpersCount
       : 0;
     return billedHours * jobHourlyRate + helpersValue;
+  };
+  const getJobCalendarEstimate = (job: Job) => {
+    const total = getJobEstimatedTotal(job);
+    if (total == null) return null;
+    if (job.isLongDistance !== true) {
+      return { total, label: currencyFormatter.format(total), mode: 'hourly' as const };
+    }
+    const distanceKm = jobDistanceKmById.get(job.id) ?? getJobDistanceKm(job);
+    const pricePerKm = getJobLongDistancePricePerKmValue(job);
+    const detail = distanceKm != null && pricePerKm != null
+      ? `${decimalFormatter.format(distanceKm)} km x ${currencyFormatter.format(pricePerKm)}/km`
+      : null;
+    return {
+      total,
+      label: `LD ${currencyFormatter.format(total)}`,
+      mode: 'long-distance' as const,
+      detail,
+    };
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
   const helperHourlyRateLabel = helperHourlyRateValue != null ? currencyFormatter.format(helperHourlyRateValue) : '--';
@@ -4242,8 +4278,8 @@ export default function AdminJobs() {
                           )}
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
-                            const estimateValue = getJobEstimatedTotal(item.job);
-                            const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                            const estimate = getJobCalendarEstimate(item.job);
+                            const estimateLabel = estimate?.label ?? null;
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
                             const vehicle = getJobVehicle(item.job);
@@ -4254,7 +4290,7 @@ export default function AdminJobs() {
                             const overlapColumns = layoutEntry?.columns ?? 1;
                             const isOverlapped = overlapColumns > 1;
                             const isDense = overlapColumns > 2;
-                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${estimateLabel ? `\n${estimateLabel}` : ''}`;
+                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${estimateLabel ? `\n${estimateLabel}` : ''}${estimate?.detail ? `\n${estimate.detail}` : ''}`;
                             if (!style) return null;
                             return (
                               <div
@@ -4277,7 +4313,10 @@ export default function AdminJobs() {
                                 } as CSSProperties}
                               >
                                 {!isDense && estimateLabel && (
-                                  <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                                  <span className={cn(
+                                    "absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap",
+                                    estimate?.mode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+                                  )}>
                                     {estimateLabel}
                                   </span>
                                 )}
@@ -4381,8 +4420,8 @@ export default function AdminJobs() {
                                 )}
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
-                                  const estimateValue = getJobEstimatedTotal(item.job);
-                                  const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                  const estimate = getJobCalendarEstimate(item.job);
+                                  const estimateLabel = estimate?.label ?? null;
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
                                   const vehicle = getJobVehicle(item.job);
@@ -4393,7 +4432,7 @@ export default function AdminJobs() {
                                   const overlapColumns = layoutEntry?.columns ?? 1;
                                   const isOverlapped = overlapColumns > 1;
                                   const isDense = overlapColumns > 2;
-                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${estimateLabel ? `\n${estimateLabel}` : ''}`;
+                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${estimateLabel ? `\n${estimateLabel}` : ''}${estimate?.detail ? `\n${estimate.detail}` : ''}`;
                                   if (!style) return null;
                                   return (
                                     <div
@@ -4416,7 +4455,10 @@ export default function AdminJobs() {
                                       } as CSSProperties}
                                     >
                                       {!isDense && estimateLabel && (
-                                        <span className="absolute right-0.5 top-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
+                                        <span className={cn(
+                                          "absolute right-0.5 top-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-semibold whitespace-nowrap",
+                                          estimate?.mode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+                                        )}>
                                           {estimateLabel}
                                         </span>
                                       )}
@@ -4476,8 +4518,8 @@ export default function AdminJobs() {
                             </div>
                             <div className="mt-2 space-y-1">
                               {items.slice(0, 3).map((item) => {
-                                const estimateValue = getJobEstimatedTotal(item.job);
-                                const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                const estimate = getJobCalendarEstimate(item.job);
+                                const estimateLabel = estimate?.label ?? null;
                                 const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                 const driverLabel = driver?.name ?? 'Sin asignar';
                                 const vehicle = getJobVehicle(item.job);
@@ -4493,9 +4535,13 @@ export default function AdminJobs() {
                                       borderColor: driverColors.border,
                                       color: driverColors.text,
                                     }}
+                                    title={estimate?.detail ?? estimateLabel ?? undefined}
                                   >
                                     {estimateLabel && (
-                                      <span className="absolute right-1 top-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
+                                      <span className={cn(
+                                        "absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[8px] font-semibold whitespace-nowrap",
+                                        estimate?.mode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+                                      )}>
                                         {estimateLabel}
                                       </span>
                                     )}
