@@ -746,6 +746,11 @@ export default function AdminJobs() {
     farthestKm: number | null;
   } | null>(null);
   const [loadingBaseTravelEstimate, setLoadingBaseTravelEstimate] = useState(false);
+  const [selectedJobRouteEstimate, setSelectedJobRouteEstimate] = useState<{
+    distanceMeters: number;
+    durationSeconds: number;
+  } | null>(null);
+  const [loadingSelectedJobRouteEstimate, setLoadingSelectedJobRouteEstimate] = useState(false);
   const locationsLoadedRef = useRef(false);
   const driversMapContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -808,6 +813,14 @@ export default function AdminJobs() {
   const getJobLongDistancePricePerKmValue = (job: Pick<Job, 'vehicleId' | 'driverId'>) => {
     const vehicle = getJobVehicle(job);
     return Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle?.pricePerLongDistanceKm) : null;
+  };
+  const getJobLongDistanceCalculatedTotal = (job: Job) => {
+    if (job.isLongDistance !== true) return null;
+    const distanceKm = jobDistanceKmById.get(job.id) ?? getJobDistanceKm(job);
+    const pricePerKm = getJobLongDistancePricePerKmValue(job);
+    return distanceKm != null && pricePerKm != null && pricePerKm > 0
+      ? roundMoney(distanceKm * pricePerKm)
+      : null;
   };
 
   const loadJobs = async (options?: { silent?: boolean }) => {
@@ -2017,15 +2030,11 @@ export default function AdminJobs() {
     return null;
   };
   const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
+    if (entry.job.isLongDistance === true) {
+      return getJobLongDistanceCalculatedTotal(entry.job);
+    }
     const collectedPayment = getJobCollectedPayment(entry.job);
     if (collectedPayment.total != null) return collectedPayment.total;
-    if (entry.job.isLongDistance === true) {
-      const distanceKm = jobDistanceKmById.get(entry.job.id) ?? getJobDistanceKm(entry.job);
-      const pricePerKm = getJobLongDistancePricePerKmValue(entry.job);
-      return distanceKm != null && pricePerKm != null
-        ? roundMoney(distanceKm * pricePerKm)
-        : null;
-    }
     const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
     const baseValue = getEntryHourlyValue(entry);
@@ -2200,15 +2209,11 @@ export default function AdminJobs() {
     return companyRevenue - expenses.total;
   };
   const getJobEstimatedTotal = (job: Job) => {
+    if (job.isLongDistance === true) {
+      return getJobLongDistanceCalculatedTotal(job);
+    }
     const collectedPayment = getJobCollectedPayment(job);
     if (collectedPayment.total != null) return collectedPayment.total;
-    if (job.isLongDistance === true) {
-      const distanceKm = jobDistanceKmById.get(job.id) ?? getJobDistanceKm(job);
-      const pricePerKm = getJobLongDistancePricePerKmValue(job);
-      return distanceKm != null && pricePerKm != null
-        ? roundMoney(distanceKm * pricePerKm)
-        : null;
-    }
     const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(job));
     const jobHourlyRate = getJobHourlyRateValue(job);
     if (jobHourlyRate == null || billedHours == null) return null;
@@ -3000,6 +3005,49 @@ export default function AdminJobs() {
   const selectedJobVehicle = selectedJobDetail ? getJobVehicle(selectedJobDetail) : null;
   const mapTargetLabel = mapTarget === 'pickup' ? 'origen' : mapTarget === 'dropoff' ? 'destino' : 'parada extra';
   const editMapTargetLabel = editMapTarget === 'pickup' ? 'origen' : editMapTarget === 'dropoff' ? 'destino' : 'parada extra';
+  useEffect(() => {
+    if (!selectedJobDetail || selectedJobDetail.isLongDistance !== true) {
+      setSelectedJobRouteEstimate(null);
+      setLoadingSelectedJobRouteEstimate(false);
+      return;
+    }
+
+    const routePoints = [
+      selectedJobDetail.pickup,
+      ...(selectedJobDetail.extraStops ?? []),
+      selectedJobDetail.dropoff,
+    ].filter(isValidLocation);
+
+    if (routePoints.length < 2) {
+      setSelectedJobRouteEstimate(null);
+      setLoadingSelectedJobRouteEstimate(false);
+      return;
+    }
+
+    let active = true;
+    setLoadingSelectedJobRouteEstimate(true);
+    (async () => {
+      const legs = await Promise.all(
+        routePoints.slice(0, -1).map((point, index) => getRouteEstimate(point, routePoints[index + 1]))
+      );
+      if (!active) return;
+
+      const validLegs = legs.filter((leg): leg is { distanceMeters: number; durationSeconds: number } => !!leg);
+      if (validLegs.length === 0) {
+        setSelectedJobRouteEstimate(null);
+      } else {
+        setSelectedJobRouteEstimate({
+          distanceMeters: validLegs.reduce((sum, leg) => sum + leg.distanceMeters, 0),
+          durationSeconds: validLegs.reduce((sum, leg) => sum + leg.durationSeconds, 0),
+        });
+      }
+      setLoadingSelectedJobRouteEstimate(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedJobDetail]);
   const selectedJobDurations = useMemo(() => {
     if (!selectedJobDetail) return null;
     const tripStart = selectedJobDetail.timestamps.startTripAt ?? selectedJobDetail.timestamps.endLoadingAt;
@@ -3020,6 +3068,29 @@ export default function AdminJobs() {
     ? currencyFormatter.format(selectedJobPayment.total)
     : 'Sin cargar';
   const selectedJobPaymentMethodLabel = getPaymentMethodLabel(selectedJobPayment?.method ?? 'none');
+  const selectedJobLongDistanceDistanceKm = selectedJobDetail?.isLongDistance === true
+    ? selectedJobRouteEstimate?.distanceMeters != null
+      ? selectedJobRouteEstimate.distanceMeters / 1000
+      : jobDistanceKmById.get(selectedJobDetail.id) ?? getJobDistanceKm(selectedJobDetail)
+    : null;
+  const selectedJobLongDistanceDurationLabel = selectedJobDetail?.isLongDistance === true
+    ? selectedJobRouteEstimate?.durationSeconds != null
+      ? formatDurationMs(selectedJobRouteEstimate.durationSeconds * 1000)
+      : selectedJobDetail.estimatedDurationMinutes != null && Number.isFinite(selectedJobDetail.estimatedDurationMinutes)
+        ? `${formatDurationMs((selectedJobDetail.estimatedDurationMinutes as number) * 60000)} aprox.`
+        : 'N/D'
+    : null;
+  const selectedJobLongDistancePricePerKm = selectedJobDetail?.isLongDistance === true
+    ? getJobLongDistancePricePerKmValue(selectedJobDetail)
+    : null;
+  const selectedJobLongDistanceCalculatedTotal = selectedJobDetail?.isLongDistance === true
+    && selectedJobLongDistanceDistanceKm != null
+    && selectedJobLongDistancePricePerKm != null
+    && selectedJobLongDistancePricePerKm > 0
+      ? roundMoney(selectedJobLongDistanceDistanceKm * selectedJobLongDistancePricePerKm)
+      : null;
+  const selectedJobLongDistanceMissingPrice = selectedJobDetail?.isLongDistance === true
+    && (selectedJobLongDistancePricePerKm == null || selectedJobLongDistancePricePerKm <= 0);
   const scheduledJobs = useMemo(() => {
     return jobs
       .map((job) => {
@@ -6197,15 +6268,58 @@ export default function AdminJobs() {
                       <p>
                         <span className="font-medium text-gray-900">Vehiculo:</span>{' '}
                         {selectedJobVehicle
-                          ? `${selectedJobVehicle.name}${Number.isFinite(selectedJobVehicle.hourlyRate) ? ` (${currencyFormatter.format(Number(selectedJobVehicle.hourlyRate))}/h)` : ''}`
+                          ? `${selectedJobVehicle.name}${selectedJobDetail.isLongDistance === true
+                            ? selectedJobLongDistancePricePerKm != null && selectedJobLongDistancePricePerKm > 0
+                              ? ` (${currencyFormatter.format(selectedJobLongDistancePricePerKm)}/km LD)`
+                              : ' (sin precio/km LD)'
+                            : Number.isFinite(selectedJobVehicle.hourlyRate)
+                              ? ` (${currencyFormatter.format(Number(selectedJobVehicle.hourlyRate))}/h)`
+                              : ''}`
                           : 'Sin vehiculo'}
                       </p>
+                      {selectedJobDetail.isLongDistance === true && (
+                        <>
+                          <p>
+                            <span className="font-medium text-gray-900">Tipo:</span>{' '}
+                            <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                              Larga distancia
+                            </span>
+                          </p>
+                          <p>
+                            <span className="font-medium text-gray-900">Distancia del viaje:</span>{' '}
+                            {selectedJobLongDistanceDistanceKm != null
+                              ? `${decimalFormatter.format(selectedJobLongDistanceDistanceKm)} km`
+                              : 'N/D'}
+                          </p>
+                          <p>
+                            <span className="font-medium text-gray-900">Tiempo aprox. por ruta:</span>{' '}
+                            {loadingSelectedJobRouteEstimate ? 'Calculando...' : selectedJobLongDistanceDurationLabel ?? 'N/D'}
+                          </p>
+                          {canSeeMoney && (
+                            <p>
+                              <span className="font-medium text-gray-900">Precio final calculado:</span>{' '}
+                              {selectedJobLongDistanceCalculatedTotal != null
+                                ? currencyFormatter.format(selectedJobLongDistanceCalculatedTotal)
+                                : selectedJobLongDistanceMissingPrice
+                                  ? 'Falta precio/km larga distancia del vehiculo'
+                                  : 'N/D'}
+                            </p>
+                          )}
+                          {canSeeMoney && selectedJobLongDistanceDistanceKm != null && selectedJobLongDistancePricePerKm != null && selectedJobLongDistancePricePerKm > 0 && (
+                            <p className="text-xs text-gray-500">
+                              {decimalFormatter.format(selectedJobLongDistanceDistanceKm)} km x {currencyFormatter.format(selectedJobLongDistancePricePerKm)}/km
+                            </p>
+                          )}
+                        </>
+                      )}
                       <p>
                         <span className="font-medium text-gray-900">Ayudantes:</span> {selectedJobDetail.helpersCount ?? 0}
                       </p>
-                      <p>
-                        <span className="font-medium text-gray-900">Duracion estimada:</span> {selectedJobEstimateLabel}
-                      </p>
+                      {selectedJobDetail.isLongDistance !== true && (
+                        <p>
+                          <span className="font-medium text-gray-900">Duracion estimada:</span> {selectedJobEstimateLabel}
+                        </p>
+                      )}
                       {canSeeMoney && (
                         <>
                           <p>
@@ -6265,12 +6379,24 @@ export default function AdminJobs() {
                     </div>
                   </div>
                   <div className="rounded-xl border bg-white p-3">
-                    <p className="text-xs uppercase tracking-wide text-gray-400">Tiempos</p>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">
+                      {selectedJobDetail.isLongDistance === true ? 'Tiempos y distancia' : 'Tiempos'}
+                    </p>
                     <div className="mt-2 space-y-1 text-sm text-gray-700">
-                      <p>Carga: {selectedJobDurations?.loading ?? 'N/A'}</p>
-                      <p>Viaje: {selectedJobDurations?.trip ?? 'N/A'}</p>
-                      <p>Descarga: {selectedJobDurations?.unloading ?? 'N/A'}</p>
-                      <p>Total: {selectedJobDurations?.total ?? 'N/A'}</p>
+                      {selectedJobDetail.isLongDistance === true ? (
+                        <>
+                          <p>Distancia: {selectedJobLongDistanceDistanceKm != null ? `${decimalFormatter.format(selectedJobLongDistanceDistanceKm)} km` : 'N/D'}</p>
+                          <p>Viaje aprox.: {loadingSelectedJobRouteEstimate ? 'Calculando...' : selectedJobLongDistanceDurationLabel ?? 'N/D'}</p>
+                          <p>Duracion cargada: {selectedJobEstimateLabel}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p>Carga: {selectedJobDurations?.loading ?? 'N/A'}</p>
+                          <p>Viaje: {selectedJobDurations?.trip ?? 'N/A'}</p>
+                          <p>Descarga: {selectedJobDurations?.unloading ?? 'N/A'}</p>
+                          <p>Total: {selectedJobDurations?.total ?? 'N/A'}</p>
+                        </>
+                      )}
                     </div>
                   </div>
                   {(selectedJobDetail.description || selectedJobDetail.notes) && (
