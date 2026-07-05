@@ -84,6 +84,9 @@ export default function JobWorkflow() {
   const vehicleHourlyRateValue = Number.isFinite(selectedVehicle?.hourlyRate)
     ? Number(selectedVehicle?.hourlyRate)
     : null;
+  const vehiclePricePerLongDistanceKm = Number.isFinite(selectedVehicle?.pricePerLongDistanceKm)
+    ? Number(selectedVehicle?.pricePerLongDistanceKm)
+    : null;
   const effectiveHourlyRateValue = vehicleHourlyRateValue ?? hourlyRateValue;
   const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
   const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
@@ -247,12 +250,21 @@ export default function JobWorkflow() {
   if (loading) return <div>Cargando...</div>;
   if (!job) return <div>No se encontro el flete</div>;
   const distantBaseLoading = operationsBaseLocationQuery.loading || (!!operationsBaseLocation && loadingDistantBaseEstimate);
+  const jobDistanceValueKm = Number.isFinite(job.distanceKm)
+    ? (job.distanceKm as number)
+    : Number.isFinite(job.distanceMeters)
+      ? (job.distanceMeters as number) / 1000
+      : null;
+  const isLongDistanceJob = !!(job.isLongDistance && jobDistanceValueKm != null && vehiclePricePerLongDistanceKm != null);
   const pricingPreview = getJobChargeBreakdown(job, {
     hourlyRate: effectiveHourlyRateValue,
     helperHourlyRate: helperHourlyRateValue,
     endAtMs: job.status === 'DONE' ? undefined : nowTick,
-    distantBaseTravelMinutes: distantBaseEstimate?.farthestMinutes ?? null,
-    distantBasePoint: distantBaseEstimate?.farthestPoint ?? null,
+    distantBaseTravelMinutes: isLongDistanceJob ? null : (distantBaseEstimate?.farthestMinutes ?? null),
+    distantBasePoint: isLongDistanceJob ? null : (distantBaseEstimate?.farthestPoint ?? null),
+    isLongDistance: isLongDistanceJob,
+    distanceKm: jobDistanceValueKm,
+    pricePerLongDistanceKm: vehiclePricePerLongDistanceKm,
   });
   const distanceKm = dist != null ? (dist / 1000) : null;
   const distanceText = distanceKm != null ? `${distanceKm.toFixed(1)} km` : 'N/D';
@@ -293,19 +305,14 @@ export default function JobWorkflow() {
   const estimatedDurationLabel = Number.isFinite(job.estimatedDurationMinutes)
     ? `${Math.round(job.estimatedDurationMinutes as number)} min`
     : 'N/D';
-  const distanceValueKm = Number.isFinite(job.distanceKm)
-    ? (job.distanceKm as number)
-    : Number.isFinite(job.distanceMeters)
-      ? (job.distanceMeters as number) / 1000
-      : null;
-  const distanceLabel = distanceValueKm != null ? `${distanceValueKm.toFixed(1)} km` : 'N/D';
+  const distanceLabel = jobDistanceValueKm != null ? `${jobDistanceValueKm.toFixed(1)} km` : 'N/D';
   const extraStops = job.extraStops ?? [];
   const hasHelpers = (job.helpersCount ?? 0) > 0;
   const pricingLoading = pricingPreview.source !== 'stored'
     && (
       distantBaseLoading
       || Boolean(job.vehicleId && vehiclesQuery.loading)
-      || (effectiveHourlyRateValue == null && hourlyRateQuery.loading)
+      || (!isLongDistanceJob && effectiveHourlyRateValue == null && hourlyRateQuery.loading)
       || (hasHelpers && helperHourlyRateQuery.loading)
     );
   const helperRateMissing = (job.helpersCount ?? 0) > 0 && helperHourlyRateValue == null;
@@ -336,7 +343,7 @@ export default function JobWorkflow() {
           <p>
             <span className="font-medium text-gray-900">Vehiculo:</span>{' '}
             {selectedVehicle
-              ? `${selectedVehicle.name}${vehicleHourlyRateValue != null ? ` (${moneyFormatter.format(vehicleHourlyRateValue)}/h)` : ''}`
+              ? `${selectedVehicle.name}${isLongDistanceJob && vehiclePricePerLongDistanceKm != null ? ` (${moneyFormatter.format(vehiclePricePerLongDistanceKm)}/km)` : vehicleHourlyRateValue != null ? ` (${moneyFormatter.format(vehicleHourlyRateValue)}/h)` : ''}`
               : 'Sin vehiculo especifico'}
           </p>
           <p><span className="font-medium text-gray-900">Ayudantes:</span> {job.helpersCount ?? 0}</p>
@@ -730,42 +737,79 @@ export default function JobWorkflow() {
             <div className="mt-3 rounded-2xl border bg-white p-3">
               <p className="text-xs uppercase tracking-wide text-gray-400">Como se forma</p>
               <div className="mt-2 space-y-1.5 text-sm text-gray-700">
-                <p>
-                  <span className="font-medium text-gray-900">Tiempo real:</span>{' '}
-                  {pricingPreview.durationMs != null ? formatDurationMs(pricingPreview.durationMs) : 'Sin tiempos'}
-                </p>
-                <p>
-                  <span className="font-medium text-gray-900">Extra por lejania:</span>{' '}
-                  {distantBaseExtraLabel}
-                </p>
-                {pricingPreview.distantBaseExtraMinutes > 0 && (
-                  <p>
-                    <span className="font-medium text-gray-900">Tiempo para redondeo:</span>{' '}
-                    {pricingPreview.chargeableDurationMs != null ? formatDurationMs(pricingPreview.chargeableDurationMs) : 'Sin tiempos'}
-                  </p>
+                {pricingPreview.isLongDistance ? (
+                  <>
+                    <p>
+                      <span className="font-medium text-gray-900">Distancia:</span>{' '}
+                      {pricingPreview.longDistanceKm != null ? `${pricingPreview.longDistanceKm.toFixed(1)} km` : 'N/D'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Flete base:</span>{' '}
+                      {pricingPreview.longDistanceBaseAmount != null && pricingPreview.longDistancePricePerKm != null && pricingPreview.longDistanceKm != null
+                        ? `${pricingPreview.longDistanceKm.toFixed(1)} km x ${moneyFormatter.format(pricingPreview.longDistancePricePerKm)}/km = ${moneyFormatter.format(pricingPreview.longDistanceBaseAmount)}`
+                        : pricingPreview.source === 'stored'
+                          ? 'Incluido en monto cargado'
+                          : 'Falta precio por km'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Tiempo real:</span>{' '}
+                      {pricingPreview.durationMs != null ? formatDurationMs(pricingPreview.durationMs) : 'Sin tiempos'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Horas facturadas (ayudantes):</span>{' '}
+                      {pricingPreview.billedHours != null ? formatBilledHours(pricingPreview.billedHours) : 'Sin calcular'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Ayudantes:</span>{' '}
+                      {pricingPreview.helpersCount <= 0
+                        ? 'Sin ayudantes'
+                        : helperHourlyRateValue != null && pricingPreview.billedHours != null
+                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(helperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
+                          : pricingPreview.source === 'stored'
+                            ? 'Incluido en monto cargado'
+                            : 'Hay ayudantes pero falta tarifa configurada'}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      <span className="font-medium text-gray-900">Tiempo real:</span>{' '}
+                      {pricingPreview.durationMs != null ? formatDurationMs(pricingPreview.durationMs) : 'Sin tiempos'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Extra por lejania:</span>{' '}
+                      {distantBaseExtraLabel}
+                    </p>
+                    {pricingPreview.distantBaseExtraMinutes > 0 && (
+                      <p>
+                        <span className="font-medium text-gray-900">Tiempo para redondeo:</span>{' '}
+                        {pricingPreview.chargeableDurationMs != null ? formatDurationMs(pricingPreview.chargeableDurationMs) : 'Sin tiempos'}
+                      </p>
+                    )}
+                    <p>
+                      <span className="font-medium text-gray-900">Horas facturadas:</span>{' '}
+                      {pricingPreview.billedHours != null ? formatBilledHours(pricingPreview.billedHours) : 'Sin calcular'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Flete base:</span>{' '}
+                      {pricingPreview.baseAmount != null && effectiveHourlyRateValue != null && pricingPreview.billedHours != null
+                        ? `${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.baseAmount)}`
+                        : pricingPreview.source === 'stored'
+                          ? 'Incluido en monto cargado'
+                          : 'Falta precio por hora'}
+                    </p>
+                    <p>
+                      <span className="font-medium text-gray-900">Ayudantes:</span>{' '}
+                      {pricingPreview.helpersCount <= 0
+                        ? 'Sin ayudantes'
+                        : helperHourlyRateValue != null && pricingPreview.billedHours != null
+                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(helperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
+                          : pricingPreview.source === 'stored'
+                            ? 'Incluido en monto cargado'
+                            : 'Hay ayudantes pero falta tarifa configurada'}
+                    </p>
+                  </>
                 )}
-                <p>
-                  <span className="font-medium text-gray-900">Horas facturadas:</span>{' '}
-                  {pricingPreview.billedHours != null ? formatBilledHours(pricingPreview.billedHours) : 'Sin calcular'}
-                </p>
-                <p>
-                  <span className="font-medium text-gray-900">Flete base:</span>{' '}
-                  {pricingPreview.baseAmount != null && effectiveHourlyRateValue != null && pricingPreview.billedHours != null
-                    ? `${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.baseAmount)}`
-                    : pricingPreview.source === 'stored'
-                      ? 'Incluido en monto cargado'
-                      : 'Falta precio por hora'}
-                </p>
-                <p>
-                  <span className="font-medium text-gray-900">Ayudantes:</span>{' '}
-                  {pricingPreview.helpersCount <= 0
-                    ? 'Sin ayudantes'
-                    : helperHourlyRateValue != null && pricingPreview.billedHours != null
-                      ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(helperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
-                      : pricingPreview.source === 'stored'
-                        ? 'Incluido en monto cargado'
-                        : 'Hay ayudantes pero falta tarifa configurada'}
-                </p>
               </div>
             </div>
 
@@ -777,7 +821,9 @@ export default function JobWorkflow() {
 
             {!canConfirmCompletion && pricingPreview.totalAmount == null && (
               <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                No se pudo calcular el monto final. Revisa que exista un precio por hora o un monto ya cargado.
+                {pricingPreview.isLongDistance
+                  ? 'No se pudo calcular el monto final. Revisa que el vehiculo tenga precio por km configurado.'
+                  : 'No se pudo calcular el monto final. Revisa que exista un precio por hora o un monto ya cargado.'}
               </div>
             )}
 

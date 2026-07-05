@@ -63,8 +63,12 @@ export const getJobChargeBreakdown = (
     endAtMs?: number | null;
     distantBaseTravelMinutes?: number | null;
     distantBasePoint?: 'pickup' | 'dropoff' | null;
+    isLongDistance?: boolean;
+    distanceKm?: number | null;
+    pricePerLongDistanceKm?: number | null;
   },
 ) => {
+  const isLongDistance = opts.isLongDistance && Number.isFinite(opts.distanceKm) && Number.isFinite(opts.pricePerLongDistanceKm);
   const durationMs = getJobDurationMs(job, opts.endAtMs);
   const distantBaseTravelMinutes = toCeiledPositiveMinutesOrNull(opts.distantBaseTravelMinutes);
   const distantBaseExtraMinutes = distantBaseTravelMinutes != null
@@ -72,9 +76,42 @@ export const getJobChargeBreakdown = (
     ? distantBaseTravelMinutes
     : 0;
   const distantBaseExtraMs = distantBaseExtraMinutes * 60000;
+  const helpersCount = Math.max(0, Number.isFinite(job.helpersCount) ? Number(job.helpersCount) : 0);
+
+  if (isLongDistance) {
+    const longDistanceBaseAmount = Math.round((opts.distanceKm as number) * (opts.pricePerLongDistanceKm as number));
+    const helpersBilledHours = getBilledHoursFromDurationMs(durationMs);
+    const helpersAmount = opts.helperHourlyRate != null && helpersBilledHours != null && helpersCount > 0
+      ? roundMoney(helpersBilledHours * opts.helperHourlyRate * helpersCount)
+      : 0;
+    const computedTotal = roundMoney(longDistanceBaseAmount + helpersAmount);
+    const storedTotal = toMoneyOrNull(job.chargedAmount);
+    const useStoredTotal = storedTotal != null && Math.abs(storedTotal - computedTotal) >= 0.01;
+
+    return {
+      durationMs,
+      distantBaseTravelMinutes: null,
+      distantBaseExtraMinutes: 0,
+      distantBaseExtraMs: 0,
+      distantBasePoint: opts.distantBasePoint ?? null,
+      chargeableDurationMs: durationMs,
+      billedHours: helpersBilledHours,
+      helpersCount,
+      baseAmount: longDistanceBaseAmount,
+      helpersAmount,
+      computedTotal,
+      storedTotal,
+      totalAmount: useStoredTotal ? storedTotal : computedTotal,
+      source: useStoredTotal ? 'stored' : 'computed',
+      isLongDistance: true,
+      longDistanceBaseAmount,
+      longDistanceKm: opts.distanceKm as number,
+      longDistancePricePerKm: opts.pricePerLongDistanceKm as number,
+    };
+  }
+
   const chargeableDurationMs = durationMs != null ? durationMs + distantBaseExtraMs : null;
   const billedHours = getBilledHoursFromDurationMs(chargeableDurationMs);
-  const helpersCount = Math.max(0, Number.isFinite(job.helpersCount) ? Number(job.helpersCount) : 0);
   const baseAmount = opts.hourlyRate != null && billedHours != null
     ? roundMoney(billedHours * opts.hourlyRate)
     : null;
@@ -100,5 +137,9 @@ export const getJobChargeBreakdown = (
     storedTotal,
     totalAmount: useStoredTotal ? storedTotal : computedTotal,
     source: useStoredTotal ? 'stored' : computedTotal != null ? 'computed' : storedTotal != null ? 'stored' : 'unavailable',
+    isLongDistance: false,
+    longDistanceBaseAmount: undefined as number | undefined,
+    longDistanceKm: undefined as number | undefined,
+    longDistancePricePerKm: undefined as number | undefined,
   };
 };
