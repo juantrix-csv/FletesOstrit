@@ -4,7 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { Moon, Sun, Truck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { APP_VERSION } from '../lib/appVersion';
-import { requestPwaUpdate } from '../lib/pwaUpdater';
+import { forcePwaUpdate } from '../lib/pwaUpdater';
 import { AdminLayout } from './AdminLayout';
 import { useApiActivity } from '../hooks/useApiActivity';
 import { useTheme } from '../hooks/useTheme';
@@ -53,9 +53,9 @@ const BuildVersionButton = () => {
     if (checking) return;
     setChecking(true);
     try {
-      await requestPwaUpdate();
-    } finally {
-      window.setTimeout(() => setChecking(false), 700);
+      await forcePwaUpdate();
+    } catch {
+      setChecking(false);
     }
   };
 
@@ -64,7 +64,7 @@ const BuildVersionButton = () => {
       type="button"
       onClick={handleClick}
       disabled={checking}
-      title="Buscar actualizacion"
+      title="Forzar actualizacion"
       className="text-[10px] text-gray-400 transition hover:text-blue-600 disabled:cursor-wait disabled:text-blue-500"
     >
       {checking ? 'actualizando...' : `build ${APP_VERSION}`}
