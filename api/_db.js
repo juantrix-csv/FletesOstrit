@@ -1298,7 +1298,17 @@ export const createDriver = async (driver) => {
 };
 
 export const updateDriver = async (id, patch) => {
-  const current = await getDriverById(id);
+  await ensureSchema();
+  const onlyDebtSettlement = Object.keys(patch).every((key) => (
+    key === 'ownerDebtSettledAmount' || key === 'ownerDebtSettledAt'
+  ));
+  let current = null;
+  if (onlyDebtSettlement) {
+    const { rows } = await sql`SELECT * FROM drivers WHERE id = ${id}`;
+    current = rows.length > 0 ? normalizeDriverRow(rows[0]) : null;
+  } else {
+    current = await getDriverById(id);
+  }
   if (!current) return null;
   const next = {
     ...current,
@@ -1327,6 +1337,27 @@ export const updateDriver = async (id, patch) => {
       updated_at = ${next.updatedAt}
     WHERE id = ${id}
   `;
+
+  if (onlyDebtSettlement) {
+    const grossDebt = Number.isFinite(current.ownerDebtGrossAmount) ? Number(current.ownerDebtGrossAmount) : 0;
+    const settledAmount = Number.isFinite(next.ownerDebtSettledAmount) ? Number(next.ownerDebtSettledAmount) : 0;
+    const outstandingDebt = Number(Math.max(0, grossDebt - settledAmount).toFixed(2));
+    const ownerDebtUpdatedAt = new Date().toISOString();
+    await sql`
+      UPDATE drivers SET
+        owner_debt_amount = ${outstandingDebt},
+        owner_debt_gross_amount = ${grossDebt},
+        owner_debt_updated_at = ${ownerDebtUpdatedAt}
+      WHERE id = ${id}
+    `;
+    return {
+      ...next,
+      ownerDebtAmount: outstandingDebt,
+      ownerDebtGrossAmount: grossDebt,
+      ownerDebtUpdatedAt,
+    };
+  }
+
   return getDriverById(id);
 };
 

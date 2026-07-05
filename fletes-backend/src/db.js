@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { getBilledHoursFromDurationMs } from '../../lib/billing.js';
+import { getDriverOwnedVehicleShare } from '../../lib/driverShare.js';
 
 const DEFAULT_DB_PATH = path.join(process.cwd(), 'data', 'fletes.db');
 const DB_PATH = process.env.DB_PATH || DEFAULT_DB_PATH;
@@ -87,12 +89,30 @@ const ensureJobsColumns = () => {
   if (!columns.includes('chargedAmount')) {
     db.exec('ALTER TABLE jobs ADD COLUMN chargedAmount REAL;');
   }
+  if (!columns.includes('isLongDistance')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN isLongDistance INTEGER NOT NULL DEFAULT 0;');
+  }
 };
 
 const ensureDriversColumns = () => {
   const columns = db.prepare('PRAGMA table_info(drivers)').all().map((col) => col.name);
   if (!columns.includes('vehicleId')) {
     db.exec('ALTER TABLE drivers ADD COLUMN vehicleId TEXT;');
+  }
+  if (!columns.includes('ownerDebtAmount')) {
+    db.exec('ALTER TABLE drivers ADD COLUMN ownerDebtAmount REAL;');
+  }
+  if (!columns.includes('ownerDebtGrossAmount')) {
+    db.exec('ALTER TABLE drivers ADD COLUMN ownerDebtGrossAmount REAL;');
+  }
+  if (!columns.includes('ownerDebtUpdatedAt')) {
+    db.exec('ALTER TABLE drivers ADD COLUMN ownerDebtUpdatedAt TEXT;');
+  }
+  if (!columns.includes('ownerDebtSettledAmount')) {
+    db.exec('ALTER TABLE drivers ADD COLUMN ownerDebtSettledAmount REAL;');
+  }
+  if (!columns.includes('ownerDebtSettledAt')) {
+    db.exec('ALTER TABLE drivers ADD COLUMN ownerDebtSettledAt TEXT;');
   }
 };
 
@@ -148,9 +168,14 @@ const ensureVehiclesColumns = () => {
   if (!columns.includes('hourlyRate')) {
     db.exec('ALTER TABLE vehicles ADD COLUMN hourlyRate REAL;');
   }
+  if (!columns.includes('pricePerLongDistanceKm')) {
+    db.exec('ALTER TABLE vehicles ADD COLUMN pricePerLongDistanceKm REAL;');
+  }
 };
 
 ensureVehiclesColumns();
+
+const OWNER_ACCOUNT_DRIVER_CODE = '6666';
 
 const defaultFlags = {
   nearPickupSent: false,
@@ -173,6 +198,27 @@ const calculateDistanceMeters = (lat1, lng1, lat2, lng2) => {
   const a = Math.sin(dLat / 2) ** 2
     + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) ** 2;
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+};
+
+const roundMoney = (value) => Number(value.toFixed(2));
+
+const parseTimestampMs = (value) => {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const getBilledHoursFromTimestamps = (timestamps) => {
+  const startMs = parseTimestampMs(timestamps?.startLoadingAt)
+    ?? parseTimestampMs(timestamps?.startJobAt)
+    ?? parseTimestampMs(timestamps?.startTripAt)
+    ?? parseTimestampMs(timestamps?.startUnloadingAt)
+    ?? null;
+  const endMs = parseTimestampMs(timestamps?.endUnloadingAt)
+    ?? parseTimestampMs(timestamps?.endTripAt)
+    ?? null;
+  if (startMs == null || endMs == null) return null;
+  return getBilledHoursFromDurationMs(Math.max(0, endMs - startMs));
 };
 
 const parseJson = (value, fallback) => {
@@ -244,6 +290,7 @@ const toRow = (job) => ({
   helpersCount: Number.isFinite(job.helpersCount) ? job.helpersCount : null,
   estimatedDurationMinutes: Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null,
   chargedAmount: Number.isFinite(job.chargedAmount) ? job.chargedAmount : null,
+  isLongDistance: job.isLongDistance ? 1 : 0,
   status: job.status,
   flags: JSON.stringify(job.flags ?? defaultFlags),
   timestamps: JSON.stringify(job.timestamps ?? {}),
@@ -274,6 +321,7 @@ const fromRow = (row) => ({
   helpersCount: Number.isFinite(row.helpersCount) ? row.helpersCount : undefined,
   estimatedDurationMinutes: Number.isFinite(row.estimatedDurationMinutes) ? row.estimatedDurationMinutes : undefined,
   chargedAmount: Number.isFinite(row.chargedAmount) ? row.chargedAmount : undefined,
+  isLongDistance: row.isLongDistance === 1,
   status: row.status,
   flags: parseJson(row.flags, defaultFlags),
   timestamps: parseJson(row.timestamps, {}),
@@ -286,11 +334,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, vehicleId, helpersCount, estimatedDurationMinutes, chargedAmount, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, vehicleId, helpersCount, estimatedDurationMinutes, chargedAmount, isLongDistance, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @vehicleId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @vehicleId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @isLongDistance, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -315,6 +363,7 @@ const updateStmt = db.prepare(`
     helpersCount = @helpersCount,
     estimatedDurationMinutes = @estimatedDurationMinutes,
     chargedAmount = @chargedAmount,
+    isLongDistance = @isLongDistance,
     status = @status,
     flags = @flags,
     timestamps = @timestamps,
@@ -418,6 +467,11 @@ const toDriverRow = (driver) => ({
   code: driver.code,
   phone: driver.phone ?? null,
   vehicleId: driver.vehicleId ?? null,
+  ownerDebtAmount: Number.isFinite(driver.ownerDebtAmount) ? Number(driver.ownerDebtAmount) : null,
+  ownerDebtGrossAmount: Number.isFinite(driver.ownerDebtGrossAmount) ? Number(driver.ownerDebtGrossAmount) : null,
+  ownerDebtUpdatedAt: driver.ownerDebtUpdatedAt ?? null,
+  ownerDebtSettledAmount: Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : null,
+  ownerDebtSettledAt: driver.ownerDebtSettledAt ?? null,
   active: driver.active ? 1 : 0,
   createdAt: driver.createdAt,
   updatedAt: driver.updatedAt,
@@ -429,6 +483,11 @@ const fromDriverRow = (row) => ({
   code: row.code,
   phone: row.phone ?? undefined,
   vehicleId: row.vehicleId ?? undefined,
+  ownerDebtAmount: Number.isFinite(row.ownerDebtAmount) ? Number(row.ownerDebtAmount) : undefined,
+  ownerDebtGrossAmount: Number.isFinite(row.ownerDebtGrossAmount) ? Number(row.ownerDebtGrossAmount) : undefined,
+  ownerDebtUpdatedAt: row.ownerDebtUpdatedAt ?? undefined,
+  ownerDebtSettledAmount: Number.isFinite(row.ownerDebtSettledAmount) ? Number(row.ownerDebtSettledAmount) : undefined,
+  ownerDebtSettledAt: row.ownerDebtSettledAt ?? undefined,
   active: row.active === 1,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -436,9 +495,9 @@ const fromDriverRow = (row) => ({
 
 const insertDriverStmt = db.prepare(`
   INSERT INTO drivers (
-    id, name, code, phone, vehicleId, active, createdAt, updatedAt
+    id, name, code, phone, vehicleId, ownerDebtAmount, ownerDebtGrossAmount, ownerDebtUpdatedAt, ownerDebtSettledAmount, ownerDebtSettledAt, active, createdAt, updatedAt
   ) VALUES (
-    @id, @name, @code, @phone, @vehicleId, @active, @createdAt, @updatedAt
+    @id, @name, @code, @phone, @vehicleId, @ownerDebtAmount, @ownerDebtGrossAmount, @ownerDebtUpdatedAt, @ownerDebtSettledAmount, @ownerDebtSettledAt, @active, @createdAt, @updatedAt
   );
 `);
 
@@ -448,32 +507,179 @@ const updateDriverStmt = db.prepare(`
     code = @code,
     phone = @phone,
     vehicleId = @vehicleId,
+    ownerDebtAmount = @ownerDebtAmount,
+    ownerDebtGrossAmount = @ownerDebtGrossAmount,
+    ownerDebtUpdatedAt = @ownerDebtUpdatedAt,
+    ownerDebtSettledAmount = @ownerDebtSettledAmount,
+    ownerDebtSettledAt = @ownerDebtSettledAt,
     active = @active,
     createdAt = @createdAt,
     updatedAt = @updatedAt
   WHERE id = @id;
 `);
 
+const getDriverDebtBilledHours = (job) => {
+  const timestampHours = getBilledHoursFromTimestamps(job.timestamps);
+  if (timestampHours != null) return timestampHours;
+  if (Number.isFinite(job.estimatedDurationMinutes)) {
+    return getBilledHoursFromDurationMs(Number(job.estimatedDurationMinutes) * 60000);
+  }
+  return null;
+};
+
+const getJobDistanceKm = (job) => {
+  if (Number.isFinite(job.distanceMeters)) return Number(job.distanceMeters) / 1000;
+  if (!job.pickup || !job.dropoff) return null;
+  const pickup = typeof job.pickup === 'string' ? parseJson(job.pickup, null) : job.pickup;
+  const dropoff = typeof job.dropoff === 'string' ? parseJson(job.dropoff, null) : job.dropoff;
+  if (!pickup || !dropoff || !Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lng) || !Number.isFinite(dropoff.lat) || !Number.isFinite(dropoff.lng)) return null;
+  return calculateDistanceMeters(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng) / 1000;
+};
+
+const getJobLongDistanceValue = (job, vehicle) => {
+  if (!job.isLongDistance) return null;
+  if (!vehicle || !Number.isFinite(vehicle.pricePerLongDistanceKm)) return null;
+  const distanceKm = getJobDistanceKm(job);
+  if (distanceKm == null || !Number.isFinite(distanceKm)) return null;
+  return Math.round(distanceKm * Number(vehicle.pricePerLongDistanceKm));
+};
+
+const getDriverDebtHourlyValue = (job, vehicle) => {
+  if (job.isLongDistance) {
+    const longDistanceValue = getJobLongDistanceValue(job, vehicle);
+    if (longDistanceValue != null) return longDistanceValue;
+  }
+  const billedHours = getDriverDebtBilledHours(job);
+  const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
+  const hourlyRateSetting = getSetting('hourlyRate');
+  const hourlyRate = vehicleHourlyRate ?? (Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null);
+  if (billedHours != null && hourlyRate != null) {
+    return roundMoney(billedHours * hourlyRate);
+  }
+  return null;
+};
+
+const resolveJobVehicle = (job, driver) => {
+  if (job.vehicleId) return getVehicleById(job.vehicleId);
+  if (driver?.vehicleId) return getVehicleById(driver.vehicleId);
+  return null;
+};
+
+const resolveDriverShareRatio = (driver, vehicle) => {
+  if (String(driver.code ?? '').trim() === OWNER_ACCOUNT_DRIVER_CODE) {
+    return { ratio: 0, fixedCompanyHourlyMargin: false };
+  }
+  const ownerVehicleSetting = getSetting('ownerVehicleDriverShare');
+  const driverVehicleSetting = getSetting('driverVehicleDriverShare');
+  const ownerVehicleRatio = Number.isFinite(ownerVehicleSetting) && ownerVehicleSetting >= 0 && ownerVehicleSetting <= 1
+    ? ownerVehicleSetting
+    : (1 / 3);
+  const driverVehicleRatio = Number.isFinite(driverVehicleSetting) && driverVehicleSetting >= 0 && driverVehicleSetting <= 1
+    ? driverVehicleSetting
+    : (2 / 3);
+  if (!vehicle) {
+    return { ratio: ownerVehicleRatio, fixedCompanyHourlyMargin: false };
+  }
+  if (vehicle.ownershipType === 'driver') {
+    return { ratio: driverVehicleRatio, fixedCompanyHourlyMargin: true };
+  }
+  return { ratio: ownerVehicleRatio, fixedCompanyHourlyMargin: false };
+};
+
+const refreshDriverOwnerDebt = (driverId) => {
+  const driverRow = db.prepare('SELECT * FROM drivers WHERE id = ?').get(driverId);
+  if (!driverRow) return;
+  const driver = fromDriverRow(driverRow);
+
+  let grossOwnerDebt = 0;
+
+  if (String(driver.code ?? '').trim() !== OWNER_ACCOUNT_DRIVER_CODE) {
+    const rows = db.prepare("SELECT * FROM jobs WHERE driverId = ? AND status = 'DONE'").all(driverId);
+    for (const jobRow of rows) {
+      const job = fromRow(jobRow);
+      const collectedTotal = Number.isFinite(job.chargedAmount) ? Number(job.chargedAmount) : null;
+      if (collectedTotal == null) continue;
+
+      const vehicle = resolveJobVehicle(job, driver);
+      const hourlyValue = getDriverDebtHourlyValue(job, vehicle);
+      const helperRevenue = hourlyValue != null ? Math.max(0, collectedTotal - hourlyValue) : 0;
+      const { ratio, fixedCompanyHourlyMargin } = resolveDriverShareRatio(driver, vehicle);
+      const billedHours = getDriverDebtBilledHours(job);
+      let ownerShare = hourlyValue ?? 0;
+      if (hourlyValue != null) {
+        if (fixedCompanyHourlyMargin && billedHours != null && !job.isLongDistance) {
+          const companyHourlyMarginSetting = getSetting('driverVehicleCompanyHourlyMargin');
+          const companyHourlyMargin = Number.isFinite(companyHourlyMarginSetting) ? companyHourlyMarginSetting : 10000;
+          ownerShare = getDriverOwnedVehicleShare({
+            hourlyBaseAmount: hourlyValue,
+            billedHours,
+            companyHourlyMargin,
+          }).companyShareAmount;
+        } else {
+          ownerShare = roundMoney(hourlyValue - (hourlyValue * ratio));
+        }
+      }
+      const driverShare = Math.max(0, (hourlyValue ?? 0) - ownerShare);
+      const driverKept = Math.min(collectedTotal, driverShare + helperRevenue);
+      grossOwnerDebt += Math.max(0, collectedTotal - driverKept);
+    }
+  }
+
+  const settledAmount = Number.isFinite(driver.ownerDebtSettledAmount) ? Number(driver.ownerDebtSettledAmount) : 0;
+  const gross = roundMoney(grossOwnerDebt);
+  const outstanding = roundMoney(Math.max(0, gross - settledAmount));
+  const updatedAt = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE drivers SET
+      ownerDebtAmount = ?,
+      ownerDebtGrossAmount = ?,
+      ownerDebtUpdatedAt = ?
+    WHERE id = ?
+  `).run(outstanding, gross, updatedAt, driverId);
+};
+
+const refreshAllDriverOwnerDebt = () => {
+  const rows = db.prepare('SELECT id FROM drivers').all();
+  for (const row of rows) {
+    refreshDriverOwnerDebt(row.id);
+  }
+};
+
 export const listDrivers = () => {
+  refreshAllDriverOwnerDebt();
   const rows = db.prepare('SELECT * FROM drivers ORDER BY createdAt DESC').all();
   return rows.map(fromDriverRow);
 };
 
 export const getDriverById = (id) => {
+  refreshDriverOwnerDebt(id);
   const row = db.prepare('SELECT * FROM drivers WHERE id = ?').get(id);
   return row ? fromDriverRow(row) : null;
 };
 
 export const getDriverByCode = (code) => {
   const row = db.prepare('SELECT * FROM drivers WHERE code = ?').get(code);
-  return row ? fromDriverRow(row) : null;
+  if (!row) return null;
+  refreshDriverOwnerDebt(row.id);
+  const refreshed = db.prepare('SELECT * FROM drivers WHERE code = ?').get(code);
+  return refreshed ? fromDriverRow(refreshed) : null;
 };
 
 export const createDriver = (driver) => {
   const createdAt = driver.createdAt ?? new Date().toISOString();
   const updatedAt = driver.updatedAt ?? createdAt;
   const row = toDriverRow({
-    ...driver,
+    id: driver.id,
+    name: driver.name,
+    code: driver.code,
+    phone: driver.phone,
+    vehicleId: driver.vehicleId,
+    ownerDebtAmount: 0,
+    ownerDebtGrossAmount: 0,
+    ownerDebtUpdatedAt: null,
+    ownerDebtSettledAmount: driver.ownerDebtSettledAmount ?? null,
+    ownerDebtSettledAt: driver.ownerDebtSettledAt ?? null,
     active: driver.active ?? true,
     createdAt,
     updatedAt,
@@ -488,6 +694,9 @@ export const updateDriver = (id, patch) => {
   const next = {
     ...current,
     ...patch,
+    ownerDebtAmount: current.ownerDebtAmount,
+    ownerDebtGrossAmount: current.ownerDebtGrossAmount,
+    ownerDebtUpdatedAt: current.ownerDebtUpdatedAt,
     active: typeof patch.active === 'boolean' ? patch.active : current.active,
     updatedAt: new Date().toISOString(),
   };
@@ -509,6 +718,7 @@ const toVehicleRow = (vehicle) => ({
   hourlyRate: Number.isFinite(vehicle.hourlyRate) ? vehicle.hourlyRate : null,
   costPerKm: Number.isFinite(vehicle.costPerKm) ? vehicle.costPerKm : 0,
   fixedMonthlyCost: Number.isFinite(vehicle.fixedMonthlyCost) ? vehicle.fixedMonthlyCost : 0,
+  pricePerLongDistanceKm: Number.isFinite(vehicle.pricePerLongDistanceKm) ? vehicle.pricePerLongDistanceKm : null,
   createdAt: vehicle.createdAt,
   updatedAt: vehicle.updatedAt,
 });
@@ -521,15 +731,16 @@ const fromVehicleRow = (row) => ({
   hourlyRate: Number.isFinite(row.hourlyRate) ? row.hourlyRate : null,
   costPerKm: Number.isFinite(row.costPerKm) ? row.costPerKm : 0,
   fixedMonthlyCost: Number.isFinite(row.fixedMonthlyCost) ? row.fixedMonthlyCost : 0,
+  pricePerLongDistanceKm: Number.isFinite(row.pricePerLongDistanceKm) ? row.pricePerLongDistanceKm : null,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
 });
 
 const insertVehicleStmt = db.prepare(`
   INSERT INTO vehicles (
-    id, name, size, ownershipType, hourlyRate, costPerKm, fixedMonthlyCost, createdAt, updatedAt
+    id, name, size, ownershipType, hourlyRate, costPerKm, fixedMonthlyCost, pricePerLongDistanceKm, createdAt, updatedAt
   ) VALUES (
-    @id, @name, @size, @ownershipType, @hourlyRate, @costPerKm, @fixedMonthlyCost, @createdAt, @updatedAt
+    @id, @name, @size, @ownershipType, @hourlyRate, @costPerKm, @fixedMonthlyCost, @pricePerLongDistanceKm, @createdAt, @updatedAt
   );
 `);
 
@@ -541,6 +752,7 @@ const updateVehicleStmt = db.prepare(`
     hourlyRate = @hourlyRate,
     costPerKm = @costPerKm,
     fixedMonthlyCost = @fixedMonthlyCost,
+    pricePerLongDistanceKm = @pricePerLongDistanceKm,
     createdAt = @createdAt,
     updatedAt = @updatedAt
   WHERE id = @id;

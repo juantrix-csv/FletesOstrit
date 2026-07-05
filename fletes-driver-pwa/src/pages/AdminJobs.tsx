@@ -656,8 +656,6 @@ export default function AdminJobs() {
   const [newJobDriverId, setNewJobDriverId] = useState('');
   const [newJobVehicleId, setNewJobVehicleId] = useState('');
   const [newJobIsLongDistance, setNewJobIsLongDistance] = useState(false);
-  const [newJobEstimatedDurationHours, setNewJobEstimatedDurationHours] = useState('');
-  const [newJobHelpersCount, setNewJobHelpersCount] = useState('');
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
   const [extraStops, setExtraStops] = useState<LocationData[]>([]);
@@ -687,6 +685,7 @@ export default function AdminJobs() {
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
   const [vehiclePricePerLongDistanceKmInput, setVehiclePricePerLongDistanceKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
+  const [vehiclePricePerLongDistanceKmInput, setVehiclePricePerLongDistanceKmInput] = useState('');
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>(() => locationsCacheEntry?.data ?? []);
@@ -1283,8 +1282,6 @@ export default function AdminJobs() {
       setNewJobDriverId('');
       setNewJobVehicleId('');
       setNewJobIsLongDistance(false);
-      setNewJobEstimatedDurationHours('');
-      setNewJobHelpersCount('');
       setPickup(null);
       setDropoff(null);
       setExtraStops([]);
@@ -1341,7 +1338,7 @@ export default function AdminJobs() {
       helpersCount: Number.isFinite(job.helpersCount) ? String(job.helpersCount) : '',
       driverId: job.driverId ?? '',
       vehicleId: job.vehicleId ?? getDriverDefaultVehicleId(job.driverId),
-      isLongDistance: job.isLongDistance === true,
+      isLongDistance: job.isLongDistance ?? false,
     });
     setEditPickup(job.pickup ?? null);
     setEditDropoff(job.dropoff ?? null);
@@ -1456,6 +1453,7 @@ export default function AdminJobs() {
     setVehicleCostPerKmInput('');
     setVehiclePricePerLongDistanceKmInput('');
     setVehicleFixedMonthlyInput('');
+    setVehiclePricePerLongDistanceKmInput('');
     setEditingVehicleId(null);
   };
 
@@ -1469,6 +1467,7 @@ export default function AdminJobs() {
     setVehicleCostPerKmInput(String(vehicle.costPerKm));
     setVehiclePricePerLongDistanceKmInput(Number.isFinite(vehicle.pricePerLongDistanceKm) ? String(vehicle.pricePerLongDistanceKm) : '');
     setVehicleFixedMonthlyInput(String(vehicle.fixedMonthlyCost));
+    setVehiclePricePerLongDistanceKmInput(Number.isFinite(vehicle.pricePerLongDistanceKm) ? String(vehicle.pricePerLongDistanceKm) : '');
   };
 
   const handleSaveVehicle = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -1514,6 +1513,11 @@ export default function AdminJobs() {
       toast.error('Gasto fijo mensual obligatorio');
       return;
     }
+    const pricePerLongDistanceKm = parseMoneyInput(vehiclePricePerLongDistanceKmInput);
+    if (vehiclePricePerLongDistanceKmInput.trim() && pricePerLongDistanceKm == null) {
+      toast.error('Precio km larga distancia invalido');
+      return;
+    }
     try {
       setSavingVehicle(true);
       const now = new Date().toISOString();
@@ -1526,6 +1530,7 @@ export default function AdminJobs() {
         costPerKm: costPerKm as number,
         pricePerLongDistanceKm: pricePerLongDistanceKm as number,
         fixedMonthlyCost: fixedMonthlyCost as number,
+        pricePerLongDistanceKm: vehiclePricePerLongDistanceKmInput.trim() ? pricePerLongDistanceKm : null,
         updatedAt: now,
       };
       if (editingVehicleId) {
@@ -2015,7 +2020,19 @@ export default function AdminJobs() {
     if (Number.isFinite(entry.job.hourlyBilledHours)) return entry.job.hourlyBilledHours as number;
     return null;
   };
+  const getJobLongDistanceValue = (job: Job) => {
+    if (!job.isLongDistance) return null;
+    const vehicle = getJobVehicle(job);
+    if (!vehicle || !Number.isFinite(vehicle.pricePerLongDistanceKm)) return null;
+    const distanceKm = getJobDistanceKm(job);
+    if (distanceKm == null || !Number.isFinite(distanceKm)) return null;
+    return Math.round(distanceKm * Number(vehicle.pricePerLongDistanceKm));
+  };
   const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
+    if (entry.job.isLongDistance) {
+      const longDistanceValue = getJobLongDistanceValue(entry.job);
+      if (longDistanceValue != null) return longDistanceValue;
+    }
     const billedHours = getEntryBilledHours(entry);
     if (entry.job.status === 'DONE' && Number.isFinite(entry.job.hourlyBaseAmount)) {
       return entry.job.hourlyBaseAmount as number;
@@ -2035,6 +2052,9 @@ export default function AdminJobs() {
     }
     const collectedPayment = getJobCollectedPayment(entry.job);
     if (collectedPayment.total != null) return collectedPayment.total;
+    if (entry.job.isLongDistance) {
+      return getJobLongDistanceValue(entry.job);
+    }
     const billedHours = getEntryBilledHours(entry);
     if (billedHours == null) return null;
     const baseValue = getEntryHourlyValue(entry);
@@ -2063,7 +2083,7 @@ export default function AdminJobs() {
   ) => {
     if (!isExternalDriver(driver)) return hourlyValue;
     const billedHours = getEntryBilledHours(entry);
-    if (vehicle?.ownershipType === 'driver' && billedHours != null) {
+    if (vehicle?.ownershipType === 'driver' && billedHours != null && !entry.job.isLongDistance) {
       return roundMoney(Math.min(hourlyValue, billedHours * getVehicleCompanyHourlyMargin(vehicle)));
     }
     const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
@@ -2214,6 +2234,9 @@ export default function AdminJobs() {
     }
     const collectedPayment = getJobCollectedPayment(job);
     if (collectedPayment.total != null) return collectedPayment.total;
+    if (job.isLongDistance) {
+      return getJobLongDistanceValue(job);
+    }
     const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(job));
     const jobHourlyRate = getJobHourlyRateValue(job);
     if (jobHourlyRate == null || billedHours == null) return null;
@@ -2223,22 +2246,15 @@ export default function AdminJobs() {
       : 0;
     return billedHours * jobHourlyRate + helpersValue;
   };
-  const getJobCalendarEstimate = (job: Job) => {
+  const getCalendarLongDistanceDetails = (job: Job) => {
+    if (!job.isLongDistance) return null;
+    const distanceKm = getJobDistanceKm(job);
     const total = getJobEstimatedTotal(job);
-    if (total == null) return null;
-    if (job.isLongDistance !== true) {
-      return { total, label: currencyFormatter.format(total), mode: 'hourly' as const };
-    }
-    const distanceKm = jobDistanceKmById.get(job.id) ?? getJobDistanceKm(job);
-    const pricePerKm = getJobLongDistancePricePerKmValue(job);
-    const detail = distanceKm != null && pricePerKm != null
-      ? `${decimalFormatter.format(distanceKm)} km x ${currencyFormatter.format(pricePerKm)}/km`
-      : null;
     return {
-      total,
-      label: `LD ${currencyFormatter.format(total)}`,
-      mode: 'long-distance' as const,
-      detail,
+      distanceLabel: distanceKm != null && Number.isFinite(distanceKm)
+        ? `${decimalFormatter.format(distanceKm)} km`
+        : 'Km N/D',
+      totalLabel: total != null ? currencyFormatter.format(total) : 'Precio N/D',
     };
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
@@ -3165,28 +3181,55 @@ export default function AdminJobs() {
         return;
       }
       const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
-      const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
       const vehicle = getJobVehicle(item.job);
-      total += isExternalDriver(driver) && billedHours != null && vehicle?.ownershipType === 'driver'
-        ? billedHours * getVehicleCompanyHourlyMargin(vehicle)
-        : estimate;
-      const jobHourlyRate = getJobHourlyRateValue(item.job);
-      const baseValue = jobHourlyRate != null && billedHours != null
-        ? billedHours * jobHourlyRate
-        : null;
-      const helpersCount = item.job.helpersCount ?? 0;
-      const ownerPaysHelpers = isOwnerAccountDriver(driver);
-      const paidHelpersCount = ownerPaysHelpers ? getPaidHelpersCountForOwner(helpersCount) : 0;
-      const helpersCost = helperHourlyRateValue != null && paidHelpersCount > 0 && billedHours != null
-        ? billedHours * helperHourlyRateValue * paidHelpersCount
-        : 0;
-      const helperRevenue = !isExternalDriver(driver) && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
-      const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
-      const companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver) && vehicle?.ownershipType === 'driver'
-        ? Math.min(baseValue, billedHours * getVehicleCompanyHourlyMargin(vehicle))
-        : baseValue != null
-          ? baseValue - (baseValue * driverShareRatio)
+      const isLongDistance = item.job.isLongDistance ?? false;
+      if (isLongDistance) {
+        if (!isExternalDriver(driver)) {
+          total += estimate;
+        } else {
+          const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
+          total += estimate * (1 - driverShareRatio);
+        }
+      } else {
+        const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
+        total += isExternalDriver(driver) && billedHours != null && vehicle?.ownershipType === 'driver'
+          ? billedHours * getVehicleCompanyHourlyMargin(vehicle)
           : estimate;
+      }
+      let baseValue: number | null;
+      let companyHourlyMargin: number;
+      if (isLongDistance) {
+        baseValue = estimate;
+        if (!isExternalDriver(driver)) {
+          companyHourlyMargin = estimate;
+        } else {
+          const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
+          companyHourlyMargin = estimate * (1 - driverShareRatio);
+        }
+      } else {
+        const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
+        const jobHourlyRate = getJobHourlyRateValue(item.job);
+        baseValue = jobHourlyRate != null && billedHours != null
+          ? billedHours * jobHourlyRate
+          : null;
+        companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver) && vehicle?.ownershipType === 'driver'
+          ? Math.min(baseValue, billedHours * getVehicleCompanyHourlyMargin(vehicle))
+          : baseValue != null
+            ? baseValue - (baseValue * getDriverShareRatioByVehicle(vehicle, driver))
+            : estimate;
+      }
+      let helperRevenue = 0;
+      let helpersCost = 0;
+      if (!isLongDistance) {
+        const billedHours2 = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
+        const helpersCount = item.job.helpersCount ?? 0;
+        const ownerPaysHelpers = isOwnerAccountDriver(driver);
+        const paidHelpersCount = ownerPaysHelpers ? getPaidHelpersCountForOwner(helpersCount) : 0;
+        helpersCost = helperHourlyRateValue != null && paidHelpersCount > 0 && billedHours2 != null
+          ? billedHours2 * helperHourlyRateValue * paidHelpersCount
+          : 0;
+        helperRevenue = !isExternalDriver(driver) && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
+      }
       const distanceKm = jobDistanceKmById.get(item.job.id) ?? null;
       const costPerKm = getJobCostPerKmValue(item.job);
       const fuelCost = !isExternalDriver(driver) && costPerKm != null && distanceKm != null
@@ -3397,35 +3440,40 @@ export default function AdminJobs() {
                           rows={2}
                         />
                       </label>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <label className="text-xs text-gray-500">
-                          Ayudantes
-                          <input
-                            name="helpersCount"
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={newJobHelpersCount}
-                            onChange={(event) => setNewJobHelpersCount(event.target.value)}
-                            placeholder="Ayudantes requeridos"
-                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                          />
-                        </label>
-                        <label className="text-xs text-gray-500">
-                          Duracion estimada (horas)
-                          <input
-                            name="estimatedDurationHours"
-                            type="number"
-                            min="0.5"
-                            step="0.5"
-                            value={newJobEstimatedDurationHours}
-                            onChange={(event) => setNewJobEstimatedDurationHours(event.target.value)}
-                            placeholder="Ej: 2.5"
-                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
-                            required
-                          />
-                        </label>
-                      </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="text-xs text-gray-500">
+                        Ayudantes
+                        <input
+                          name="helpersCount"
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder="Ayudantes requeridos"
+                          className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="text-xs text-gray-500">
+                        Duracion estimada (horas)
+                        <input
+                          name="estimatedDurationHours"
+                          type="number"
+                          min="0.5"
+                          step="0.5"
+                          placeholder="Ej: 2.5"
+                          className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                          required
+                        />
+                      </label>
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={newJobIsLongDistance}
+                        onChange={(event) => setNewJobIsLongDistance(event.target.checked)}
+                        className="rounded border-gray-300"
+                      />
+                      Larga distancia (cobro por km)
+                    </label>
                       <div className="grid gap-3 sm:grid-cols-2">
                         <label className="text-xs text-gray-500">
                           Fecha
@@ -3627,52 +3675,26 @@ export default function AdminJobs() {
                           </p>
                         )}
                       </div>
-                      {pickup && dropoff && newJobSelectedVehicle && (
-                        <div className="rounded border bg-emerald-50/80 p-3 text-sm">
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
-                              <p className="font-semibold text-emerald-950">Precio estimado del flete</p>
-                              <p className="text-xs text-emerald-800">
-                                Vehiculo: {newJobSelectedVehicle.name}
-                              </p>
-                            </div>
-                            {newJobPreview?.ready && (
-                              <p className="text-xl font-semibold text-emerald-950">
-                                {currencyFormatter.format(newJobPreview.total)}
-                              </p>
-                            )}
+                      {newJobIsLongDistance && pickup && dropoff && newJobVehicleId && (() => {
+                        const selectedVehicle = vehiclesById.get(newJobVehicleId);
+                        const distanceKm = getJobDistanceKm({
+                          pickup, dropoff, extraStops,
+                          status: 'PENDING',
+                          flags: { nearPickupSent: false, arrivedPickupSent: false, nearDropoffSent: false, arrivedDropoffSent: false },
+                          timestamps: {}, createdAt: '', updatedAt: '',
+                        } as Job);
+                        const pricePerKm = selectedVehicle?.pricePerLongDistanceKm;
+                        if (!distanceKm || !Number.isFinite(distanceKm) || !Number.isFinite(pricePerKm)) return null;
+                        const estimatedCost = Math.round(distanceKm * Number(pricePerKm));
+                        return (
+                          <div className="rounded border bg-amber-50/70 p-3 text-sm">
+                            <p className="font-semibold text-amber-900">Costo estimado larga distancia</p>
+                            <p className="text-amber-800">Distancia total: {decimalFormatter.format(distanceKm)} km</p>
+                            <p className="text-amber-800">Precio por km: {currencyFormatter.format(Number(pricePerKm))}</p>
+                            <p className="mt-1 font-semibold text-amber-900">Total estimado: {currencyFormatter.format(estimatedCost)}</p>
                           </div>
-                          {!newJobPreview && (
-                            <p className="mt-2 text-emerald-800">
-                              Completa origen, destino y vehiculo para ver el precio.
-                            </p>
-                          )}
-                          {newJobPreview && !newJobPreview.ready && (
-                            <p className="mt-2 text-amber-800">{newJobPreview.message}</p>
-                          )}
-                          {newJobPreview?.ready && newJobPreview.mode === 'long-distance' && (
-                            <div className="mt-2 space-y-1 text-xs text-emerald-900">
-                              <p>Modo: larga distancia por km.</p>
-                              <p>
-                                {decimalFormatter.format(newJobPreview.distanceKm)} km x {currencyFormatter.format(newJobPreview.pricePerKm)}/km
-                              </p>
-                            </div>
-                          )}
-                          {newJobPreview?.ready && newJobPreview.mode === 'hourly' && (
-                            <div className="mt-2 space-y-1 text-xs text-emerald-900">
-                              <p>
-                                {decimalFormatter.format(newJobPreview.billedHours)} h facturables x {currencyFormatter.format(newJobPreview.hourlyRate)}/h = {currencyFormatter.format(newJobPreview.baseAmount)}
-                              </p>
-                              {newJobPreview.helpersAmount > 0 && (
-                                <p>Ayudantes: {currencyFormatter.format(newJobPreview.helpersAmount)}</p>
-                              )}
-                              {newJobPreview.distantBaseExtraMinutes > 0 && (
-                                <p>Incluye {newJobPreview.distantBaseExtraMinutes} min extra por base lejana.</p>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
+                        );
+                      })()}
                       <button
                         type="submit"
                         disabled={savingJob}
@@ -3797,7 +3819,7 @@ export default function AdminJobs() {
                               </span>
                               {job.isLongDistance && (
                                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
-                                  Larga distancia
+                                  Larga Dist.
                                 </span>
                               )}
                             </div>
@@ -4021,14 +4043,14 @@ export default function AdminJobs() {
                                 </select>
                               </label>
                             </div>
-                              <label className="mt-2 flex items-center gap-2 rounded border bg-amber-50/70 px-2 py-1.5 text-xs font-medium text-amber-800">
+                              <label className="flex items-center gap-2 mt-2 text-xs text-gray-500 cursor-pointer">
                                 <input
                                   type="checkbox"
                                   checked={editDraft.isLongDistance}
                                   onChange={(event) => setEditDraft((prev) => ({ ...prev, isLongDistance: event.target.checked }))}
-                                  className="rounded border-amber-300"
+                                  className="rounded border-gray-300"
                                 />
-                                Flete de larga distancia
+                                Larga distancia (cobro por km)
                               </label>
                               <label className="mt-2 block text-xs text-gray-500">
                                 Descripcion
@@ -4349,8 +4371,9 @@ export default function AdminJobs() {
                           )}
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
-                            const estimate = getJobCalendarEstimate(item.job);
-                            const estimateLabel = estimate?.label ?? null;
+                            const estimateValue = getJobEstimatedTotal(item.job);
+                            const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                            const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
                             const vehicle = getJobVehicle(item.job);
@@ -4361,7 +4384,7 @@ export default function AdminJobs() {
                             const overlapColumns = layoutEntry?.columns ?? 1;
                             const isOverlapped = overlapColumns > 1;
                             const isDense = overlapColumns > 2;
-                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${estimateLabel ? `\n${estimateLabel}` : ''}${estimate?.detail ? `\n${estimate.detail}` : ''}`;
+                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
                             if (!style) return null;
                             return (
                               <div
@@ -4396,7 +4419,7 @@ export default function AdminJobs() {
                                 </div>
                                 <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
                                 <div className={cn("calendar-event__line", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
-                                  {formatJobRangeForDay(item.start, item.end, calendarDate)}
+                                  {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
                             );
@@ -4491,8 +4514,9 @@ export default function AdminJobs() {
                                 )}
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
-                                  const estimate = getJobCalendarEstimate(item.job);
-                                  const estimateLabel = estimate?.label ?? null;
+                                  const estimateValue = getJobEstimatedTotal(item.job);
+                                  const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                  const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
                                   const vehicle = getJobVehicle(item.job);
@@ -4503,7 +4527,7 @@ export default function AdminJobs() {
                                   const overlapColumns = layoutEntry?.columns ?? 1;
                                   const isOverlapped = overlapColumns > 1;
                                   const isDense = overlapColumns > 2;
-                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${estimateLabel ? `\n${estimateLabel}` : ''}${estimate?.detail ? `\n${estimate.detail}` : ''}`;
+                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
                                   if (!style) return null;
                                   return (
                                     <div
@@ -4538,7 +4562,7 @@ export default function AdminJobs() {
                                       </div>
                                       <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
                                       <div className={cn("calendar-event__line", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
-                                        {formatJobRangeForDay(item.start, item.end, day)}
+                                        {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
                                     </div>
                                   );
@@ -4589,8 +4613,9 @@ export default function AdminJobs() {
                             </div>
                             <div className="mt-2 space-y-1">
                               {items.slice(0, 3).map((item) => {
-                                const estimate = getJobCalendarEstimate(item.job);
-                                const estimateLabel = estimate?.label ?? null;
+                                const estimateValue = getJobEstimatedTotal(item.job);
+                                const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                                 const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                 const driverLabel = driver?.name ?? 'Sin asignar';
                                 const vehicle = getJobVehicle(item.job);
@@ -4620,7 +4645,7 @@ export default function AdminJobs() {
                                       {calendarOwnerLabel}
                                     </div>
                                     <div className="truncate">
-                                      {formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                      {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
                                     </div>
                                   </div>
                                 );
@@ -4793,6 +4818,18 @@ export default function AdminJobs() {
                       required
                     />
                   </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Precio km larga dist.</label>
+                    <input
+                      value={vehiclePricePerLongDistanceKmInput}
+                      onChange={(event) => setVehiclePricePerLongDistanceKmInput(event.target.value)}
+                      placeholder="Ej: 800"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                    />
+                  </div>
                   <div className="flex items-end">
                     <div className="flex w-full gap-2">
                       <button
@@ -4852,6 +4889,11 @@ export default function AdminJobs() {
                           <div className="text-xs text-gray-600">
                             <span className="font-semibold text-gray-800">{currencyFormatter.format(vehicle.fixedMonthlyCost)}</span> mensual
                           </div>
+                          {Number.isFinite(vehicle.pricePerLongDistanceKm) && (
+                            <div className="text-xs text-gray-600">
+                              <span className="font-semibold text-gray-800">{currencyFormatter.format(Number(vehicle.pricePerLongDistanceKm))}</span> / km LD
+                            </div>
+                          )}
                           <div className="flex gap-2">
                             <button
                               type="button"
@@ -4979,6 +5021,9 @@ export default function AdminJobs() {
                                   {Number.isFinite(assignedVehicle.hourlyRate)
                                     ? ` | ${currencyFormatter.format(Number(assignedVehicle.hourlyRate))} / h`
                                     : ''}
+                                  {Number.isFinite(assignedVehicle.pricePerLongDistanceKm)
+                                    ? ` | LD ${currencyFormatter.format(Number(assignedVehicle.pricePerLongDistanceKm))} / km`
+                                    : ''}
                                   {assignedVehicle.ownershipType === 'driver'
                                     ? ` | Margen dueno ${currencyFormatter.format(getVehicleCompanyHourlyMargin(assignedVehicle))} / h`
                                     : ''}
@@ -5072,6 +5117,11 @@ export default function AdminJobs() {
                                             <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", statusMeta.className)}>
                                               {statusMeta.label}
                                             </span>
+                                            {job.isLongDistance && (
+                                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                                                Larga Dist.
+                                              </span>
+                                            )}
                                           </div>
                                           <p className="text-xs text-gray-500">{completedAt}</p>
                                           <p className="mt-1 text-xs text-gray-600">
@@ -5095,7 +5145,7 @@ export default function AdminJobs() {
                                           <>
                                             <p><span className="font-semibold text-gray-800">Cobrado:</span> {payment.total != null ? currencyFormatter.format(payment.total) : 'Sin cargar'}</p>
                                             <p><span className="font-semibold text-gray-800">Estimado:</span> {totalValue != null ? currencyFormatter.format(totalValue) : 'N/D'}</p>
-                                            <p><span className="font-semibold text-gray-800">Base horaria:</span> {hourlyValue != null ? currencyFormatter.format(hourlyValue) : 'N/D'}</p>
+                                            <p><span className="font-semibold text-gray-800">Base:</span> {hourlyValue != null ? currencyFormatter.format(hourlyValue) : 'N/D'}</p>
                                             <p><span className="font-semibold text-gray-800">Conductor:</span> {hourlyDistribution?.driverShare != null ? currencyFormatter.format(hourlyDistribution.driverShare) : 'N/D'}</p>
                                             <p><span className="font-semibold text-gray-800">Dueno:</span> {hourlyDistribution?.ownerShare != null ? currencyFormatter.format(hourlyDistribution.ownerShare) : 'N/D'}</p>
                                             <p><span className="font-semibold text-gray-800">Deuda generada:</span> {debt.ownerDebt != null ? currencyFormatter.format(debt.ownerDebt) : 'Sin cobro'}</p>
