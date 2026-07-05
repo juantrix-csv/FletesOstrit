@@ -651,6 +651,19 @@ app.patch(`${API_PREFIX}/drivers/:id`, (req, res) => {
       body.vehicleId = vehicle.id;
     }
   }
+  if (Object.prototype.hasOwnProperty.call(body, 'ownerDebtSettledAmount') && !isNonNegativeNumber(body.ownerDebtSettledAmount)) {
+    res.status(400).json({ error: 'Invalid ownerDebtSettledAmount' });
+    return;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'ownerDebtSettledAt')) {
+    if (body.ownerDebtSettledAt != null) {
+      const ts = new Date(body.ownerDebtSettledAt).getTime();
+      if (Number.isNaN(ts)) {
+        res.status(400).json({ error: 'Invalid ownerDebtSettledAt' });
+        return;
+      }
+    }
+  }
   const updated = updateDriver(req.params.id, body);
   if (!updated) {
     res.status(404).json({ error: 'Not found' });
