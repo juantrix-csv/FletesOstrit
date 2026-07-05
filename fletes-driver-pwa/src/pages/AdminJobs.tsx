@@ -656,6 +656,8 @@ export default function AdminJobs() {
   const [newJobDriverId, setNewJobDriverId] = useState('');
   const [newJobVehicleId, setNewJobVehicleId] = useState('');
   const [newJobIsLongDistance, setNewJobIsLongDistance] = useState(false);
+  const [newJobEstimatedDurationHours, setNewJobEstimatedDurationHours] = useState('');
+  const [newJobHelpersCount, setNewJobHelpersCount] = useState('');
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
   const [extraStops, setExtraStops] = useState<LocationData[]>([]);
@@ -685,7 +687,6 @@ export default function AdminJobs() {
   const [vehicleCostPerKmInput, setVehicleCostPerKmInput] = useState('');
   const [vehiclePricePerLongDistanceKmInput, setVehiclePricePerLongDistanceKmInput] = useState('');
   const [vehicleFixedMonthlyInput, setVehicleFixedMonthlyInput] = useState('');
-  const [vehiclePricePerLongDistanceKmInput, setVehiclePricePerLongDistanceKmInput] = useState('');
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [savingVehicle, setSavingVehicle] = useState(false);
   const [driverLocations, setDriverLocations] = useState<DriverLocation[]>(() => locationsCacheEntry?.data ?? []);
@@ -1500,10 +1501,6 @@ export default function AdminJobs() {
       toast.error('Precio km larga distancia invalido');
       return;
     }
-    if (!vehiclePricePerLongDistanceKmInput.trim()) {
-      toast.error('Precio km larga distancia obligatorio');
-      return;
-    }
     const fixedMonthlyCost = parseMoneyInput(vehicleFixedMonthlyInput);
     if (vehicleFixedMonthlyInput.trim() && fixedMonthlyCost == null) {
       toast.error('Gasto fijo mensual invalido');
@@ -1511,11 +1508,6 @@ export default function AdminJobs() {
     }
     if (!vehicleFixedMonthlyInput.trim()) {
       toast.error('Gasto fijo mensual obligatorio');
-      return;
-    }
-    const pricePerLongDistanceKm = parseMoneyInput(vehiclePricePerLongDistanceKmInput);
-    if (vehiclePricePerLongDistanceKmInput.trim() && pricePerLongDistanceKm == null) {
-      toast.error('Precio km larga distancia invalido');
       return;
     }
     try {
@@ -1528,9 +1520,8 @@ export default function AdminJobs() {
         hourlyRate,
         companyHourlyMargin: vehicleOwnershipType === 'driver' ? companyHourlyMargin : null,
         costPerKm: costPerKm as number,
-        pricePerLongDistanceKm: pricePerLongDistanceKm as number,
-        fixedMonthlyCost: fixedMonthlyCost as number,
         pricePerLongDistanceKm: vehiclePricePerLongDistanceKmInput.trim() ? pricePerLongDistanceKm : null,
+        fixedMonthlyCost: fixedMonthlyCost as number,
         updatedAt: now,
       };
       if (editingVehicleId) {
@@ -4373,6 +4364,7 @@ export default function AdminJobs() {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
                             const estimateValue = getJobEstimatedTotal(item.job);
                             const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                            const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                             const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
@@ -4409,7 +4401,7 @@ export default function AdminJobs() {
                                 {!isDense && estimateLabel && (
                                   <span className={cn(
                                     "absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold whitespace-nowrap",
-                                    estimate?.mode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+                                    estimateMode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
                                   )}>
                                     {estimateLabel}
                                   </span>
@@ -4516,6 +4508,7 @@ export default function AdminJobs() {
                                   const style = getEventBlockStyle(item.start, item.end, day);
                                   const estimateValue = getJobEstimatedTotal(item.job);
                                   const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                  const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                   const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
@@ -4552,7 +4545,7 @@ export default function AdminJobs() {
                                       {!isDense && estimateLabel && (
                                         <span className={cn(
                                           "absolute right-0.5 top-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-semibold whitespace-nowrap",
-                                          estimate?.mode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+                                          estimateMode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
                                         )}>
                                           {estimateLabel}
                                         </span>
@@ -4615,6 +4608,7 @@ export default function AdminJobs() {
                               {items.slice(0, 3).map((item) => {
                                 const estimateValue = getJobEstimatedTotal(item.job);
                                 const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
+                                const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                 const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
                                 const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                 const driverLabel = driver?.name ?? 'Sin asignar';
@@ -4631,12 +4625,12 @@ export default function AdminJobs() {
                                       borderColor: driverColors.border,
                                       color: driverColors.text,
                                     }}
-                                    title={estimate?.detail ?? estimateLabel ?? undefined}
+                                    title={estimateLabel ?? undefined}
                                   >
                                     {estimateLabel && (
                                       <span className={cn(
                                         "absolute right-1 top-1 rounded-full px-1.5 py-0.5 text-[8px] font-semibold whitespace-nowrap",
-                                        estimate?.mode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
+                                        estimateMode === 'long-distance' ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700"
                                       )}>
                                         {estimateLabel}
                                       </span>

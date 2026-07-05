@@ -22,7 +22,6 @@ export interface Vehicle {
   hourlyRate?: number | null;
   companyHourlyMargin?: number | null;
   costPerKm: number;
-  pricePerLongDistanceKm?: number | null;
   fixedMonthlyCost: number;
   pricePerLongDistanceKm?: number | null;
   createdAt: string;
@@ -87,7 +86,6 @@ export interface Job {
   chargedAmount?: number | null;
   cashAmount?: number | null;
   transferAmount?: number | null;
-  isLongDistance?: boolean;
   hourlyBilledHours?: number | null;
   hourlyBaseAmount?: number | null;
   driverShareAmount?: number | null;
