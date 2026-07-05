@@ -327,8 +327,8 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
     points.slice(1).forEach((point) => bounds.extend(point));
     const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
-    const latSpan = Math.max(0.02, (ne.lat - sw.lat) * 0.2);
-    const lngSpan = Math.max(0.02, (ne.lng - sw.lng) * 0.2);
+    const latSpan = Math.max(0.05, (ne.lat - sw.lat) * 1.0);
+    const lngSpan = Math.max(0.05, (ne.lng - sw.lng) * 1.0);
     const maxBounds = new maplibregl.LngLatBounds(
       [sw.lng - lngSpan, sw.lat - latSpan],
       [ne.lng + lngSpan, ne.lat + latSpan]
@@ -471,19 +471,19 @@ const MapRoute = forwardRef<MapRouteHandle, MapRouteProps>(({ job, className, mo
         onError={handleMapError}
         reuseMaps
         attributionControl={false}
-        interactive={isDriving}
-        scrollZoom={isDriving}
-        dragPan={isDriving}
-        dragRotate={isDriving}
-        doubleClickZoom={isDriving}
-        touchZoomRotate={isDriving}
-        touchPitch={isDriving}
-        keyboard={isDriving}
-        onDragStart={setManualMapView}
-        onZoomStart={setManualMapView}
-        onRotateStart={setManualMapView}
-        onPitchStart={setManualMapView}
-        onTouchStart={setManualMapView}
+        interactive={true}
+        scrollZoom={true}
+        dragPan={true}
+        dragRotate={true}
+        doubleClickZoom={true}
+        touchZoomRotate={true}
+        touchPitch={true}
+        keyboard={true}
+        onDragStart={() => { if (isDriving) setManualMapView(); }}
+        onZoomStart={() => { if (isDriving) setManualMapView(); }}
+        onRotateStart={() => { if (isDriving) setManualMapView(); }}
+        onPitchStart={() => { if (isDriving) setManualMapView(); }}
+        onTouchStart={() => { if (isDriving) setManualMapView(); }}
         style={{ width: '100%', height: '100%' }}
       >
         {routeGeoJson && (
