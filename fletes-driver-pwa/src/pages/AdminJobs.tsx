@@ -593,6 +593,18 @@ const getJobDistanceKm = (job: Job) => {
   return meters / 1000;
 };
 
+const getJobPlannedDistanceKm = (job: Job) => {
+  const points = [job.pickup, ...(job.extraStops ?? []), job.dropoff].filter(isValidLocation);
+  if (points.length >= 2) {
+    let meters = 0;
+    for (let i = 0; i < points.length - 1; i += 1) {
+      meters += calculateDistance(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+    }
+    if (Number.isFinite(meters)) return meters / 1000;
+  }
+  return getJobDistanceKm(job);
+};
+
 const getStatusBadge = (status: JobStatus) => {
   if (status === 'DONE') {
     return { label: 'Completado', className: 'bg-emerald-100 text-emerald-700' };
@@ -2015,7 +2027,7 @@ export default function AdminJobs() {
     if (!job.isLongDistance) return null;
     const vehicle = getJobVehicle(job);
     if (!vehicle || !Number.isFinite(vehicle.pricePerLongDistanceKm)) return null;
-    const distanceKm = getJobDistanceKm(job);
+    const distanceKm = getJobPlannedDistanceKm(job);
     if (distanceKm == null || !Number.isFinite(distanceKm)) return null;
     return Math.round(distanceKm * Number(vehicle.pricePerLongDistanceKm));
   };
@@ -2239,7 +2251,7 @@ export default function AdminJobs() {
   };
   const getCalendarLongDistanceDetails = (job: Job) => {
     if (!job.isLongDistance) return null;
-    const distanceKm = getJobDistanceKm(job);
+    const distanceKm = getJobPlannedDistanceKm(job);
     const total = getJobEstimatedTotal(job);
     return {
       distanceLabel: distanceKm != null && Number.isFinite(distanceKm)
