@@ -126,5 +126,7 @@ export const forcePwaUpdate = async () => {
     await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
   }
 
-  window.location.replace(`/?force-update=${Date.now()}`);
+  const url = new URL(window.location.href);
+  url.searchParams.set('t', String(Date.now()));
+  window.location.replace(url.toString());
 };
