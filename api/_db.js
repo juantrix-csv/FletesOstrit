@@ -260,9 +260,7 @@ const buildLeadChangeMessage = ({ current = null, next, historyNote = null }) =>
   return changes.join('. ');
 };
 
-let schemaPromise = null;
-
-const runEnsureSchema = async () => {
+export const ensureSchema = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
@@ -280,12 +278,12 @@ const runEnsureSchema = async () => {
       notes TEXT,
       driver_id TEXT,
       vehicle_id TEXT,
-      is_long_distance BOOLEAN,
       helpers_count INTEGER,
       estimated_duration_minutes INTEGER,
       charged_amount DOUBLE PRECISION,
       cash_amount DOUBLE PRECISION,
       transfer_amount DOUBLE PRECISION,
+      is_long_distance BOOLEAN NOT NULL DEFAULT FALSE,
       hourly_billed_hours DOUBLE PRECISION,
       hourly_base_amount DOUBLE PRECISION,
       driver_share_amount DOUBLE PRECISION,
@@ -304,7 +302,6 @@ const runEnsureSchema = async () => {
   `;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_id TEXT;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS vehicle_id TEXT;`;
-  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_long_distance BOOLEAN;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS extra_stops JSONB;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS stop_index INTEGER;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS distance_meters DOUBLE PRECISION;`;
@@ -317,6 +314,10 @@ const runEnsureSchema = async () => {
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS charged_amount DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cash_amount DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS transfer_amount DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS is_long_distance BOOLEAN;`;
+  await sql`UPDATE jobs SET is_long_distance = false WHERE is_long_distance IS NULL;`;
+  await sql`ALTER TABLE jobs ALTER COLUMN is_long_distance SET DEFAULT FALSE;`;
+  await sql`ALTER TABLE jobs ALTER COLUMN is_long_distance SET NOT NULL;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_billed_hours DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_base_amount DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_share_amount DOUBLE PRECISION;`;
@@ -355,8 +356,8 @@ const runEnsureSchema = async () => {
       hourly_rate DOUBLE PRECISION,
       company_hourly_margin DOUBLE PRECISION,
       cost_per_km DOUBLE PRECISION NOT NULL,
-      price_per_long_distance_km DOUBLE PRECISION,
       fixed_monthly_cost DOUBLE PRECISION NOT NULL,
+      price_per_long_distance_km DOUBLE PRECISION,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -364,10 +365,10 @@ const runEnsureSchema = async () => {
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS ownership_type TEXT;`;
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS hourly_rate DOUBLE PRECISION;`;
   await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS company_hourly_margin DOUBLE PRECISION;`;
-  await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS price_per_long_distance_km DOUBLE PRECISION;`;
   await sql`UPDATE vehicles SET ownership_type = 'owner' WHERE ownership_type IS NULL;`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET DEFAULT 'owner';`;
   await sql`ALTER TABLE vehicles ALTER COLUMN ownership_type SET NOT NULL;`;
+  await sql`ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS price_per_long_distance_km DOUBLE PRECISION;`;
   await sql`
     CREATE TABLE IF NOT EXISTS driver_locations (
       driver_id TEXT PRIMARY KEY,
@@ -426,16 +427,6 @@ const runEnsureSchema = async () => {
   await sql`ALTER TABLE leads ALTER COLUMN history SET NOT NULL;`;
 };
 
-export const ensureSchema = async () => {
-  if (!schemaPromise) {
-    schemaPromise = runEnsureSchema().catch((error) => {
-      schemaPromise = null;
-      throw error;
-    });
-  }
-  return schemaPromise;
-};
-
 export const computeScheduledAt = (date, time) => {
   if (!date || !time) return null;
   const dateParts = String(date).split('-').map(Number);
@@ -469,12 +460,12 @@ const normalizeRow = (row) => {
     notes: row.notes ?? undefined,
     driverId: row.driver_id ?? undefined,
     vehicleId: row.vehicle_id ?? undefined,
-    isLongDistance: row.is_long_distance === true,
     helpersCount: row.helpers_count != null ? Number(row.helpers_count) : undefined,
     estimatedDurationMinutes: row.estimated_duration_minutes != null ? Number(row.estimated_duration_minutes) : undefined,
     chargedAmount: row.charged_amount != null ? Number(row.charged_amount) : fallbackChargedAmount,
     cashAmount,
     transferAmount,
+    isLongDistance: row.is_long_distance === true,
     hourlyBilledHours: row.hourly_billed_hours != null ? Number(row.hourly_billed_hours) : undefined,
     hourlyBaseAmount: row.hourly_base_amount != null ? Number(row.hourly_base_amount) : undefined,
     driverShareAmount: row.driver_share_amount != null ? Number(row.driver_share_amount) : undefined,
@@ -567,17 +558,31 @@ const buildJobShareSnapshot = async (job) => {
     };
   }
 
-  const billedHours = getBilledHoursFromTimestamps(job.timestamps);
   const driver = job.driverId ? await getDriverById(job.driverId) : null;
   const vehicle = await resolveJobVehicle(job, driver);
-  const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
-  const hourlyRateSetting = await getSetting('hourlyRate');
-  const hourlyRate = vehicleHourlyRate ?? (Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null);
-  const baseAmount = billedHours != null && hourlyRate != null
-    ? Number((billedHours * hourlyRate).toFixed(2))
-    : null;
-
   const { ratio, source, fixedCompanyHourlyMargin } = await resolveDriverShareRatio(job, driver, vehicle);
+
+  let baseAmount = null;
+  let billedHours = null;
+
+  if (job.isLongDistance) {
+    const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
+      : job.distanceKm != null ? Number(job.distanceKm) : null;
+    const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
+    if (distanceKm != null && pricePerKm != null) {
+      baseAmount = Math.round(distanceKm * pricePerKm);
+    }
+  }
+
+  if (baseAmount == null) {
+    billedHours = getBilledHoursFromTimestamps(job.timestamps);
+    const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
+    const hourlyRateSetting = await getSetting('hourlyRate');
+    const hourlyRate = vehicleHourlyRate ?? (Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null);
+    baseAmount = billedHours != null && hourlyRate != null
+      ? Number((billedHours * hourlyRate).toFixed(2))
+      : null;
+  }
 
   if (baseAmount == null) {
     return {
@@ -590,7 +595,7 @@ const buildJobShareSnapshot = async (job) => {
     };
   }
 
-  const fixedMarginShare = fixedCompanyHourlyMargin
+  const fixedMarginShare = fixedCompanyHourlyMargin && !job.isLongDistance
     ? getDriverOwnedVehicleShare({
       hourlyBaseAmount: baseAmount,
       billedHours,
@@ -660,7 +665,7 @@ export const createJob = async (job) => {
 
   await sql`
     INSERT INTO jobs (
-      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, vehicle_id, is_long_distance, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount,
+      id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, vehicle_id, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount, is_long_distance,
       hourly_billed_hours, hourly_base_amount, driver_share_amount, company_share_amount, driver_share_ratio, share_source, status,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
@@ -680,12 +685,12 @@ export const createJob = async (job) => {
       ${job.notes ?? null},
       ${job.driverId ?? null},
       ${job.vehicleId ?? null},
-      ${job.isLongDistance === true},
       ${Number.isFinite(job.helpersCount) ? job.helpersCount : null},
       ${Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null},
       ${payment.chargedAmount},
       ${payment.cashAmount},
       ${payment.transferAmount},
+      ${job.isLongDistance ?? false},
       ${toFiniteOrNull(shareSnapshot.hourlyBilledHours)},
       ${toFiniteOrNull(shareSnapshot.hourlyBaseAmount)},
       ${toFiniteOrNull(shareSnapshot.driverShareAmount)},
@@ -788,12 +793,12 @@ export const updateJob = async (id, patch) => {
       notes = ${next.notes ?? null},
       driver_id = ${next.driverId ?? null},
       vehicle_id = ${next.vehicleId ?? null},
-      is_long_distance = ${next.isLongDistance === true},
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
       charged_amount = ${payment.chargedAmount},
       cash_amount = ${payment.cashAmount},
       transfer_amount = ${payment.transferAmount},
+      is_long_distance = ${next.isLongDistance ?? false},
       hourly_billed_hours = ${toFiniteOrNull(shareSnapshot.hourlyBilledHours)},
       hourly_base_amount = ${toFiniteOrNull(shareSnapshot.hourlyBaseAmount)},
       driver_share_amount = ${toFiniteOrNull(shareSnapshot.driverShareAmount)},
@@ -1169,6 +1174,14 @@ const getDriverDebtBilledHours = (job) => {
 };
 
 const getDriverDebtHourlyValue = async (job, driver, vehicle) => {
+  if (job.isLongDistance) {
+    const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
+      : job.distanceKm != null ? Number(job.distanceKm) : null;
+    const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
+    if (distanceKm != null && pricePerKm != null) {
+      return Math.round(distanceKm * pricePerKm);
+    }
+  }
   if (job.status === 'DONE' && Number.isFinite(job.hourlyBaseAmount)) {
     return Number(job.hourlyBaseAmount);
   }
@@ -1205,7 +1218,7 @@ const refreshDriverOwnerDebt = async (driverId) => {
       const billedHours = getDriverDebtBilledHours(job);
       let ownerShare = hourlyValue ?? 0;
       if (hourlyValue != null) {
-        if (fixedCompanyHourlyMargin && billedHours != null) {
+        if (fixedCompanyHourlyMargin && billedHours != null && !job.isLongDistance) {
           const companyHourlyMargin = Number.isFinite(vehicle?.companyHourlyMargin)
             ? Number(vehicle.companyHourlyMargin)
             : await getSetting('driverVehicleCompanyHourlyMargin');
@@ -1376,8 +1389,8 @@ const normalizeVehicleRow = (row) => ({
   hourlyRate: row.hourly_rate != null ? Number(row.hourly_rate) : null,
   companyHourlyMargin: row.company_hourly_margin != null ? Number(row.company_hourly_margin) : null,
   costPerKm: row.cost_per_km != null ? Number(row.cost_per_km) : 0,
-  pricePerLongDistanceKm: row.price_per_long_distance_km != null ? Number(row.price_per_long_distance_km) : null,
   fixedMonthlyCost: row.fixed_monthly_cost != null ? Number(row.fixed_monthly_cost) : 0,
+  pricePerLongDistanceKm: row.price_per_long_distance_km != null ? Number(row.price_per_long_distance_km) : null,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -1401,7 +1414,7 @@ export const createVehicle = async (vehicle) => {
   const updatedAt = vehicle.updatedAt ?? createdAt;
   await sql`
     INSERT INTO vehicles (
-      id, name, size, ownership_type, hourly_rate, company_hourly_margin, cost_per_km, price_per_long_distance_km, fixed_monthly_cost, created_at, updated_at
+      id, name, size, ownership_type, hourly_rate, company_hourly_margin, cost_per_km, fixed_monthly_cost, price_per_long_distance_km, created_at, updated_at
     ) VALUES (
       ${vehicle.id},
       ${vehicle.name},
@@ -1410,8 +1423,8 @@ export const createVehicle = async (vehicle) => {
       ${Number.isFinite(vehicle.hourlyRate) ? Number(vehicle.hourlyRate) : null},
       ${Number.isFinite(vehicle.companyHourlyMargin) ? Number(vehicle.companyHourlyMargin) : null},
       ${vehicle.costPerKm},
-      ${Number.isFinite(vehicle.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null},
       ${vehicle.fixedMonthlyCost},
+      ${Number.isFinite(vehicle.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null},
       ${createdAt},
       ${updatedAt}
     )
@@ -1435,8 +1448,8 @@ export const updateVehicle = async (id, patch) => {
       hourly_rate = ${Number.isFinite(next.hourlyRate) ? Number(next.hourlyRate) : null},
       company_hourly_margin = ${Number.isFinite(next.companyHourlyMargin) ? Number(next.companyHourlyMargin) : null},
       cost_per_km = ${next.costPerKm},
-      price_per_long_distance_km = ${Number.isFinite(next.pricePerLongDistanceKm) ? Number(next.pricePerLongDistanceKm) : null},
       fixed_monthly_cost = ${next.fixedMonthlyCost},
+      price_per_long_distance_km = ${Number.isFinite(next.pricePerLongDistanceKm) ? Number(next.pricePerLongDistanceKm) : null},
       created_at = ${next.createdAt},
       updated_at = ${next.updatedAt}
     WHERE id = ${id}

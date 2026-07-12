@@ -81,6 +81,7 @@ export default async function handler(req, res) {
       costPerKm: body.costPerKm,
       pricePerLongDistanceKm: body.pricePerLongDistanceKm ?? null,
       fixedMonthlyCost: body.fixedMonthlyCost,
+      pricePerLongDistanceKm: body.pricePerLongDistanceKm ?? null,
       createdAt: body.createdAt,
       updatedAt: body.updatedAt,
     });
