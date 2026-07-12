@@ -116,17 +116,23 @@ export const setupPwaUpdater = () => {
 };
 
 export const forcePwaUpdate = async () => {
-  if ('serviceWorker' in navigator) {
-    const registrations = await navigator.serviceWorker.getRegistrations();
-    await Promise.all(registrations.map((registration) => registration.unregister()));
-  }
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        try { await registration.unregister(); } catch {}
+      }
+    }
+  } catch {}
 
-  if ('caches' in window) {
-    const cacheNames = await caches.keys();
-    await Promise.all(cacheNames.map((cacheName) => caches.delete(cacheName)));
-  }
+  try {
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      for (const cacheName of cacheNames) {
+        try { await caches.delete(cacheName); } catch {}
+      }
+    }
+  } catch {}
 
-  const url = new URL(window.location.href);
-  url.searchParams.set('t', String(Date.now()));
-  window.location.replace(url.toString());
+  window.location.reload();
 };
