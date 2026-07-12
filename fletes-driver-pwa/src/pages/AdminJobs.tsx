@@ -2253,11 +2253,20 @@ export default function AdminJobs() {
     if (!job.isLongDistance) return null;
     const distanceKm = getJobPlannedDistanceKm(job);
     const total = getJobEstimatedTotal(job);
+    const driver = job.driverId ? driversById.get(job.driverId) ?? null : null;
+    let ownerLabel = null;
+    if (Number.isFinite(job.companyShareAmount) && isExternalDriver(driver)) {
+      ownerLabel = currencyFormatter.format(Number(job.companyShareAmount));
+    } else if (total != null && isExternalDriver(driver)) {
+      const driverShareRatio = getDriverShareRatioByVehicle(getJobVehicle(job), driver);
+      ownerLabel = currencyFormatter.format(roundMoney(total * (1 - driverShareRatio)));
+    }
     return {
       distanceLabel: distanceKm != null && Number.isFinite(distanceKm)
         ? `${decimalFormatter.format(distanceKm)} km`
         : 'Km N/D',
       totalLabel: total != null ? currencyFormatter.format(total) : 'Precio N/D',
+      ownerLabel,
     };
   };
   const hourlyRateLabel = hourlyRateValue != null ? currencyFormatter.format(hourlyRateValue) : '--';
@@ -4388,7 +4397,7 @@ export default function AdminJobs() {
                             const overlapColumns = layoutEntry?.columns ?? 1;
                             const isOverlapped = overlapColumns > 1;
                             const isDense = overlapColumns > 2;
-                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
+                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
                             if (!style) return null;
                             return (
                               <div
@@ -4423,7 +4432,7 @@ export default function AdminJobs() {
                                 </div>
                                 <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
                                 <div className={cn("calendar-event__line", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
-                                  {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, calendarDate)}
+                                  {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
                             );
@@ -4532,7 +4541,7 @@ export default function AdminJobs() {
                                   const overlapColumns = layoutEntry?.columns ?? 1;
                                   const isOverlapped = overlapColumns > 1;
                                   const isDense = overlapColumns > 2;
-                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
+                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
                                   if (!style) return null;
                                   return (
                                     <div
