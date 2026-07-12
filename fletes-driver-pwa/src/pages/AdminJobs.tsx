@@ -2255,15 +2255,13 @@ export default function AdminJobs() {
     if (!job.isLongDistance) return null;
     const distanceKm = getJobPlannedDistanceKm(job);
     const total = getJobEstimatedTotal(job);
+    const vehicle = getJobVehicle(job);
     let ownerLabel = null;
-    if (Number.isFinite(job.companyShareAmount)) {
-      ownerLabel = currencyFormatter.format(Number(job.companyShareAmount));
-    } else if (total != null) {
-      const driver = job.driverId ? driversById.get(job.driverId) ?? null : null;
-      if (isExternalDriver(driver)) {
-        const driverShareRatio = getDriverShareRatioByVehicle(getJobVehicle(job), driver);
-        ownerLabel = currencyFormatter.format(Math.round(total * (1 - driverShareRatio)));
-      }
+    if (total != null && job.driverId) {
+      const ownerRatio = vehicle?.ownershipType === 'driver'
+        ? (1 - driverVehicleDriverShareRatio)
+        : (1 - ownerVehicleDriverShareRatio);
+      ownerLabel = currencyFormatter.format(Math.round(total * ownerRatio));
     }
     return {
       distanceLabel: distanceKm != null && Number.isFinite(distanceKm)
@@ -6379,10 +6377,19 @@ export default function AdminJobs() {
                               {decimalFormatter.format(selectedJobLongDistanceDistanceKm)} km x {currencyFormatter.format(selectedJobLongDistancePricePerKm)}/km
                             </p>
                           )}
-                          {canSeeMoney && selectedJobDetail.isLongDistance && Number.isFinite(selectedJobDetail.companyShareAmount) && selectedJobDetail.driverId && !isOwnerAccountDriver(driversById.get(selectedJobDetail.driverId) ?? null) && (
+                          {canSeeMoney && selectedJobDetail.isLongDistance && selectedJobDetail.driverId && !isOwnerAccountDriver(driversById.get(selectedJobDetail.driverId) ?? null) && selectedJobLongDistanceCalculatedTotal != null && (
                             <p>
                               <span className="font-medium text-gray-900">Parte del dueño:</span>{' '}
-                              {currencyFormatter.format(Number(selectedJobDetail.companyShareAmount))}
+                              {(() => {
+                                const driver = driversById.get(selectedJobDetail.driverId) ?? null;
+                                const vehicle = getJobVehicle(selectedJobDetail);
+                                if (vehicle?.ownershipType === 'driver') {
+                                  const margin = getVehicleCompanyHourlyMargin(vehicle);
+                                  return currencyFormatter.format(Math.round(Math.min(selectedJobLongDistanceCalculatedTotal, margin)));
+                                }
+                                const ratio = getDriverShareRatioByVehicle(vehicle, driver);
+                                return currencyFormatter.format(Math.round(selectedJobLongDistanceCalculatedTotal * (1 - ratio)));
+                              })()}
                             </p>
                           )}
                         </>
