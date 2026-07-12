@@ -811,6 +811,7 @@ export const updateJob = async (id, patch) => {
       vehicle_id = ${next.vehicleId ?? null},
       helpers_count = ${Number.isFinite(next.helpersCount) ? next.helpersCount : null},
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
+      distance_meters = ${Number.isFinite(next.distanceMeters) ? Number(next.distanceMeters) : null},
       charged_amount = ${payment.chargedAmount},
       cash_amount = ${payment.cashAmount},
       transfer_amount = ${payment.transferAmount},
