@@ -1278,7 +1278,6 @@ const refreshAllDriverOwnerDebt = async () => {
 
 export const listDrivers = async () => {
   await ensureSchema();
-  await refreshAllDriverOwnerDebt();
   const { rows } = await sql`SELECT * FROM drivers ORDER BY created_at DESC`;
   return rows.map(normalizeDriverRow);
 };
