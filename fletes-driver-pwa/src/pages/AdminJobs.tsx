@@ -2253,13 +2253,15 @@ export default function AdminJobs() {
     if (!job.isLongDistance) return null;
     const distanceKm = getJobPlannedDistanceKm(job);
     const total = getJobEstimatedTotal(job);
-    const driver = job.driverId ? driversById.get(job.driverId) ?? null : null;
     let ownerLabel = null;
-    if (Number.isFinite(job.companyShareAmount) && isExternalDriver(driver)) {
+    if (Number.isFinite(job.companyShareAmount)) {
       ownerLabel = currencyFormatter.format(Number(job.companyShareAmount));
-    } else if (total != null && isExternalDriver(driver)) {
-      const driverShareRatio = getDriverShareRatioByVehicle(getJobVehicle(job), driver);
-      ownerLabel = currencyFormatter.format(roundMoney(total * (1 - driverShareRatio)));
+    } else if (total != null) {
+      const driver = job.driverId ? driversById.get(job.driverId) ?? null : null;
+      if (isExternalDriver(driver)) {
+        const driverShareRatio = getDriverShareRatioByVehicle(getJobVehicle(job), driver);
+        ownerLabel = currencyFormatter.format(Math.round(total * (1 - driverShareRatio)));
+      }
     }
     return {
       distanceLabel: distanceKm != null && Number.isFinite(distanceKm)
