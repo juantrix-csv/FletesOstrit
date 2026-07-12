@@ -546,6 +546,18 @@ const resolveDriverShareRatio = async (job, driver, vehicle) => {
   return { ratio: ownerVehicleRatio, source: 'owner_vehicle' };
 };
 
+const isValidCoord = (loc) => loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
+
+const computeRouteDistanceKm = (job) => {
+  const points = [job.pickup, ...(Array.isArray(job.extraStops) ? job.extraStops : []), job.dropoff].filter(isValidCoord);
+  if (points.length < 2) return null;
+  let meters = 0;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    meters += calculateDistanceMeters(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
+  }
+  return meters / 1000;
+};
+
 const buildJobShareSnapshot = async (job) => {
   if (job.status !== 'DONE') {
     return {
@@ -566,8 +578,7 @@ const buildJobShareSnapshot = async (job) => {
   let billedHours = null;
 
   if (job.isLongDistance) {
-    const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
-      : job.distanceKm != null ? Number(job.distanceKm) : null;
+    const distanceKm = computeRouteDistanceKm(job);
     const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
     if (distanceKm != null && pricePerKm != null) {
       baseAmount = Math.round(distanceKm * pricePerKm);
@@ -1175,8 +1186,7 @@ const getDriverDebtBilledHours = (job) => {
 
 const getDriverDebtHourlyValue = async (job, driver, vehicle) => {
   if (job.isLongDistance) {
-    const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
-      : job.distanceKm != null ? Number(job.distanceKm) : null;
+    const distanceKm = computeRouteDistanceKm(job);
     const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
     if (distanceKm != null && pricePerKm != null) {
       return Math.round(distanceKm * pricePerKm);
