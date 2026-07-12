@@ -4386,9 +4386,10 @@ export default function AdminJobs() {
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
                             const estimateValue = getJobEstimatedTotal(item.job);
-                            const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
-                            const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                             const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
+                            const estimateLabel = longDistanceDetails?.ownerLabel
+                              ?? (estimateValue != null ? currencyFormatter.format(estimateValue) : null);
+                            const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
                             const vehicle = getJobVehicle(item.job);
@@ -4530,9 +4531,10 @@ export default function AdminJobs() {
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
                                   const estimateValue = getJobEstimatedTotal(item.job);
-                                  const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
-                                  const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                   const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
+                                  const estimateLabel = longDistanceDetails?.ownerLabel
+                                    ?? (estimateValue != null ? currencyFormatter.format(estimateValue) : null);
+                                  const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
                                   const vehicle = getJobVehicle(item.job);
@@ -4630,9 +4632,10 @@ export default function AdminJobs() {
                             <div className="mt-2 space-y-1">
                               {items.slice(0, 3).map((item) => {
                                 const estimateValue = getJobEstimatedTotal(item.job);
-                                const estimateLabel = estimateValue != null ? currencyFormatter.format(estimateValue) : null;
-                                const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                 const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
+                                const estimateLabel = longDistanceDetails?.ownerLabel
+                                  ?? (estimateValue != null ? currencyFormatter.format(estimateValue) : null);
+                                const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                 const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                 const driverLabel = driver?.name ?? 'Sin asignar';
                                 const vehicle = getJobVehicle(item.job);
