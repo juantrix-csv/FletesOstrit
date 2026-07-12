@@ -76,6 +76,7 @@ export default async function handler(req, res) {
       companyHourlyMargin: body.companyHourlyMargin ?? null,
       costPerKm: body.costPerKm,
       fixedMonthlyCost: body.fixedMonthlyCost,
+      pricePerLongDistanceKm: body.pricePerLongDistanceKm ?? null,
       createdAt: body.createdAt,
       updatedAt: body.updatedAt,
     });
