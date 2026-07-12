@@ -594,6 +594,8 @@ const getJobDistanceKm = (job: Job) => {
 };
 
 const getJobPlannedDistanceKm = (job: Job) => {
+  if (Number.isFinite(job.distanceKm)) return job.distanceKm as number;
+  if (Number.isFinite(job.distanceMeters)) return (job.distanceMeters as number) / 1000;
   const points = [job.pickup, ...(job.extraStops ?? []), job.dropoff].filter(isValidLocation);
   if (points.length >= 2) {
     let meters = 0;
@@ -602,7 +604,7 @@ const getJobPlannedDistanceKm = (job: Job) => {
     }
     if (Number.isFinite(meters)) return meters / 1000;
   }
-  return getJobDistanceKm(job);
+  return null;
 };
 
 const getStatusBadge = (status: JobStatus) => {
@@ -6375,6 +6377,12 @@ export default function AdminJobs() {
                           {canSeeMoney && selectedJobLongDistanceDistanceKm != null && selectedJobLongDistancePricePerKm != null && selectedJobLongDistancePricePerKm > 0 && (
                             <p className="text-xs text-gray-500">
                               {decimalFormatter.format(selectedJobLongDistanceDistanceKm)} km x {currencyFormatter.format(selectedJobLongDistancePricePerKm)}/km
+                            </p>
+                          )}
+                          {canSeeMoney && selectedJobDetail.isLongDistance && Number.isFinite(selectedJobDetail.companyShareAmount) && selectedJobDetail.driverId && !isOwnerAccountDriver(driversById.get(selectedJobDetail.driverId) ?? null) && (
+                            <p>
+                              <span className="font-medium text-gray-900">Parte del dueño:</span>{' '}
+                              {currencyFormatter.format(Number(selectedJobDetail.companyShareAmount))}
                             </p>
                           )}
                         </>
