@@ -527,30 +527,19 @@ const getDriverDebtBilledHours = (job) => {
   return null;
 };
 
-const getJobDistanceKm = (job, useRouteDistance = false) => {
-  if (!useRouteDistance && Number.isFinite(job.distanceMeters)) return Number(job.distanceMeters) / 1000;
+const getJobDistanceKm = (job) => {
+  if (Number.isFinite(job.distanceMeters)) return Number(job.distanceMeters) / 1000;
   if (!job.pickup || !job.dropoff) return null;
   const pickup = typeof job.pickup === 'string' ? parseJson(job.pickup, null) : job.pickup;
   const dropoff = typeof job.dropoff === 'string' ? parseJson(job.dropoff, null) : job.dropoff;
-  const extraStops = Array.isArray(job.extraStops) ? job.extraStops.map((s) => (typeof s === 'string' ? parseJson(s, null) : s)) : [];
-  const points = [pickup, ...extraStops, dropoff].filter((p) => p && Number.isFinite(p.lat) && Number.isFinite(p.lng));
-  if (points.length < 2) {
-    if (pickup && dropoff && Number.isFinite(pickup.lat) && Number.isFinite(pickup.lng) && Number.isFinite(dropoff.lat) && Number.isFinite(dropoff.lng)) {
-      return calculateDistanceMeters(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng) / 1000;
-    }
-    return null;
-  }
-  let meters = 0;
-  for (let i = 0; i < points.length - 1; i += 1) {
-    meters += calculateDistanceMeters(points[i].lat, points[i].lng, points[i + 1].lat, points[i + 1].lng);
-  }
-  return meters / 1000;
+  if (!pickup || !dropoff || !Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lng) || !Number.isFinite(dropoff.lat) || !Number.isFinite(dropoff.lng)) return null;
+  return calculateDistanceMeters(pickup.lat, pickup.lng, dropoff.lat, dropoff.lng) / 1000;
 };
 
 const getJobLongDistanceValue = (job, vehicle) => {
   if (!job.isLongDistance) return null;
   if (!vehicle || !Number.isFinite(vehicle.pricePerLongDistanceKm)) return null;
-  const distanceKm = getJobDistanceKm(job, true);
+  const distanceKm = getJobDistanceKm(job);
   if (distanceKm == null || !Number.isFinite(distanceKm)) return null;
   return Math.round(distanceKm * Number(vehicle.pricePerLongDistanceKm));
 };
@@ -833,7 +822,7 @@ const fromLocationRow = (row) => ({
 });
 
 const getJobTrackStmt = db.prepare(`
-  SELECT status, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt
+  SELECT status, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, isLongDistance
   FROM jobs
   WHERE id = ?
 `);
@@ -868,6 +857,7 @@ const recordJobLocation = ({ jobId, lat, lng, accuracy, recordedAt }) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   const job = getJobTrackStmt.get(jobId);
   if (!job || !ACTIVE_JOB_STATUSES.has(job.status)) return null;
+  if (job.isLongDistance === 1) return { distanceMeters: Number.isFinite(Number(job.distanceMeters)) ? Number(job.distanceMeters) : 0 };
 
   const nowMs = Number.isFinite(recordedAt) ? Number(recordedAt) : Date.now();
   const lastAt = Number.isFinite(job.lastTrackAt) ? Number(job.lastTrackAt) : null;

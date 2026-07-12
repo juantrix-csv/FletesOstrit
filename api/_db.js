@@ -578,7 +578,8 @@ const buildJobShareSnapshot = async (job) => {
   let billedHours = null;
 
   if (job.isLongDistance) {
-    const distanceKm = computeRouteDistanceKm(job);
+    const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
+      : job.distanceKm != null ? Number(job.distanceKm) : null;
     const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
     if (distanceKm != null && pricePerKm != null) {
       baseAmount = Math.round(distanceKm * pricePerKm);
@@ -662,7 +663,11 @@ export const createJob = async (job) => {
   const flags = job.flags ?? defaultFlags;
   const timestamps = job.timestamps ?? {};
   const stopIndex = Number.isInteger(job.stopIndex) && job.stopIndex >= 0 ? job.stopIndex : 0;
-  const distanceMeters = Number.isFinite(job.distanceMeters) ? job.distanceMeters : 0;
+  let distanceMeters = Number.isFinite(job.distanceMeters) ? job.distanceMeters : 0;
+  if (job.isLongDistance && !Number.isFinite(job.distanceMeters)) {
+    const routeKm = computeRouteDistanceKm(job);
+    if (routeKm != null) distanceMeters = Math.round(routeKm * 1000);
+  }
   const pickupJson = toJson(job.pickup, {});
   const dropoffJson = toJson(job.dropoff, {});
   const extraStopsJson = toJson(Array.isArray(job.extraStops) ? job.extraStops : [], []);
@@ -1058,13 +1063,14 @@ export const recordJobLocation = async ({ jobId, lat, lng, accuracy, recordedAt 
   await ensureSchema();
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   const { rows } = await sql`
-    SELECT status, distance_meters, last_track_lat, last_track_lng, last_track_at
+    SELECT status, distance_meters, last_track_lat, last_track_lng, last_track_at, is_long_distance
     FROM jobs
     WHERE id = ${jobId}
   `;
   if (rows.length === 0) return null;
   const job = rows[0];
   if (!ACTIVE_JOB_STATUSES.has(job.status)) return null;
+  if (job.is_long_distance === true) return { distanceMeters: Number.isFinite(Number(job.distance_meters)) ? Number(job.distance_meters) : 0 };
 
   const nowMs = Number.isFinite(recordedAt) ? Number(recordedAt) : Date.now();
   const lastAtValue = Number(job.last_track_at);
@@ -1186,7 +1192,8 @@ const getDriverDebtBilledHours = (job) => {
 
 const getDriverDebtHourlyValue = async (job, driver, vehicle) => {
   if (job.isLongDistance) {
-    const distanceKm = computeRouteDistanceKm(job);
+    const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
+      : job.distanceKm != null ? Number(job.distanceKm) : null;
     const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
     if (distanceKm != null && pricePerKm != null) {
       return Math.round(distanceKm * pricePerKm);
