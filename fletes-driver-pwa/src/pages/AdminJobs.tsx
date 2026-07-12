@@ -580,9 +580,9 @@ const formatDurationHours = (minutes?: number | null) => {
 const isValidLocation = (loc?: LocationData | null) =>
   !!loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng);
 
-const getJobDistanceKm = (job: Job) => {
-  if (Number.isFinite(job.distanceKm) && (job.distanceKm as number) > 0) return job.distanceKm as number;
-  if (Number.isFinite(job.distanceMeters) && (job.distanceMeters as number) > 0) return (job.distanceMeters as number) / 1000;
+const getJobDistanceKm = (job: Job, skipStoredDistance?: boolean) => {
+  if (!skipStoredDistance && Number.isFinite(job.distanceKm)) return job.distanceKm as number;
+  if (!skipStoredDistance && Number.isFinite(job.distanceMeters)) return (job.distanceMeters as number) / 1000;
   const points = [job.pickup, ...(job.extraStops ?? []), job.dropoff].filter(isValidLocation);
   if (points.length < 2) return null;
   let meters = 0;
@@ -2027,7 +2027,7 @@ export default function AdminJobs() {
     if (!job.isLongDistance) return null;
     const vehicle = getJobVehicle(job);
     if (!vehicle || !Number.isFinite(vehicle.pricePerLongDistanceKm)) return null;
-    const distanceKm = getJobPlannedDistanceKm(job);
+    const distanceKm = getJobDistanceKm(job, true);
     if (distanceKm == null || !Number.isFinite(distanceKm)) return null;
     return Math.round(distanceKm * Number(vehicle.pricePerLongDistanceKm));
   };
