@@ -3463,6 +3463,8 @@ export default function AdminJobs() {
                           min="0"
                           step="1"
                           placeholder="Ayudantes requeridos"
+                          value={newJobHelpersCount}
+                          onChange={(event) => setNewJobHelpersCount(event.target.value)}
                           className="mt-1 w-full rounded border px-3 py-2 text-sm"
                         />
                       </label>
@@ -3474,6 +3476,8 @@ export default function AdminJobs() {
                           min="0.5"
                           step="0.5"
                           placeholder="Ej: 2.5"
+                          value={newJobEstimatedDurationHours}
+                          onChange={(event) => setNewJobEstimatedDurationHours(event.target.value)}
                           className="mt-1 w-full rounded border px-3 py-2 text-sm"
                           required
                         />
