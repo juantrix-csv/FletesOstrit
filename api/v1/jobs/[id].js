@@ -1,3 +1,4 @@
+import { isLocation, isLocationArray } from '../../_location.js';
 import { deleteJob, getDriverByCode, getDriverById, getJobById, getVehicleById, updateJob } from '../../_db.js';
 
 const ALLOWED_STATUSES = new Set([
@@ -21,13 +22,6 @@ const parseBody = (req) => {
   return req.body;
 };
 
-const isLocation = (value) => (
-  value &&
-  typeof value.address === 'string' &&
-  Number.isFinite(value.lat) &&
-  Number.isFinite(value.lng)
-);
-const isLocationArray = (value) => Array.isArray(value) && value.every(isLocation);
 const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 const isPositiveInteger = (value) => Number.isInteger(value) && value > 0;
 const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;

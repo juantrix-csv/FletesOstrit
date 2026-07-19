@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { getBilledHoursFromDurationMs } from '../lib/billing.js';
 import { getDriverOwnedVehicleShare } from '../lib/driverShare.js';
+import { normalizeLocation, normalizeLocations } from './_location.js';
 
 const { Pool } = pg;
 const connectionString = process.env.POSTGRES_URL ?? '';
@@ -451,9 +452,9 @@ const normalizeRow = (row) => {
     clientName: row.client_name,
     clientPhone: row.client_phone ?? undefined,
     description: row.description ?? undefined,
-    pickup: row.pickup,
-    dropoff: row.dropoff,
-    extraStops: Array.isArray(row.extra_stops) ? row.extra_stops : [],
+    pickup: normalizeLocation(row.pickup),
+    dropoff: normalizeLocation(row.dropoff),
+    extraStops: normalizeLocations(row.extra_stops),
     stopIndex: row.stop_index != null ? Number(row.stop_index) : undefined,
     distanceMeters,
     distanceKm: distanceMeters != null ? distanceMeters / 1000 : undefined,
@@ -668,9 +669,9 @@ export const createJob = async (job) => {
     const routeKm = computeRouteDistanceKm(job);
     if (routeKm != null) distanceMeters = Math.round(routeKm * 1000);
   }
-  const pickupJson = toJson(job.pickup, {});
-  const dropoffJson = toJson(job.dropoff, {});
-  const extraStopsJson = toJson(Array.isArray(job.extraStops) ? job.extraStops : [], []);
+  const pickupJson = toJson(normalizeLocation(job.pickup), {});
+  const dropoffJson = toJson(normalizeLocation(job.dropoff), {});
+  const extraStopsJson = toJson(normalizeLocations(job.extraStops), []);
   const flagsJson = toJson(flags, defaultFlags);
   const timestampsJson = toJson(timestamps, {});
   const payment = resolvePaymentFields({ patch: job });
@@ -761,9 +762,9 @@ export const updateJob = async (id, patch) => {
   next.chargedAmount = payment.chargedAmount;
   next.cashAmount = payment.cashAmount;
   next.transferAmount = payment.transferAmount;
-  const pickupJson = toJson(next.pickup, {});
-  const dropoffJson = toJson(next.dropoff, {});
-  const extraStopsJson = toJson(Array.isArray(next.extraStops) ? next.extraStops : [], []);
+  const pickupJson = toJson(normalizeLocation(next.pickup), {});
+  const dropoffJson = toJson(normalizeLocation(next.dropoff), {});
+  const extraStopsJson = toJson(normalizeLocations(next.extraStops), []);
   const flagsJson = toJson(next.flags ?? defaultFlags, defaultFlags);
   const timestampsJson = toJson(next.timestamps ?? {}, {});
   let shareSnapshot = null;

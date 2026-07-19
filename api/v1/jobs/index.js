@@ -1,3 +1,4 @@
+import { isLocation, isLocationArray } from '../../_location.js';
 import { createJob, getDriverByCode, getDriverById, getVehicleById, listJobs } from '../../_db.js';
 
 const ALLOWED_STATUSES = new Set([
@@ -26,13 +27,6 @@ const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 const isPositiveInteger = (value) => Number.isInteger(value) && value > 0;
 const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;
 const isOptionalBoolean = (value) => value == null || typeof value === 'boolean';
-const isLocation = (value) => (
-  value &&
-  typeof value.address === 'string' &&
-  Number.isFinite(value.lat) &&
-  Number.isFinite(value.lng)
-);
-const isLocationArray = (value) => Array.isArray(value) && value.every(isLocation);
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {

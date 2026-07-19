@@ -14,6 +14,7 @@ import { useCachedQuery } from '../hooks/useCachedQuery';
 import { formatBilledHours, formatDurationMs, getJobChargeBreakdown, moneyFormatter } from '../lib/jobPricing';
 import { useOperationsBaseLocation } from '../hooks/useOperationsBaseLocation';
 import { getRouteEstimate } from '../lib/routeEstimate';
+import { formatLocationAccess } from '../lib/locationAccess';
 
 const formatAddress = (address: string, maxParts = 3) => {
   const parts = address.split(',').map((part) => part.trim()).filter(Boolean);
@@ -358,6 +359,7 @@ export default function JobWorkflow() {
           <div>
             <p className="text-[10px] uppercase tracking-wide text-gray-400">Origen</p>
             <p>{job.pickup?.address || 'Sin direccion'}</p>
+            <p className="text-xs font-semibold text-blue-700">{formatLocationAccess(job.pickup)}</p>
           </div>
           {extraStops.length > 0 && (
             <div>
@@ -366,6 +368,7 @@ export default function JobWorkflow() {
                 {extraStops.map((stop, index) => (
                   <li key={`${stop.lat}-${stop.lng}-${index}`} className="text-sm text-gray-700">
                     {stop.address || 'Sin direccion'}
+                    <span className="ml-2 text-xs font-semibold text-blue-700">{formatLocationAccess(stop)}</span>
                   </li>
                 ))}
               </ul>
@@ -374,6 +377,7 @@ export default function JobWorkflow() {
           <div>
             <p className="text-[10px] uppercase tracking-wide text-gray-400">Destino</p>
             <p>{job.dropoff?.address || 'Sin direccion'}</p>
+            <p className="text-xs font-semibold text-blue-700">{formatLocationAccess(job.dropoff)}</p>
           </div>
         </div>
       </div>
@@ -599,6 +603,7 @@ export default function JobWorkflow() {
               <MapPin size={14} className="mt-[2px] text-blue-500" />
               <div className="text-right text-sm font-semibold text-blue-950 leading-snug break-words whitespace-normal min-w-0 max-h-[2.5rem] overflow-hidden">
                 {displayAddress}
+                <span className="block text-[11px] font-medium text-blue-700">{formatLocationAccess(target)}</span>
               </div>
             </div>
           </div>

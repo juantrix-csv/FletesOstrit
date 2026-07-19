@@ -11,7 +11,14 @@ export type LeadLossReason =
   | 'OTHER';
 export type LeadRequestedSlot = 'NOW' | 'TODAY' | 'TOMORROW' | 'THIS_WEEK' | 'UNSPECIFIED';
 export type LeadJobType = 'FLETE_SIMPLE' | 'MUDANZA' | 'CON_AYUDANTE' | 'RETIRO_ENTREGA' | 'UNSPECIFIED';
-export interface LocationData { address: string; lat: number; lng: number; }
+export interface LocationData {
+  address: string;
+  lat: number;
+  lng: number;
+  floor?: number | null;
+  hasElevator?: boolean;
+  hasItemsThatDoNotFitElevator?: boolean;
+}
 export type VehicleSize = 'chico' | 'mediano' | 'grande';
 export type VehicleOwnershipType = 'owner' | 'driver';
 export interface Vehicle {

@@ -9,6 +9,7 @@ import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
 import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
+import LocationAccessFields from '../components/LocationAccessFields';
 import AdminLeads from '../components/AdminLeads';
 import type { Driver, DriverLocation, Job, JobPaymentMethod, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
 import {
@@ -60,6 +61,7 @@ import { canAccessAdminTab } from '../lib/adminAccess';
 import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '../lib/queryCache';
 import { getRouteEstimate } from '../lib/routeEstimate';
 import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from '../lib/billing';
+import { formatJobAccessSummary, formatLocationAccess, normalizeLocationAccess } from '../lib/locationAccess';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -1085,7 +1087,7 @@ export default function AdminJobs() {
 
   const addExtraStop = (location: LocationData | null) => {
     if (!location) return;
-    setExtraStops((prev) => [...prev, location]);
+    setExtraStops((prev) => [...prev, normalizeLocationAccess(location)]);
     setExtraStopDraft(null);
     setExtraStopKey((prev) => prev + 1);
   };
@@ -1102,21 +1104,21 @@ export default function AdminJobs() {
 
   const handleCreateMapSelect = (kind: MapSelectionTarget, location: LocationData) => {
     if (kind === 'pickup') {
-      setPickup(location);
+      setPickup(normalizeLocationAccess(location));
       return;
     }
     if (kind === 'dropoff') {
-      setDropoff(location);
+      setDropoff(normalizeLocationAccess(location));
       return;
     }
-    setExtraStops((prev) => [...prev, location]);
+    setExtraStops((prev) => [...prev, normalizeLocationAccess(location)]);
     setExtraStopDraft(null);
     setExtraStopKey((prev) => prev + 1);
   };
 
   const addEditExtraStop = (location: LocationData | null) => {
     if (!location) return;
-    setEditExtraStops((prev) => [...prev, location]);
+    setEditExtraStops((prev) => [...prev, normalizeLocationAccess(location)]);
     setEditExtraStopDraft(null);
     setEditExtraStopKey((prev) => prev + 1);
   };
@@ -1133,14 +1135,14 @@ export default function AdminJobs() {
 
   const handleEditMapSelect = (kind: MapSelectionTarget, location: LocationData) => {
     if (kind === 'pickup') {
-      setEditPickup(location);
+      setEditPickup(normalizeLocationAccess(location));
       return;
     }
     if (kind === 'dropoff') {
-      setEditDropoff(location);
+      setEditDropoff(normalizeLocationAccess(location));
       return;
     }
-    setEditExtraStops((prev) => [...prev, location]);
+    setEditExtraStops((prev) => [...prev, normalizeLocationAccess(location)]);
     setEditExtraStopDraft(null);
     setEditExtraStopKey((prev) => prev + 1);
   };
@@ -3517,17 +3519,19 @@ export default function AdminJobs() {
                           <AddressAutocomplete
                             label="Origen"
                             placeholder="Buscar origen"
-                            onSelect={setPickup}
+                            onSelect={(location) => setPickup(location ? normalizeLocationAccess(location) : null)}
                             selected={pickup}
                           />
+                          <LocationAccessFields value={pickup} onChange={setPickup} />
                         </div>
                         <div className="min-w-0">
                           <AddressAutocomplete
                             label="Destino"
                             placeholder="Buscar destino"
-                            onSelect={setDropoff}
+                            onSelect={(location) => setDropoff(location ? normalizeLocationAccess(location) : null)}
                             selected={dropoff}
                           />
+                          <LocationAccessFields value={dropoff} onChange={setDropoff} />
                         </div>
                       </div>
                       <div className="space-y-2 rounded border bg-gray-50 p-3">
@@ -3539,9 +3543,10 @@ export default function AdminJobs() {
                           key={extraStopKey}
                           label="Agregar parada"
                           placeholder="Buscar parada extra"
-                          onSelect={setExtraStopDraft}
+                          onSelect={(location) => setExtraStopDraft(location ? normalizeLocationAccess(location) : null)}
                           selected={extraStopDraft}
                         />
+                        <LocationAccessFields value={extraStopDraft} onChange={setExtraStopDraft} compact />
                         <button
                           type="button"
                           onClick={() => addExtraStop(extraStopDraft)}
@@ -3564,19 +3569,26 @@ export default function AdminJobs() {
                               onDrop={() => handleReorderStop(index)}
                               onDragEnd={() => setDraggedStopIndex(null)}
                               className={cn(
-                                "flex min-w-0 items-center justify-between gap-2 rounded bg-white px-2 py-1 text-xs text-gray-600",
+                                "space-y-2 rounded bg-white px-2 py-2 text-xs text-gray-600",
                                 draggedStopIndex === index ? "opacity-60" : "cursor-grab"
                               )}
                             >
-                              <span className="min-w-0 flex-1 truncate">{stop.address}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeExtraStop(index)}
-                                className="text-amber-600"
+                              <div className="flex min-w-0 items-center justify-between gap-2">
+                                <span className="min-w-0 flex-1 truncate">{stop.address}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeExtraStop(index)}
+                                  className="text-amber-600"
                                 >
                                   Quitar
                                 </button>
                               </div>
+                              <LocationAccessFields
+                                value={stop}
+                                onChange={(updated) => setExtraStops((prev) => prev.map((item, stopIndex) => stopIndex === index ? updated : item))}
+                                compact
+                              />
+                            </div>
                             ))}
                           </div>
                         )}
@@ -4083,15 +4095,17 @@ export default function AdminJobs() {
                                 <AddressAutocomplete
                                   label="Origen"
                                   placeholder="Buscar origen"
-                                  onSelect={setEditPickup}
+                                  onSelect={(location) => setEditPickup(location ? normalizeLocationAccess(location) : null)}
                                   selected={editPickup}
                                 />
+                                <LocationAccessFields value={editPickup} onChange={setEditPickup} compact />
                                 <AddressAutocomplete
                                   label="Destino"
                                   placeholder="Buscar destino"
-                                  onSelect={setEditDropoff}
+                                  onSelect={(location) => setEditDropoff(location ? normalizeLocationAccess(location) : null)}
                                   selected={editDropoff}
                                 />
+                                <LocationAccessFields value={editDropoff} onChange={setEditDropoff} compact />
                                 <div className="rounded border bg-white p-2 space-y-2">
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <p className="text-xs font-medium">Paradas extra</p>
@@ -4101,9 +4115,10 @@ export default function AdminJobs() {
                                     key={editExtraStopKey}
                                     label="Agregar parada"
                                     placeholder="Buscar parada extra"
-                                    onSelect={setEditExtraStopDraft}
+                                    onSelect={(location) => setEditExtraStopDraft(location ? normalizeLocationAccess(location) : null)}
                                     selected={editExtraStopDraft}
                                   />
+                                  <LocationAccessFields value={editExtraStopDraft} onChange={setEditExtraStopDraft} compact />
                                   <button
                                     type="button"
                                     onClick={() => addEditExtraStop(editExtraStopDraft)}
@@ -4126,18 +4141,25 @@ export default function AdminJobs() {
                                           onDrop={() => handleReorderEditStop(index)}
                                           onDragEnd={() => setEditDraggedStopIndex(null)}
                                           className={cn(
-                                            "flex min-w-0 items-center justify-between gap-2 rounded bg-white px-2 py-1 text-[10px] text-gray-600",
+                                            "space-y-2 rounded bg-white px-2 py-2 text-[10px] text-gray-600",
                                             editDraggedStopIndex === index ? "opacity-60" : "cursor-grab"
                                           )}
                                         >
-                                          <span className="min-w-0 flex-1 truncate">{stop.address}</span>
-                                          <button
-                                            type="button"
-                                            onClick={() => removeEditExtraStop(index)}
-                                            className="text-amber-600"
-                                          >
-                                            Quitar
-                                          </button>
+                                          <div className="flex min-w-0 items-center justify-between gap-2">
+                                            <span className="min-w-0 flex-1 truncate">{stop.address}</span>
+                                            <button
+                                              type="button"
+                                              onClick={() => removeEditExtraStop(index)}
+                                              className="text-amber-600"
+                                            >
+                                              Quitar
+                                            </button>
+                                          </div>
+                                          <LocationAccessFields
+                                            value={stop}
+                                            onChange={(updated) => setEditExtraStops((prev) => prev.map((item, stopIndex) => stopIndex === index ? updated : item))}
+                                            compact
+                                          />
                                         </div>
                                       ))}
                                     </div>
@@ -4404,7 +4426,7 @@ export default function AdminJobs() {
                             const overlapColumns = layoutEntry?.columns ?? 1;
                             const isOverlapped = overlapColumns > 1;
                             const isDense = overlapColumns > 2;
-                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
+                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}\n${formatJobAccessSummary(item.job)}`;
                             if (!style) return null;
                             return (
                               <div
@@ -4438,6 +4460,7 @@ export default function AdminJobs() {
                                   {calendarOwnerLabel}
                                 </div>
                                 <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
+                                <div className="calendar-event__line truncate text-[9px]">{formatJobAccessSummary(item.job)}</div>
                                 <div className={cn("calendar-event__line", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
                                   {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
@@ -4549,7 +4572,7 @@ export default function AdminJobs() {
                                   const overlapColumns = layoutEntry?.columns ?? 1;
                                   const isOverlapped = overlapColumns > 1;
                                   const isDense = overlapColumns > 2;
-                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}`;
+                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}\n${formatJobAccessSummary(item.job)}`;
                                   if (!style) return null;
                                   return (
                                     <div
@@ -4583,6 +4606,7 @@ export default function AdminJobs() {
                                         {calendarOwnerLabel}
                                       </div>
                                       <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
+                                      <div className="calendar-event__line truncate text-[8px]">{formatJobAccessSummary(item.job)}</div>
                                       <div className={cn("calendar-event__line", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
                                         {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
@@ -4669,7 +4693,7 @@ export default function AdminJobs() {
                                       {calendarOwnerLabel}
                                     </div>
                                     <div className="truncate">
-                                      {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                      {formatJobAccessSummary(item.job)} - {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
                                     </div>
                                   </div>
                                 );
@@ -5150,6 +5174,7 @@ export default function AdminJobs() {
                                           <p className="text-xs text-gray-500">{completedAt}</p>
                                           <p className="mt-1 text-xs text-gray-600">
                                             {job.pickup?.address || 'Origen sin direccion'} {'->'} {job.dropoff?.address || 'Destino sin direccion'}
+                                             <span className="mt-1 block text-[11px] text-gray-500">{formatJobAccessSummary(job)}</span>
                                           </p>
                                         </div>
                                         <button
@@ -6448,6 +6473,7 @@ export default function AdminJobs() {
                       <div>
                         <p className="text-xs uppercase tracking-wide text-gray-400">Origen</p>
                         <p>{selectedJobDetail.pickup.address}</p>
+                        <p className="text-xs font-medium text-blue-700">{formatLocationAccess(selectedJobDetail.pickup)}</p>
                       </div>
                       {selectedJobDetail.extraStops && selectedJobDetail.extraStops.length > 0 && (
                         <div>
@@ -6456,6 +6482,7 @@ export default function AdminJobs() {
                             {selectedJobDetail.extraStops.map((stop, index) => (
                               <li key={`${stop.lat}-${stop.lng}-${index}`} className="text-sm text-gray-700">
                                 {stop.address}
+                                <span className="ml-2 text-xs font-medium text-blue-700">{formatLocationAccess(stop)}</span>
                               </li>
                             ))}
                           </ul>
@@ -6464,6 +6491,7 @@ export default function AdminJobs() {
                       <div>
                         <p className="text-xs uppercase tracking-wide text-gray-400">Destino</p>
                         <p>{selectedJobDetail.dropoff.address}</p>
+                        <p className="text-xs font-medium text-blue-700">{formatLocationAccess(selectedJobDetail.dropoff)}</p>
                       </div>
                     </div>
                   </div>
