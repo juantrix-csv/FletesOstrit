@@ -17,6 +17,7 @@ import leadsIndexHandler from '../api/v1/leads/index.js';
 import settingsByKeyHandler from '../api/v1/settings/[key].js';
 import vehiclesByIdHandler from '../api/v1/vehicles/[id].js';
 import vehiclesIndexHandler from '../api/v1/vehicles/index.js';
+import weatherForecastHandler from '../api/v1/weather/forecast.js';
 
 const PORT = Number(process.env.PORT) || 4000;
 
@@ -71,6 +72,8 @@ app.all('/api/v1/leads/:id', wrapHandler(leadsByIdHandler));
 app.all('/api/v1/leads', wrapHandler(leadsIndexHandler));
 
 app.all('/api/v1/finance/:resource', wrapHandler(financeResourceHandler));
+
+app.all('/api/v1/weather/forecast', wrapHandler(weatherForecastHandler));
 
 app.use((error, _req, res, _next) => {
   const detail = error instanceof Error ? error.message : 'Unknown error';

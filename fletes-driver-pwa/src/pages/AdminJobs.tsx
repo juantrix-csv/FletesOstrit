@@ -62,6 +62,13 @@ import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '.
 import { getRouteEstimate } from '../lib/routeEstimate';
 import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from '../lib/billing';
 import { formatJobAccessSummary, formatLocationAccess, normalizeLocationAccess } from '../lib/locationAccess';
+import {
+  fetchWeatherForecast,
+  formatWeatherSummary,
+  getCachedWeather,
+  getForecastForDate,
+  type WeatherForecast,
+} from '../lib/weather';
 
 const buildDriverCode = () => Math.random().toString(36).slice(2, 8).toUpperCase();
 const currencyFormatter = new Intl.NumberFormat('es-AR', {
@@ -739,6 +746,7 @@ export default function AdminJobs() {
   const [savingTripCostPerHour, setSavingTripCostPerHour] = useState(false);
   const [savingTripCostPerKm, setSavingTripCostPerKm] = useState(false);
   const [savingOperationsBaseLocation, setSavingOperationsBaseLocation] = useState(false);
+  const [weatherForecast, setWeatherForecast] = useState<WeatherForecast | null>(null);
   const [paymentDrafts, setPaymentDrafts] = useState<Record<string, PaymentDraft>>({});
   const [savingPaymentJobId, setSavingPaymentJobId] = useState<string | null>(null);
   const [durationCorrectionDrafts, setDurationCorrectionDrafts] = useState<DurationCorrectionDrafts>({});
@@ -3158,6 +3166,43 @@ export default function AdminJobs() {
     return map;
   }, [scheduledJobs]);
   const getDayJobs = (date: Date) => scheduledJobsByDay.get(buildDateKey(date)) ?? [];
+
+  const weatherCoords = useMemo(() => {
+    for (const { job } of scheduledJobs) {
+      if (isValidLocation(job.pickup)) {
+        return { lat: job.pickup.lat, lng: job.pickup.lng };
+      }
+    }
+    if (operationsBaseLocation && isValidLocation(operationsBaseLocation)) {
+      return { lat: operationsBaseLocation.lat, lng: operationsBaseLocation.lng };
+    }
+    return null;
+  }, [scheduledJobs, operationsBaseLocation]);
+
+  useEffect(() => {
+    // Clear any prior forecast so stale data from a previous location is never shown.
+    setWeatherForecast(null);
+
+    if (!weatherCoords || tab !== 'calendar') return;
+
+    const { lat, lng } = weatherCoords;
+    const cached = getCachedWeather(lat, lng);
+    if (cached) {
+      setWeatherForecast(cached);
+      return;
+    }
+
+    let active = true;
+    fetchWeatherForecast(lat, lng)
+      .then((data) => {
+        if (active) setWeatherForecast(data);
+      })
+      .catch(() => {
+        // Weather is non-critical; silently ignore failures.
+      });
+
+    return () => { active = false; };
+  }, [weatherCoords, tab]);
   const calendarToday = startOfDay(new Date());
   const weekStart = startOfWeek(calendarDate);
   const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
@@ -4472,22 +4517,54 @@ export default function AdminJobs() {
                       </div>
                       {calendarHorizontalRange}
                     </div>
-                    <div className="rounded-2xl border bg-gray-50 p-3 text-xs">
-                      <p className="text-[11px] uppercase tracking-wide text-gray-400">Huecos disponibles</p>
-                      {dayFreeHours.length === 0 ? (
-                        <p className="mt-2 text-xs text-gray-500">No hay huecos libres para este dia.</p>
-                      ) : (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {dayFreeHours.map((hour) => (
-                            <span
-                              key={hour}
-                              className="rounded-full border border-emerald-200 bg-white px-2 py-1 text-[11px] text-emerald-700"
-                            >
-                              {String(hour).padStart(2, '0')}:00
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                    <div className="space-y-3">
+                      {(() => {
+                        const dayWeather = getForecastForDate(weatherForecast, buildDateKey(calendarDate));
+                        if (!dayWeather) return null;
+                        const emoji = formatWeatherSummary(dayWeather);
+                        return (
+                          <div className="rounded-2xl border bg-sky-50 p-3 text-xs">
+                            <p className="text-[11px] uppercase tracking-wide text-gray-400">Clima</p>
+                            <div className="mt-1 space-y-0.5">
+                              <p className="text-sm font-semibold text-gray-800">
+                                {emoji ? emoji.split(' ')[0] : ''}{' '}
+                                {dayWeather.temperatureMin != null && dayWeather.temperatureMax != null
+                                  ? `${Math.round(dayWeather.temperatureMin)}\u00B0 / ${Math.round(dayWeather.temperatureMax)}\u00B0`
+                                  : dayWeather.temperatureMin != null
+                                    ? `${Math.round(dayWeather.temperatureMin)}\u00B0 / --\u00B0`
+                                    : dayWeather.temperatureMax != null
+                                      ? `--\u00B0 / ${Math.round(dayWeather.temperatureMax)}\u00B0`
+                                      : '--\u00B0 / --\u00B0'}
+                              </p>
+                              {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability > 0 && (
+                                <p className="text-gray-600">
+                                  Lluvia: {Math.round(dayWeather.precipitationProbability)}%
+                                </p>
+                              )}
+                              {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability === 0 && (
+                                <p className="text-gray-500">Sin probabilidad de lluvia</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      <div className="rounded-2xl border bg-gray-50 p-3 text-xs">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-400">Huecos disponibles</p>
+                        {dayFreeHours.length === 0 ? (
+                          <p className="mt-2 text-xs text-gray-500">No hay huecos libres para este dia.</p>
+                        ) : (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {dayFreeHours.map((hour) => (
+                              <span
+                                key={hour}
+                                className="rounded-full border border-emerald-200 bg-white px-2 py-1 text-[11px] text-emerald-700"
+                              >
+                                {String(hour).padStart(2, '0')}:00
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4504,15 +4581,21 @@ export default function AdminJobs() {
                           <div />
                           {weekDays.map((day) => {
                             const isToday = isSameDay(day, calendarToday);
+                            const dayKey = buildDateKey(day);
+                            const dayWeather = getForecastForDate(weatherForecast, dayKey);
+                            const weatherSummary = formatWeatherSummary(dayWeather);
                             return (
                               <div
-                                key={buildDateKey(day)}
+                                key={dayKey}
                                 className={cn(
-                                  "px-2 py-1 text-center font-semibold",
+                                  "px-2 py-1 text-center",
                                   isToday ? "text-blue-600" : "text-gray-600"
                                 )}
                               >
-                                {dayFormatter.format(day)}
+                                <div className="text-[11px] font-semibold">{dayFormatter.format(day)}</div>
+                                {weatherSummary && (
+                                  <div className="mt-0.5 text-[9px] leading-tight text-gray-500">{weatherSummary}</div>
+                                )}
                               </div>
                             );
                           })}
@@ -4639,18 +4722,26 @@ export default function AdminJobs() {
                         const items = getDayJobs(day);
                         const isCurrentMonth = isSameMonth(day, calendarDate);
                         const isToday = isSameDay(day, calendarToday);
+                        const dayKey = buildDateKey(day);
+                        const dayWeather = getForecastForDate(weatherForecast, dayKey);
+                        const weatherSummary = formatWeatherSummary(dayWeather);
                         return (
                           <div
-                            key={buildDateKey(day)}
+                            key={dayKey}
                             className={cn(
                               "min-h-[90px] rounded-2xl border p-2 text-[11px]",
                               isCurrentMonth ? "border-gray-100 bg-white" : "border-gray-100 bg-gray-50 text-gray-400"
                             )}
                           >
                             <div className="flex items-center justify-between">
-                              <span className={cn("text-xs font-semibold", isToday ? "text-blue-600" : "text-gray-700")}>
-                                {day.getDate()}
-                              </span>
+                              <div>
+                                <span className={cn("text-xs font-semibold", isToday ? "text-blue-600" : "text-gray-700")}>
+                                  {day.getDate()}
+                                </span>
+                                {weatherSummary && (
+                                  <span className="ml-1 text-[9px] text-gray-500">{weatherSummary}</span>
+                                )}
+                              </div>
                               {items.length > 0 && (
                                 <span className="rounded-full bg-blue-50 px-2 py-[2px] text-[10px] text-blue-600">
                                   {items.length} {items.length === 1 ? 'flete' : 'fletes'}
