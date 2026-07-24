@@ -68,7 +68,11 @@ export const getJobChargeBreakdown = (
     pricePerLongDistanceKm?: number | null;
   },
 ) => {
-  const isLongDistance = opts.isLongDistance && Number.isFinite(opts.distanceKm) && Number.isFinite(opts.pricePerLongDistanceKm);
+  const effectiveHourlyRate = job.hourlyRateSnapshot ?? opts.hourlyRate;
+  const effectiveHelperRate = job.helperHourlyRateSnapshot ?? opts.helperHourlyRate;
+  const effectivePricePerKm = job.pricePerLongDistanceKmSnapshot ?? opts.pricePerLongDistanceKm;
+
+  const isLongDistance = opts.isLongDistance && Number.isFinite(opts.distanceKm) && Number.isFinite(effectivePricePerKm);
   const durationMs = getJobDurationMs(job, opts.endAtMs);
   const distantBaseTravelMinutes = toCeiledPositiveMinutesOrNull(opts.distantBaseTravelMinutes);
   const distantBaseExtraMinutes = distantBaseTravelMinutes != null
@@ -79,10 +83,10 @@ export const getJobChargeBreakdown = (
   const helpersCount = Math.max(0, Number.isFinite(job.helpersCount) ? Number(job.helpersCount) : 0);
 
   if (isLongDistance) {
-    const longDistanceBaseAmount = Math.round((opts.distanceKm as number) * (opts.pricePerLongDistanceKm as number));
+    const longDistanceBaseAmount = Math.round((opts.distanceKm as number) * (effectivePricePerKm as number));
     const helpersBilledHours = getBilledHoursFromDurationMs(durationMs);
-    const helpersAmount = opts.helperHourlyRate != null && helpersBilledHours != null && helpersCount > 0
-      ? roundMoney(helpersBilledHours * opts.helperHourlyRate * helpersCount)
+    const helpersAmount = effectiveHelperRate != null && helpersBilledHours != null && helpersCount > 0
+      ? roundMoney(helpersBilledHours * effectiveHelperRate * helpersCount)
       : 0;
     const computedTotal = roundMoney(longDistanceBaseAmount + helpersAmount);
     const storedTotal = toMoneyOrNull(job.chargedAmount);
@@ -106,17 +110,17 @@ export const getJobChargeBreakdown = (
       isLongDistance: true,
       longDistanceBaseAmount,
       longDistanceKm: opts.distanceKm as number,
-      longDistancePricePerKm: opts.pricePerLongDistanceKm as number,
+      longDistancePricePerKm: effectivePricePerKm as number,
     };
   }
 
   const chargeableDurationMs = durationMs != null ? durationMs + distantBaseExtraMs : null;
   const billedHours = getBilledHoursFromDurationMs(chargeableDurationMs);
-  const baseAmount = opts.hourlyRate != null && billedHours != null
-    ? roundMoney(billedHours * opts.hourlyRate)
+  const baseAmount = effectiveHourlyRate != null && billedHours != null
+    ? roundMoney(billedHours * effectiveHourlyRate)
     : null;
-  const helpersAmount = opts.helperHourlyRate != null && billedHours != null && helpersCount > 0
-    ? roundMoney(billedHours * opts.helperHourlyRate * helpersCount)
+  const helpersAmount = effectiveHelperRate != null && billedHours != null && helpersCount > 0
+    ? roundMoney(billedHours * effectiveHelperRate * helpersCount)
     : 0;
   const computedTotal = baseAmount != null ? roundMoney(baseAmount + helpersAmount) : null;
   const storedTotal = toMoneyOrNull(job.chargedAmount);

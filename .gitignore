@@ -1,4 +1,7 @@
 node_modules/
+.atl/
 .env
 .env.*
 !.env.example
+.temp-test-db/
+dist/

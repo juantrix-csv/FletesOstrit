@@ -1,0 +1,36 @@
+schema: spec-driven
+
+context: |
+  Project: FletesOstrit — freight/driver logistics management system
+  Stack: Node.js 20.x, Express 4.21, PostgreSQL (pg), React 18, TypeScript 5.3, Vite 5, Tailwind 3
+  Architecture: Monorepo — api/ (Vercel serverless), fletes-driver-pwa/ (PWA), fletes-backend/ (Express), fletes-ia/ (Go 1.22)
+  Testing: node:test (API), Vitest 1.6 (PWA), no E2E
+  Style: ESM modules, no linter/formatter configured
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns (ESM, node:test for API, vitest for PWA)
+      - API handlers are Express-style (req, res) with Express response helpers
+      - PWA uses React functional components, hooks, Tailwind CSS
+    tdd: true
+    test_command: "npm test"
+  verify:
+    test_command: "npm test"
+    build_command: "npm run build"
+    coverage_threshold: 0
+    pr_strategy: "single-pr-default"
+    review_budget: 800
+  archive:
+    - Warn before merging destructive deltas

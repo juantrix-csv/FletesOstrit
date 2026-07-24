@@ -325,6 +325,10 @@ export const ensureSchema = async () => {
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS company_share_amount DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS driver_share_ratio DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS share_source TEXT;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS hourly_rate_snapshot DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helper_hourly_rate_snapshot DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS price_per_long_distance_km_snapshot DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_total_snapshot DOUBLE PRECISION;`;
   await sql`
     CREATE TABLE IF NOT EXISTS drivers (
       id TEXT PRIMARY KEY,
@@ -473,6 +477,10 @@ const normalizeRow = (row) => {
     companyShareAmount: row.company_share_amount != null ? Number(row.company_share_amount) : undefined,
     driverShareRatio: row.driver_share_ratio != null ? Number(row.driver_share_ratio) : undefined,
     shareSource: row.share_source ?? undefined,
+    hourlyRateSnapshot: row.hourly_rate_snapshot != null ? Number(row.hourly_rate_snapshot) : undefined,
+    helperHourlyRateSnapshot: row.helper_hourly_rate_snapshot != null ? Number(row.helper_hourly_rate_snapshot) : undefined,
+    pricePerLongDistanceKmSnapshot: row.price_per_long_distance_km_snapshot != null ? Number(row.price_per_long_distance_km_snapshot) : undefined,
+    estimatedTotalSnapshot: row.estimated_total_snapshot != null ? Number(row.estimated_total_snapshot) : undefined,
     status: row.status,
     flags: row.flags ?? defaultFlags,
     timestamps: row.timestamps ?? {},
@@ -680,10 +688,39 @@ export const createJob = async (job) => {
     timestamps,
   });
 
+  const vehicle = job.vehicleId ? await getVehicleById(job.vehicleId) : null;
+  const hourlyRateSetting = await getSetting('hourlyRate');
+  const helperHourlyRateSetting = await getSetting('helperHourlyRate');
+  const hourlyRate = vehicle?.hourlyRate ?? hourlyRateSetting ?? null;
+  const helperHourlyRate = helperHourlyRateSetting ?? null;
+  const kmPrice = job.isLongDistance ? (vehicle?.pricePerLongDistanceKm ?? null) : null;
+
+  let estimatedTotal = null;
+  const estHours = Number.isFinite(job.estimatedDurationMinutes)
+    ? Number(job.estimatedDurationMinutes) / 60
+    : null;
+  const helpersCount = Number.isFinite(job.helpersCount) ? Number(job.helpersCount) : 0;
+
+  if (job.isLongDistance && Number.isFinite(kmPrice) && Number.isFinite(distanceMeters)) {
+    const distanceKm = distanceMeters / 1000;
+    const baseAmount = Math.round(distanceKm * kmPrice);
+    const helpersAmount = estHours != null && Number.isFinite(helperHourlyRate) && helpersCount > 0
+      ? Math.round(estHours * helperHourlyRate * helpersCount * 100) / 100
+      : 0;
+    estimatedTotal = Number((baseAmount + helpersAmount).toFixed(2));
+  } else if (!job.isLongDistance && estHours != null && Number.isFinite(hourlyRate)) {
+    const baseAmount = Number((estHours * hourlyRate).toFixed(2));
+    const helpersAmount = Number.isFinite(helperHourlyRate) && helpersCount > 0
+      ? Number((estHours * helperHourlyRate * helpersCount).toFixed(2))
+      : 0;
+    estimatedTotal = Number((baseAmount + helpersAmount).toFixed(2));
+  }
+
   await sql`
     INSERT INTO jobs (
       id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, vehicle_id, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount, is_long_distance,
       hourly_billed_hours, hourly_base_amount, driver_share_amount, company_share_amount, driver_share_ratio, share_source, status,
+      hourly_rate_snapshot, helper_hourly_rate_snapshot, price_per_long_distance_km_snapshot, estimated_total_snapshot,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -715,6 +752,10 @@ export const createJob = async (job) => {
       ${toFiniteOrNull(shareSnapshot.driverShareRatio)},
       ${shareSnapshot.shareSource ?? null},
       ${job.status},
+      ${Number.isFinite(hourlyRate) ? hourlyRate : null},
+      ${Number.isFinite(helperHourlyRate) ? helperHourlyRate : null},
+      ${Number.isFinite(kmPrice) ? kmPrice : null},
+      ${Number.isFinite(estimatedTotal) ? estimatedTotal : null},
       ${flagsJson}::jsonb,
       ${timestampsJson}::jsonb,
       ${job.scheduledDate ?? null},

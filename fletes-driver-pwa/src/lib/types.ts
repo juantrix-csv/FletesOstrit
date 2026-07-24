@@ -102,6 +102,10 @@ export interface Job {
   stopIndex?: number | null;
   distanceMeters?: number | null;
   distanceKm?: number | null;
+  hourlyRateSnapshot?: number | null;
+  helperHourlyRateSnapshot?: number | null;
+  pricePerLongDistanceKmSnapshot?: number | null;
+  estimatedTotalSnapshot?: number | null;
   scheduledDate?: string; scheduledTime?: string; scheduledAt?: number;
   flags: { nearPickupSent: boolean; arrivedPickupSent: boolean; nearDropoffSent: boolean; arrivedDropoffSent: boolean; };
   timestamps: { startJobAt?: string; startLoadingAt?: string; endLoadingAt?: string; startTripAt?: string; endTripAt?: string; startUnloadingAt?: string; endUnloadingAt?: string; };

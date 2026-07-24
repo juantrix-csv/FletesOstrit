@@ -266,6 +266,123 @@ describe('job pricing', () => {
     expect(breakdown.billedHours).toBe(4);
     expect(breakdown.computedTotal).toBe(4000);
   });
+
+  describe('pricing snapshot', () => {
+    it('prefers hourly rate snapshot over live rate (SNAP-002)', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        hourlyRateSnapshot: 5000,
+      }), {
+        hourlyRate: 8000,
+        helperHourlyRate: null,
+        distantBaseTravelMinutes: null,
+        distantBasePoint: null,
+      });
+
+      expect(breakdown.billedHours).toBe(1);
+      expect(breakdown.baseAmount).toBe(5000);
+      expect(breakdown.computedTotal).toBe(5000);
+    });
+
+    it('falls back to live hourly rate when snapshot is missing (SNAP-003)', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        hourlyRateSnapshot: undefined,
+      }), {
+        hourlyRate: 8000,
+        helperHourlyRate: null,
+        distantBaseTravelMinutes: null,
+        distantBasePoint: null,
+      });
+
+      expect(breakdown.billedHours).toBe(1);
+      expect(breakdown.baseAmount).toBe(8000);
+      expect(breakdown.computedTotal).toBe(8000);
+    });
+
+    it('prefers helper hourly rate snapshot over live rate with helpers (SNAP-002)', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        helpersCount: 2,
+        helperHourlyRateSnapshot: 2500,
+      }), {
+        hourlyRate: 10000,
+        helperHourlyRate: 3500,
+        distantBaseTravelMinutes: null,
+        distantBasePoint: null,
+      });
+
+      expect(breakdown.billedHours).toBe(1);
+      expect(breakdown.helpersCount).toBe(2);
+      expect(breakdown.baseAmount).toBe(10000);
+      expect(breakdown.helpersAmount).toBe(5000);
+      expect(breakdown.computedTotal).toBe(15000);
+    });
+
+    it('falls back to live helper rate when snapshot is missing', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        helpersCount: 2,
+        helperHourlyRateSnapshot: null,
+      }), {
+        hourlyRate: 10000,
+        helperHourlyRate: 3500,
+        distantBaseTravelMinutes: null,
+        distantBasePoint: null,
+      });
+
+      expect(breakdown.helpersCount).toBe(2);
+      expect(breakdown.helpersAmount).toBe(7000);
+    });
+
+    it('prefers long-distance km price snapshot over live rate', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        pricePerLongDistanceKmSnapshot: 300,
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: null,
+        isLongDistance: true,
+        distanceKm: 50,
+        pricePerLongDistanceKm: 400,
+      });
+
+      expect(breakdown.isLongDistance).toBe(true);
+      expect(breakdown.longDistanceBaseAmount).toBe(15000);
+      expect(breakdown.longDistancePricePerKm).toBe(300);
+    });
+
+    it('falls back to live km price when snapshot is missing for long-distance', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        pricePerLongDistanceKmSnapshot: undefined,
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: null,
+        isLongDistance: true,
+        distanceKm: 50,
+        pricePerLongDistanceKm: 400,
+      });
+
+      expect(breakdown.isLongDistance).toBe(true);
+      expect(breakdown.longDistanceBaseAmount).toBe(20000);
+      expect(breakdown.longDistancePricePerKm).toBe(400);
+    });
+
+    it('uses snapshot hourly rate with helpers and distant base time', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        helpersCount: 1,
+        hourlyRateSnapshot: 6000,
+        helperHourlyRateSnapshot: 2000,
+      }), {
+        hourlyRate: 10000,
+        helperHourlyRate: 4000,
+        distantBaseTravelMinutes: 16,
+        distantBasePoint: 'pickup',
+      });
+
+      expect(breakdown.billedHours).toBe(1.5);
+      expect(breakdown.baseAmount).toBe(9000);
+      expect(breakdown.helpersAmount).toBe(3000);
+      expect(breakdown.computedTotal).toBe(12000);
+    });
+  });
 });
 
 describe('Juan driver pricing policy', () => {

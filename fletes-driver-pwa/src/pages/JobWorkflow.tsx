@@ -88,7 +88,9 @@ export default function JobWorkflow() {
   const vehiclePricePerLongDistanceKm = Number.isFinite(selectedVehicle?.pricePerLongDistanceKm)
     ? Number(selectedVehicle?.pricePerLongDistanceKm)
     : null;
-  const effectiveHourlyRateValue = vehicleHourlyRateValue ?? hourlyRateValue;
+  const effectiveHourlyRateValue = Number.isFinite(job?.hourlyRateSnapshot)
+    ? Number(job?.hourlyRateSnapshot)
+    : vehicleHourlyRateValue ?? hourlyRateValue;
   const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
   const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
     ? job.stopIndex
