@@ -589,7 +589,9 @@ const buildJobShareSnapshot = async (job) => {
   if (job.isLongDistance) {
     const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
       : job.distanceKm != null ? Number(job.distanceKm) : null;
-    const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
+    const pricePerKm = Number.isFinite(job.pricePerLongDistanceKmSnapshot)
+      ? Number(job.pricePerLongDistanceKmSnapshot)
+      : Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
     if (distanceKm != null && pricePerKm != null) {
       baseAmount = Math.round(distanceKm * pricePerKm);
     }
@@ -597,9 +599,16 @@ const buildJobShareSnapshot = async (job) => {
 
   if (baseAmount == null) {
     billedHours = getBilledHoursFromTimestamps(job.timestamps);
-    const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
-    const hourlyRateSetting = await getSetting('hourlyRate');
-    const hourlyRate = vehicleHourlyRate ?? (Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null);
+    let hourlyRate = Number.isFinite(job.hourlyRateSnapshot) ? Number(job.hourlyRateSnapshot) : null;
+    if (hourlyRate == null) {
+      const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
+      if (vehicleHourlyRate != null) {
+        hourlyRate = vehicleHourlyRate;
+      } else {
+        const hourlyRateSetting = await getSetting('hourlyRate');
+        hourlyRate = Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null;
+      }
+    }
     baseAmount = billedHours != null && hourlyRate != null
       ? Number((billedHours * hourlyRate).toFixed(2))
       : null;
@@ -1237,7 +1246,9 @@ const getDriverDebtHourlyValue = async (job, driver, vehicle) => {
   if (job.isLongDistance) {
     const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
       : job.distanceKm != null ? Number(job.distanceKm) : null;
-    const pricePerKm = Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
+    const pricePerKm = Number.isFinite(job.pricePerLongDistanceKmSnapshot)
+      ? Number(job.pricePerLongDistanceKmSnapshot)
+      : Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
     if (distanceKm != null && pricePerKm != null) {
       return Math.round(distanceKm * pricePerKm);
     }
@@ -1246,9 +1257,16 @@ const getDriverDebtHourlyValue = async (job, driver, vehicle) => {
     return Number(job.hourlyBaseAmount);
   }
   const billedHours = getDriverDebtBilledHours(job);
-  const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
-  const hourlyRateSetting = await getSetting('hourlyRate');
-  const hourlyRate = vehicleHourlyRate ?? (Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null);
+  let hourlyRate = Number.isFinite(job.hourlyRateSnapshot) ? Number(job.hourlyRateSnapshot) : null;
+  if (hourlyRate == null) {
+    const vehicleHourlyRate = Number.isFinite(vehicle?.hourlyRate) ? Number(vehicle.hourlyRate) : null;
+    if (vehicleHourlyRate != null) {
+      hourlyRate = vehicleHourlyRate;
+    } else {
+      const hourlyRateSetting = await getSetting('hourlyRate');
+      hourlyRate = Number.isFinite(hourlyRateSetting) ? hourlyRateSetting : null;
+    }
+  }
   if (billedHours != null && hourlyRate != null) {
     return Number((billedHours * hourlyRate).toFixed(2));
   }
