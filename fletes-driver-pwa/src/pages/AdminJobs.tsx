@@ -2222,8 +2222,9 @@ export default function AdminJobs() {
     const jobHourlyRate = getJobHourlyRateValue(job);
     if (jobHourlyRate == null || billedHours == null) return null;
     const helpersCount = job.helpersCount ?? 0;
-    const helpersValue = helperHourlyRateValue != null && helpersCount > 0
-      ? billedHours * helperHourlyRateValue * helpersCount
+    const effectiveHelperRate = job.helperHourlyRateSnapshot ?? helperHourlyRateValue;
+    const helpersValue = effectiveHelperRate != null && helpersCount > 0
+      ? billedHours * effectiveHelperRate * helpersCount
       : 0;
     return billedHours * jobHourlyRate + helpersValue;
   };
