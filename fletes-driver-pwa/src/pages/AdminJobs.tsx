@@ -2183,8 +2183,8 @@ export default function AdminJobs() {
     const driverShare = isExternalDriver(driver) ? 0 : (hourlyDistribution?.driverShare ?? 0);
     const ownerPaysHelpers = isOwnerAccountDriver(driver);
     const paidHelpersCount = ownerPaysHelpers ? getPaidHelpersCountForOwner(helpersCount) : 0;
-    const helpersCost = helperHourlyRateValue != null && paidHelpersCount > 0 && billedHours != null
-      ? billedHours * helperHourlyRateValue * paidHelpersCount
+    const helpersCost = (entry.job.helperHourlyRateSnapshot ?? helperHourlyRateValue) != null && paidHelpersCount > 0 && billedHours != null
+      ? billedHours * (entry.job.helperHourlyRateSnapshot ?? helperHourlyRateValue) * paidHelpersCount
       : 0;
     const timeCost = tripCostPerHourValue != null && durationHours != null && Number.isFinite(durationHours)
       ? durationHours * tripCostPerHourValue
@@ -3182,8 +3182,8 @@ export default function AdminJobs() {
       const helpersCount = item.job.helpersCount ?? 0;
       const ownerPaysHelpers = isOwnerAccountDriver(driver);
       const paidHelpersCount = ownerPaysHelpers ? getPaidHelpersCountForOwner(helpersCount) : 0;
-      const helpersCost = helperHourlyRateValue != null && paidHelpersCount > 0 && billedHours != null
-        ? billedHours * helperHourlyRateValue * paidHelpersCount
+      const helpersCost = (item.job.helperHourlyRateSnapshot ?? helperHourlyRateValue) != null && paidHelpersCount > 0 && billedHours != null
+        ? billedHours * (item.job.helperHourlyRateSnapshot ?? helperHourlyRateValue) * paidHelpersCount
         : 0;
       const helperRevenue = !isExternalDriver(driver) && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
       const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);

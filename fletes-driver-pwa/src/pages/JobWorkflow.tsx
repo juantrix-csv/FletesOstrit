@@ -91,6 +91,9 @@ export default function JobWorkflow() {
   const effectiveHourlyRateValue = Number.isFinite(job?.hourlyRateSnapshot)
     ? Number(job?.hourlyRateSnapshot)
     : vehicleHourlyRateValue ?? hourlyRateValue;
+  const effectiveHelperHourlyRateValue = Number.isFinite(job?.helperHourlyRateSnapshot)
+    ? Number(job?.helperHourlyRateSnapshot)
+    : helperHourlyRateValue;
   const extraStopsValid = job?.extraStops?.filter((stop) => isValidLocation(stop)) ?? [];
   const rawStopIndex = typeof job?.stopIndex === 'number' && Number.isInteger(job.stopIndex) && job.stopIndex >= 0
     ? job.stopIndex
@@ -318,7 +321,7 @@ export default function JobWorkflow() {
       || (!isLongDistanceJob && effectiveHourlyRateValue == null && hourlyRateQuery.loading)
       || (hasHelpers && helperHourlyRateQuery.loading)
     );
-  const helperRateMissing = (job.helpersCount ?? 0) > 0 && helperHourlyRateValue == null;
+  const helperRateMissing = (job.helpersCount ?? 0) > 0 && effectiveHelperHourlyRateValue == null;
   const canConfirmCompletion = !pricingLoading && pricingPreview.totalAmount != null && !actionPending;
   const displayedTotalAmount = pricingLoading ? null : pricingPreview.totalAmount;
   const distantBasePointLabel = pricingPreview.distantBasePoint === 'pickup'
@@ -770,8 +773,8 @@ export default function JobWorkflow() {
                       <span className="font-medium text-gray-900">Ayudantes:</span>{' '}
                       {pricingPreview.helpersCount <= 0
                         ? 'Sin ayudantes'
-                        : helperHourlyRateValue != null && pricingPreview.billedHours != null
-                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(helperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
+                        : effectiveHelperHourlyRateValue != null && pricingPreview.billedHours != null
+                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHelperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
                           : pricingPreview.source === 'stored'
                             ? 'Incluido en monto cargado'
                             : 'Hay ayudantes pero falta tarifa configurada'}
@@ -809,8 +812,8 @@ export default function JobWorkflow() {
                       <span className="font-medium text-gray-900">Ayudantes:</span>{' '}
                       {pricingPreview.helpersCount <= 0
                         ? 'Sin ayudantes'
-                        : helperHourlyRateValue != null && pricingPreview.billedHours != null
-                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(helperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
+                        : effectiveHelperHourlyRateValue != null && pricingPreview.billedHours != null
+                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHelperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
                           : pricingPreview.source === 'stored'
                             ? 'Incluido en monto cargado'
                             : 'Hay ayudantes pero falta tarifa configurada'}
