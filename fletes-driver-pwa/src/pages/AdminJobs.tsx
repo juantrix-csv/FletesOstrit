@@ -4533,8 +4533,8 @@ export default function AdminJobs() {
                           <div className="rounded-2xl border bg-sky-50 p-3 text-xs">
                             <p className="text-[11px] uppercase tracking-wide text-gray-400">Clima</p>
                             <div className="mt-1 space-y-0.5">
+                              {emoji ? <div className="text-[60px] leading-none">{emoji.split(' ')[0]}</div> : null}
                               <p className="text-sm font-semibold text-gray-800">
-                                {emoji ? <span className="text-[60px] mr-1 leading-none">{emoji.split(' ')[0]}</span> : ''}
                                 {dayWeather.temperatureMin != null && dayWeather.temperatureMax != null
                                   ? `${Math.round(dayWeather.temperatureMin)}\u00B0 / ${Math.round(dayWeather.temperatureMax)}\u00B0`
                                   : dayWeather.temperatureMin != null
