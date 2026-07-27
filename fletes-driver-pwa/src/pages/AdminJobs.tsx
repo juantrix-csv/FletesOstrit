@@ -4587,7 +4587,8 @@ export default function AdminJobs() {
                             const isToday = isSameDay(day, calendarToday);
                             const dayKey = buildDateKey(day);
                             const dayWeather = getForecastForDate(weatherForecast, dayKey);
-                            const weatherEmoji = dayWeather ? formatWeatherSummary(dayWeather).split(' ')[0] : null;
+                            const weatherSummary = formatWeatherSummary(dayWeather);
+                            const weatherEmoji = weatherSummary ? weatherSummary.split(' ')[0] : null;
                             return (
                               <div
                                 key={dayKey}
@@ -4734,7 +4735,8 @@ export default function AdminJobs() {
                         const isToday = isSameDay(day, calendarToday);
                         const dayKey = buildDateKey(day);
                         const dayWeather = getForecastForDate(weatherForecast, dayKey);
-                        const weatherEmoji = dayWeather ? formatWeatherSummary(dayWeather).split(' ')[0] : null;
+                        const weatherSummary = formatWeatherSummary(dayWeather);
+                        const weatherEmoji = weatherSummary ? weatherSummary.split(' ')[0] : null;
                         return (
                           <div
                             key={dayKey}
