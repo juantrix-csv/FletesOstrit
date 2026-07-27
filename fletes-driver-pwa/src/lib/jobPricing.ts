@@ -68,6 +68,16 @@ export const getJobChargeBreakdown = (
     pricePerLongDistanceKm?: number | null;
   },
 ) => {
+  if (Number.isFinite(job.manualPrice)) {
+    return {
+      durationMs: null, distantBaseTravelMinutes: null, distantBaseExtraMinutes: 0, distantBaseExtraMs: 0,
+      distantBasePoint: null, chargeableDurationMs: null, billedHours: null, helpersCount: job.helpersCount ?? 0,
+      baseAmount: null, helpersAmount: null, computedTotal: null,
+      storedTotal: Number(job.manualPrice), totalAmount: Number(job.manualPrice),
+      source: 'manual' as const, isLongDistance: false,
+      longDistanceBaseAmount: undefined, longDistanceKm: undefined, longDistancePricePerKm: undefined,
+    };
+  }
   const effectiveHourlyRate = job.hourlyRateSnapshot ?? opts.hourlyRate;
   const effectiveHelperRate = job.helperHourlyRateSnapshot ?? opts.helperHourlyRate;
   const effectivePricePerKm = job.pricePerLongDistanceKmSnapshot ?? opts.pricePerLongDistanceKm;

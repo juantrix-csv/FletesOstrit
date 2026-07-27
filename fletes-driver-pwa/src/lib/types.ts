@@ -91,6 +91,7 @@ export interface Job {
   vehicleId?: string | null;
   isLongDistance?: boolean;
   chargedAmount?: number | null;
+  manualPrice?: number | null;
   cashAmount?: number | null;
   transferAmount?: number | null;
   hourlyBilledHours?: number | null;

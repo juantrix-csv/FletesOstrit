@@ -681,6 +681,7 @@ export default function AdminJobs() {
   const [newJobIsLongDistance, setNewJobIsLongDistance] = useState(false);
   const [newJobEstimatedDurationHours, setNewJobEstimatedDurationHours] = useState('');
   const [newJobHelpersCount, setNewJobHelpersCount] = useState('');
+  const [newJobManualPrice, setNewJobManualPrice] = useState('');
   const [pickup, setPickup] = useState<LocationData | null>(null);
   const [dropoff, setDropoff] = useState<LocationData | null>(null);
   const [extraStops, setExtraStops] = useState<LocationData[]>([]);
@@ -1278,6 +1279,12 @@ export default function AdminJobs() {
       return;
     }
     const estimatedDurationMinutes = Math.max(1, Math.round(estimatedHours * 60));
+    const manualPriceRaw = newJobManualPrice.trim();
+    const manualPrice = manualPriceRaw ? Number(manualPriceRaw) : undefined;
+    if (manualPriceRaw && (!Number.isFinite(manualPrice) || (manualPrice ?? 0) <= 0)) {
+      toast.error('Precio manual invalido');
+      return;
+    }
     const scheduledAt = getScheduledAtMs(scheduledDate, scheduledTime);
     const driverIdValue = newJobDriverId.trim();
     const vehicleIdValue = newJobVehicleId.trim();
@@ -1296,6 +1303,7 @@ export default function AdminJobs() {
         dropoff,
         extraStops,
         helpersCount,
+        manualPrice,
         driverId: driverIdValue || undefined,
         vehicleId: vehicleIdValue || undefined,
         isLongDistance: newJobIsLongDistance,
@@ -2067,6 +2075,7 @@ export default function AdminJobs() {
     return null;
   };
   const getEntryTotal = (entry: { job: Job; durationMs: number | null }) => {
+    if (Number.isFinite(entry.job.manualPrice)) return Number(entry.job.manualPrice);
     if (entry.job.isLongDistance === true) {
       return getJobLongDistanceCalculatedTotal(entry.job);
     }
@@ -2251,6 +2260,7 @@ export default function AdminJobs() {
     return companyRevenue - expenses.total;
   };
   const getJobEstimatedTotal = (job: Job) => {
+    if (Number.isFinite(job.manualPrice)) return Number(job.manualPrice);
     if (job.isLongDistance === true) {
       return getJobLongDistanceCalculatedTotal(job);
     }
@@ -3539,6 +3549,19 @@ export default function AdminJobs() {
                         />
                       </label>
                     </div>
+                    <label className="text-xs text-gray-500">
+                      Precio manual (opcional)
+                      <input
+                        name="manualPrice"
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="Ej: 45000"
+                        value={newJobManualPrice}
+                        onChange={(event) => setNewJobManualPrice(event.target.value)}
+                        className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                      />
+                    </label>
                     <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
                       <input
                         type="checkbox"

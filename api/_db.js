@@ -329,6 +329,7 @@ export const ensureSchema = async () => {
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS helper_hourly_rate_snapshot DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS price_per_long_distance_km_snapshot DOUBLE PRECISION;`;
   await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_total_snapshot DOUBLE PRECISION;`;
+  await sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS manual_price DOUBLE PRECISION;`;
   await sql`
     CREATE TABLE IF NOT EXISTS drivers (
       id TEXT PRIMARY KEY,
@@ -481,6 +482,7 @@ const normalizeRow = (row) => {
     helperHourlyRateSnapshot: row.helper_hourly_rate_snapshot != null ? Number(row.helper_hourly_rate_snapshot) : undefined,
     pricePerLongDistanceKmSnapshot: row.price_per_long_distance_km_snapshot != null ? Number(row.price_per_long_distance_km_snapshot) : undefined,
     estimatedTotalSnapshot: row.estimated_total_snapshot != null ? Number(row.estimated_total_snapshot) : undefined,
+    manualPrice: row.manual_price != null ? Number(row.manual_price) : undefined,
     status: row.status,
     flags: row.flags ?? defaultFlags,
     timestamps: row.timestamps ?? {},
@@ -729,7 +731,7 @@ export const createJob = async (job) => {
     INSERT INTO jobs (
       id, client_name, client_phone, description, pickup, dropoff, extra_stops, stop_index, distance_meters, last_track_lat, last_track_lng, last_track_at, notes, driver_id, vehicle_id, helpers_count, estimated_duration_minutes, charged_amount, cash_amount, transfer_amount, is_long_distance,
       hourly_billed_hours, hourly_base_amount, driver_share_amount, company_share_amount, driver_share_ratio, share_source, status,
-      hourly_rate_snapshot, helper_hourly_rate_snapshot, price_per_long_distance_km_snapshot, estimated_total_snapshot,
+      hourly_rate_snapshot, helper_hourly_rate_snapshot, price_per_long_distance_km_snapshot, estimated_total_snapshot, manual_price,
       flags, timestamps, scheduled_date, scheduled_time, scheduled_at,
       created_at, updated_at
     ) VALUES (
@@ -765,6 +767,7 @@ export const createJob = async (job) => {
       ${Number.isFinite(helperHourlyRate) ? helperHourlyRate : null},
       ${Number.isFinite(kmPrice) ? kmPrice : null},
       ${Number.isFinite(estimatedTotal) ? estimatedTotal : null},
+      ${Number.isFinite(job.manualPrice) ? Number(job.manualPrice) : null},
       ${flagsJson}::jsonb,
       ${timestampsJson}::jsonb,
       ${job.scheduledDate ?? null},
@@ -864,6 +867,7 @@ export const updateJob = async (id, patch) => {
       estimated_duration_minutes = ${Number.isFinite(next.estimatedDurationMinutes) ? next.estimatedDurationMinutes : null},
       distance_meters = ${Number.isFinite(next.distanceMeters) ? Number(next.distanceMeters) : null},
       charged_amount = ${payment.chargedAmount},
+      manual_price = ${Number.isFinite(next.manualPrice) ? Number(next.manualPrice) : null},
       cash_amount = ${payment.cashAmount},
       transfer_amount = ${payment.transferAmount},
       is_long_distance = ${next.isLongDistance ?? false},
