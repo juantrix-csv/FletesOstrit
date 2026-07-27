@@ -2040,11 +2040,13 @@ export default function AdminJobs() {
   };
   const getJobLongDistanceValue = (job: Job) => {
     if (!job.isLongDistance) return null;
-    const vehicle = getJobVehicle(job);
-    if (!vehicle || !Number.isFinite(vehicle.pricePerLongDistanceKm)) return null;
+    const pricePerKm = Number.isFinite(job.pricePerLongDistanceKmSnapshot)
+      ? Number(job.pricePerLongDistanceKmSnapshot)
+      : getJobLongDistancePricePerKmValue(job);
+    if (pricePerKm == null) return null;
     const distanceKm = getJobDistanceKm(job);
     if (distanceKm == null || !Number.isFinite(distanceKm)) return null;
-    return Math.round(distanceKm * Number(vehicle.pricePerLongDistanceKm));
+    return Math.round(distanceKm * pricePerKm);
   };
   const getEntryHourlyValue = (entry: { job: Job; durationMs: number | null }) => {
     if (entry.job.isLongDistance) {
