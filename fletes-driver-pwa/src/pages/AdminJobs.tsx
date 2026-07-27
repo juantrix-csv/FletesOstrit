@@ -4530,28 +4530,25 @@ export default function AdminJobs() {
                         if (!dayWeather) return null;
                         const emoji = formatWeatherSummary(dayWeather);
                         return (
-                          <div className="rounded-2xl border bg-sky-50 p-3 text-xs">
-                            <p className="text-[11px] uppercase tracking-wide text-gray-400">Clima</p>
-                            <div className="mt-1 space-y-0.5">
-                              {emoji ? <div className="text-[60px] leading-none">{emoji.split(' ')[0]}</div> : null}
-                              <p className="text-sm font-semibold text-gray-800">
-                                {dayWeather.temperatureMin != null && dayWeather.temperatureMax != null
-                                  ? `${Math.round(dayWeather.temperatureMin)}\u00B0 / ${Math.round(dayWeather.temperatureMax)}\u00B0`
-                                  : dayWeather.temperatureMin != null
-                                    ? `${Math.round(dayWeather.temperatureMin)}\u00B0 / --\u00B0`
-                                    : dayWeather.temperatureMax != null
-                                      ? `--\u00B0 / ${Math.round(dayWeather.temperatureMax)}\u00B0`
-                                      : '--\u00B0 / --\u00B0'}
+                          <div className="rounded-2xl border bg-gradient-to-b from-sky-100 to-white p-4 text-center">
+                            {emoji ? <div className="text-6xl leading-none mb-2">{emoji.split(' ')[0]}</div> : null}
+                            <p className="text-lg font-bold text-gray-800">
+                              {dayWeather.temperatureMin != null && dayWeather.temperatureMax != null
+                                ? `${Math.round(dayWeather.temperatureMin)}\u00B0 / ${Math.round(dayWeather.temperatureMax)}\u00B0`
+                                : dayWeather.temperatureMin != null
+                                  ? `${Math.round(dayWeather.temperatureMin)}\u00B0 / --\u00B0`
+                                  : dayWeather.temperatureMax != null
+                                    ? `--\u00B0 / ${Math.round(dayWeather.temperatureMax)}\u00B0`
+                                    : '--\u00B0 / --\u00B0'}
+                            </p>
+                            {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability > 0 && (
+                              <p className="mt-1 text-sm text-blue-600 font-medium">
+                                {String.fromCodePoint(0x1F4A7)} {Math.round(dayWeather.precipitationProbability)}%
                               </p>
-                              {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability > 0 && (
-                                <p className="text-gray-600">
-                                  Lluvia: {Math.round(dayWeather.precipitationProbability)}%
-                                </p>
-                              )}
-                              {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability === 0 && (
-                                <p className="text-gray-500">Sin probabilidad de lluvia</p>
-                              )}
-                            </div>
+                            )}
+                            {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability === 0 && (
+                              <p className="mt-1 text-sm text-gray-400">Sin lluvia</p>
+                            )}
                           </div>
                         );
                       })()}
@@ -4590,18 +4587,24 @@ export default function AdminJobs() {
                             const isToday = isSameDay(day, calendarToday);
                             const dayKey = buildDateKey(day);
                             const dayWeather = getForecastForDate(weatherForecast, dayKey);
-                            const weatherSummary = formatWeatherSummary(dayWeather);
+                            const weatherEmoji = dayWeather ? formatWeatherSummary(dayWeather).split(' ')[0] : null;
                             return (
                               <div
                                 key={dayKey}
                                 className={cn(
-                                  "px-2 py-1 text-center",
+                                  "px-1 py-1 text-center",
                                   isToday ? "text-blue-600" : "text-gray-600"
                                 )}
                               >
                                 <div className="text-[11px] font-semibold">{dayFormatter.format(day)}</div>
-                                {weatherSummary && (
-                                  <div className="mt-0.5 text-[13px] leading-tight text-gray-500">{weatherSummary}</div>
+                                {dayWeather && (
+                                  <div className="mt-0.5">
+                                    <div className="text-2xl leading-none">{weatherEmoji}</div>
+                                    <div className="text-[10px] leading-tight text-gray-500">
+                                      {dayWeather.temperatureMin != null ? Math.round(dayWeather.temperatureMin) : '--'}{String.fromCharCode(176)}/{dayWeather.temperatureMax != null ? Math.round(dayWeather.temperatureMax) : '--'}{String.fromCharCode(176)}
+                                      {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability > 0 ? ` ${Math.round(dayWeather.precipitationProbability)}%` : ''}
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             );
@@ -4731,7 +4734,7 @@ export default function AdminJobs() {
                         const isToday = isSameDay(day, calendarToday);
                         const dayKey = buildDateKey(day);
                         const dayWeather = getForecastForDate(weatherForecast, dayKey);
-                        const weatherSummary = formatWeatherSummary(dayWeather);
+                        const weatherEmoji = dayWeather ? formatWeatherSummary(dayWeather).split(' ')[0] : null;
                         return (
                           <div
                             key={dayKey}
@@ -4745,8 +4748,8 @@ export default function AdminJobs() {
                                 <span className={cn("text-xs font-semibold", isToday ? "text-blue-600" : "text-gray-700")}>
                                   {day.getDate()}
                                 </span>
-                                {weatherSummary && (
-                                  <span className="ml-1 text-[13px] text-gray-500">{weatherSummary}</span>
+                                {dayWeather && (
+                                  <span className="ml-1 text-lg leading-none align-middle">{weatherEmoji}</span>
                                 )}
                               </div>
                               {items.length > 0 && (
