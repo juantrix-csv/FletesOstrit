@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { getBilledHoursFromDurationMs } from '../../lib/billing.js';
 import {
   authorizeFinanceRead,
@@ -50,6 +52,7 @@ const isFiniteNumber = (value) => Number.isFinite(value);
 const isNonNegativeInteger = (value) => Number.isInteger(value) && value >= 0;
 const isPositiveInteger = (value) => Number.isInteger(value) && value > 0;
 const isNonNegativeNumber = (value) => Number.isFinite(value) && value >= 0;
+const isOptionalBoolean = (value) => value == null || typeof value === 'boolean';
 const isLocation = (value) => (
   value &&
   typeof value.address === 'string' &&
@@ -412,7 +415,7 @@ app.put(`${API_PREFIX}/settings/trip-cost-per-km`, (req, res) => {
   sendSettingValue(res, saved);
 });
 
-app.post(`${API_PREFIX}/jobs`, (req, res) => {
+export const handleCreateJob = (req, res) => {
   const body = req.body ?? {};
   if (!isNonEmptyString(body.id)) {
     res.status(400).json({ error: 'Missing id' });
@@ -454,6 +457,20 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
     res.status(400).json({ error: 'Invalid chargedAmount' });
     return;
   }
+  if (!isOptionalBoolean(body.isLongDistance)) {
+    res.status(400).json({ error: 'Invalid isLongDistance' });
+    return;
+  }
+  if (body.isLongDistance === true) {
+    if (body.manualPrice == null || !isNonNegativeNumber(body.manualPrice) || body.manualPrice <= 0) {
+      res.status(400).json({ error: 'manualPrice is required for long-distance jobs' });
+      return;
+    }
+  }
+  if (body.manualPrice != null && !isNonNegativeNumber(body.manualPrice)) {
+    res.status(400).json({ error: 'Invalid manualPrice' });
+    return;
+  }
   if (body.driverId) {
     const driver = getDriverById(body.driverId);
     if (!driver) {
@@ -478,9 +495,11 @@ app.post(`${API_PREFIX}/jobs`, (req, res) => {
   }
   const created = createJob(body);
   res.status(201).json(created);
-});
+};
 
-app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
+app.post(`${API_PREFIX}/jobs`, handleCreateJob);
+
+export const handleUpdateJob = (req, res) => {
   const body = req.body ?? {};
   if (body.status && !ALLOWED_STATUSES.has(body.status)) {
     res.status(400).json({ error: 'Invalid status' });
@@ -518,6 +537,14 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
     res.status(400).json({ error: 'Invalid chargedAmount' });
     return;
   }
+  if (!isOptionalBoolean(body.isLongDistance)) {
+    res.status(400).json({ error: 'Invalid isLongDistance' });
+    return;
+  }
+  if (body.manualPrice != null && !isNonNegativeNumber(body.manualPrice)) {
+    res.status(400).json({ error: 'Invalid manualPrice' });
+    return;
+  }
   if (body.driverId) {
     const driver = getDriverById(body.driverId);
     if (!driver) {
@@ -540,13 +567,50 @@ app.patch(`${API_PREFIX}/jobs/:id`, (req, res) => {
       body.vehicleId = vehicle.id;
     }
   }
+
+  const current = getJob(req.params.id);
+  if (!current) {
+    res.status(404).json({ error: 'Not found' });
+    return;
+  }
+
+  const resultingIsLongDistance = Object.prototype.hasOwnProperty.call(body, 'isLongDistance')
+    ? body.isLongDistance
+    : (current.isLongDistance ?? false);
+
+  if (resultingIsLongDistance === true) {
+    const bodyHasManualPrice = Object.prototype.hasOwnProperty.call(body, 'manualPrice');
+    const effectiveVal = bodyHasManualPrice ? body.manualPrice : undefined;
+    const wasLongDistance = current.isLongDistance === true;
+    const hasExistingManualPrice = Number.isFinite(current.manualPrice) && current.manualPrice > 0;
+
+    if (!wasLongDistance) {
+      if (effectiveVal == null || !Number.isFinite(effectiveVal) || effectiveVal <= 0) {
+        res.status(400).json({ error: 'manualPrice is required and must be positive when switching to long-distance' });
+        return;
+      }
+    } else if (bodyHasManualPrice) {
+      if (effectiveVal == null) {
+        if (hasExistingManualPrice) {
+          res.status(400).json({ error: 'cannot clear manualPrice on a long-distance job that already has one' });
+          return;
+        }
+      } else if (!Number.isFinite(effectiveVal) || effectiveVal <= 0) {
+        res.status(400).json({ error: 'manualPrice must be positive for long-distance jobs' });
+        return;
+      }
+    }
+  }
+
   const updated = updateJob(req.params.id, body);
   if (!updated) {
     res.status(404).json({ error: 'Not found' });
     return;
   }
   res.json(updated);
-});
+};
+
+app.patch(`${API_PREFIX}/jobs/:id`, handleUpdateJob);
 
 app.delete(`${API_PREFIX}/jobs/:id`, (req, res) => {
   const removed = deleteJob(req.params.id);
@@ -828,12 +892,16 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Server error', detail: err?.message });
 });
 
-app.listen(PORT, () => {
-  if (process.env.SEED_DEMO === '1') {
-    const result = seedJobsIfEmpty();
-    if (result.seeded) {
-      console.log(`Seeded demo jobs: ${result.count}`);
+const isMainModule = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  app.listen(PORT, () => {
+    if (process.env.SEED_DEMO === '1') {
+      const result = seedJobsIfEmpty();
+      if (result.seeded) {
+        console.log(`Seeded demo jobs: ${result.count}`);
+      }
     }
-  }
-  console.log(`Fletes API listening on port ${PORT}`);
-});
+    console.log(`Fletes API listening on port ${PORT}`);
+  });
+}

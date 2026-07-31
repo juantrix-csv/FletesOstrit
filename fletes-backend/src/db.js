@@ -92,6 +92,9 @@ const ensureJobsColumns = () => {
   if (!columns.includes('isLongDistance')) {
     db.exec('ALTER TABLE jobs ADD COLUMN isLongDistance INTEGER NOT NULL DEFAULT 0;');
   }
+  if (!columns.includes('manualPrice')) {
+    db.exec('ALTER TABLE jobs ADD COLUMN manualPrice REAL;');
+  }
 };
 
 const ensureDriversColumns = () => {
@@ -291,6 +294,7 @@ const toRow = (job) => ({
   estimatedDurationMinutes: Number.isFinite(job.estimatedDurationMinutes) ? job.estimatedDurationMinutes : null,
   chargedAmount: Number.isFinite(job.chargedAmount) ? job.chargedAmount : null,
   isLongDistance: job.isLongDistance ? 1 : 0,
+  manualPrice: Number.isFinite(job.manualPrice) ? job.manualPrice : null,
   status: job.status,
   flags: JSON.stringify(job.flags ?? defaultFlags),
   timestamps: JSON.stringify(job.timestamps ?? {}),
@@ -322,6 +326,7 @@ const fromRow = (row) => ({
   estimatedDurationMinutes: Number.isFinite(row.estimatedDurationMinutes) ? row.estimatedDurationMinutes : undefined,
   chargedAmount: Number.isFinite(row.chargedAmount) ? row.chargedAmount : undefined,
   isLongDistance: row.isLongDistance === 1,
+  manualPrice: Number.isFinite(row.manualPrice) ? row.manualPrice : undefined,
   status: row.status,
   flags: parseJson(row.flags, defaultFlags),
   timestamps: parseJson(row.timestamps, {}),
@@ -334,11 +339,11 @@ const fromRow = (row) => ({
 
 const insertStmt = db.prepare(`
   INSERT INTO jobs (
-    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, vehicleId, helpersCount, estimatedDurationMinutes, chargedAmount, isLongDistance, status,
+    id, clientName, clientPhone, description, pickup, dropoff, extraStops, stopIndex, distanceMeters, lastTrackLat, lastTrackLng, lastTrackAt, notes, driverId, vehicleId, helpersCount, estimatedDurationMinutes, chargedAmount, isLongDistance, manualPrice, status,
     flags, timestamps, scheduledDate, scheduledTime, scheduledAt,
     createdAt, updatedAt
   ) VALUES (
-    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @vehicleId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @isLongDistance, @status,
+    @id, @clientName, @clientPhone, @description, @pickup, @dropoff, @extraStops, @stopIndex, @distanceMeters, @lastTrackLat, @lastTrackLng, @lastTrackAt, @notes, @driverId, @vehicleId, @helpersCount, @estimatedDurationMinutes, @chargedAmount, @isLongDistance, @manualPrice, @status,
     @flags, @timestamps, @scheduledDate, @scheduledTime, @scheduledAt,
     @createdAt, @updatedAt
   );
@@ -364,6 +369,7 @@ const updateStmt = db.prepare(`
     estimatedDurationMinutes = @estimatedDurationMinutes,
     chargedAmount = @chargedAmount,
     isLongDistance = @isLongDistance,
+    manualPrice = @manualPrice,
     status = @status,
     flags = @flags,
     timestamps = @timestamps,
@@ -546,6 +552,8 @@ const getJobLongDistanceValue = (job, vehicle) => {
 
 const getDriverDebtHourlyValue = (job, vehicle) => {
   if (job.isLongDistance) {
+    const manualPrice = Number.isFinite(job.manualPrice) && job.manualPrice > 0 ? Number(job.manualPrice) : null;
+    if (manualPrice != null) return manualPrice;
     const longDistanceValue = getJobLongDistanceValue(job, vehicle);
     if (longDistanceValue != null) return longDistanceValue;
   }

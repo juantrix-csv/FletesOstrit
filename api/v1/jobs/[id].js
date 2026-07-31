@@ -103,6 +103,10 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid isLongDistance' });
       return;
     }
+    if (body.manualPrice != null && !isNonNegativeNumber(body.manualPrice)) {
+      res.status(400).json({ error: 'Invalid manualPrice' });
+      return;
+    }
     if (body.driverId) {
       const driver = await getDriverById(body.driverId);
       if (!driver) {
@@ -125,6 +129,41 @@ export default async function handler(req, res) {
         body.vehicleId = vehicle.id;
       }
     }
+
+    const current = await getJobById(id);
+    if (!current) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+
+    const resultingIsLongDistance = Object.prototype.hasOwnProperty.call(body, 'isLongDistance')
+      ? body.isLongDistance
+      : (current.isLongDistance ?? false);
+
+    if (resultingIsLongDistance === true) {
+      const bodyHasManualPrice = Object.prototype.hasOwnProperty.call(body, 'manualPrice');
+      const effectiveVal = bodyHasManualPrice ? body.manualPrice : undefined;
+      const wasLongDistance = current.isLongDistance === true;
+      const hasExistingManualPrice = Number.isFinite(current.manualPrice) && current.manualPrice > 0;
+
+      if (!wasLongDistance) {
+        if (effectiveVal == null || !Number.isFinite(effectiveVal) || effectiveVal <= 0) {
+          res.status(400).json({ error: 'manualPrice is required and must be positive when switching to long-distance' });
+          return;
+        }
+      } else if (bodyHasManualPrice) {
+        if (effectiveVal == null) {
+          if (hasExistingManualPrice) {
+            res.status(400).json({ error: 'cannot clear manualPrice on a long-distance job that already has one' });
+            return;
+          }
+        } else if (!Number.isFinite(effectiveVal) || effectiveVal <= 0) {
+          res.status(400).json({ error: 'manualPrice must be positive for long-distance jobs' });
+          return;
+        }
+      }
+    }
+
     const updated = await updateJob(id, body);
     if (!updated) {
       res.status(404).json({ error: 'Not found' });

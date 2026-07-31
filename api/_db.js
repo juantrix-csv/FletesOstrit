@@ -589,13 +589,18 @@ const buildJobShareSnapshot = async (job) => {
   let billedHours = null;
 
   if (job.isLongDistance) {
-    const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
-      : job.distanceKm != null ? Number(job.distanceKm) : null;
-    const pricePerKm = Number.isFinite(job.pricePerLongDistanceKmSnapshot)
-      ? Number(job.pricePerLongDistanceKmSnapshot)
-      : Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
-    if (distanceKm != null && pricePerKm != null) {
-      baseAmount = Math.round(distanceKm * pricePerKm);
+    const manualPrice = Number.isFinite(job.manualPrice) && job.manualPrice > 0 ? Number(job.manualPrice) : null;
+    if (manualPrice != null) {
+      baseAmount = manualPrice;
+    } else {
+      const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
+        : job.distanceKm != null ? Number(job.distanceKm) : null;
+      const pricePerKm = Number.isFinite(job.pricePerLongDistanceKmSnapshot)
+        ? Number(job.pricePerLongDistanceKmSnapshot)
+        : Number.isFinite(vehicle?.pricePerLongDistanceKm) ? Number(vehicle.pricePerLongDistanceKm) : null;
+      if (distanceKm != null && pricePerKm != null) {
+        baseAmount = Math.round(distanceKm * pricePerKm);
+      }
     }
   }
 
@@ -714,7 +719,8 @@ export const createJob = async (job) => {
 
   if (job.isLongDistance && Number.isFinite(kmPrice) && Number.isFinite(distanceMeters)) {
     const distanceKm = distanceMeters / 1000;
-    const baseAmount = Math.round(distanceKm * kmPrice);
+    const manualPrice = Number.isFinite(job.manualPrice) && job.manualPrice > 0 ? Number(job.manualPrice) : null;
+    const baseAmount = manualPrice ?? Math.round(distanceKm * kmPrice);
     const helpersAmount = estHours != null && Number.isFinite(helperHourlyRate) && helpersCount > 0
       ? Math.round(estHours * helperHourlyRate * helpersCount * 100) / 100
       : 0;
@@ -835,7 +841,10 @@ export const updateJob = async (id, patch) => {
       || Object.prototype.hasOwnProperty.call(patch, 'status')
       || Object.prototype.hasOwnProperty.call(patch, 'driverId')
       || Object.prototype.hasOwnProperty.call(patch, 'vehicleId')
-      || Object.prototype.hasOwnProperty.call(patch, 'timestamps');
+      || Object.prototype.hasOwnProperty.call(patch, 'timestamps')
+      || Object.prototype.hasOwnProperty.call(patch, 'manualPrice')
+      || Object.prototype.hasOwnProperty.call(patch, 'isLongDistance')
+      || Object.prototype.hasOwnProperty.call(patch, 'distanceMeters');
 
     if (mustRecomputeShare) {
       shareSnapshot = await buildJobShareSnapshot(next);
@@ -1248,6 +1257,10 @@ const getDriverDebtBilledHours = (job) => {
 
 const getDriverDebtHourlyValue = async (job, driver, vehicle) => {
   if (job.isLongDistance) {
+    const manualPrice = Number.isFinite(job.manualPrice) && job.manualPrice > 0 ? Number(job.manualPrice) : null;
+    if (manualPrice != null) {
+      return manualPrice;
+    }
     const distanceKm = Number.isFinite(job.distanceMeters) ? Number(job.distanceMeters) / 1000
       : job.distanceKm != null ? Number(job.distanceKm) : null;
     const pricePerKm = Number.isFinite(job.pricePerLongDistanceKmSnapshot)

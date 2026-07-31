@@ -106,6 +106,16 @@ export default async function handler(req, res) {
       res.status(400).json({ error: 'Invalid isLongDistance' });
       return;
     }
+    if (body.isLongDistance === true) {
+      if (body.manualPrice == null || !isNonNegativeNumber(body.manualPrice) || body.manualPrice <= 0) {
+        res.status(400).json({ error: 'manualPrice is required for long-distance jobs' });
+        return;
+      }
+    }
+    if (body.manualPrice != null && !isNonNegativeNumber(body.manualPrice)) {
+      res.status(400).json({ error: 'Invalid manualPrice' });
+      return;
+    }
     if (body.driverId) {
       const driver = await getDriverById(body.driverId);
       if (!driver) {

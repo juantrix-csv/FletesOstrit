@@ -538,6 +538,7 @@ type EditJobDraft = {
   driverId: string;
   vehicleId: string;
   isLongDistance: boolean;
+  manualPrice: string;
 };
 
 const emptyEditDraft: EditJobDraft = {
@@ -551,6 +552,7 @@ const emptyEditDraft: EditJobDraft = {
   driverId: '',
   vehicleId: '',
   isLongDistance: false,
+  manualPrice: '',
 };
 
 type NewJobPricePreview =
@@ -1281,6 +1283,10 @@ export default function AdminJobs() {
     const estimatedDurationMinutes = Math.max(1, Math.round(estimatedHours * 60));
     const manualPriceRaw = newJobManualPrice.trim();
     const manualPrice = manualPriceRaw ? Number(manualPriceRaw) : undefined;
+    if (newJobIsLongDistance && !manualPriceRaw) {
+      toast.error('El precio final al cliente es obligatorio para larga distancia');
+      return;
+    }
     if (manualPriceRaw && (!Number.isFinite(manualPrice) || (manualPrice ?? 0) <= 0)) {
       toast.error('Precio manual invalido');
       return;
@@ -1375,6 +1381,7 @@ export default function AdminJobs() {
       driverId: job.driverId ?? '',
       vehicleId: job.vehicleId ?? getDriverDefaultVehicleId(job.driverId),
       isLongDistance: job.isLongDistance ?? false,
+      manualPrice: Number.isFinite(job.manualPrice) ? String(job.manualPrice) : '',
     });
     setEditPickup(job.pickup ?? null);
     setEditDropoff(job.dropoff ?? null);
@@ -1423,8 +1430,31 @@ export default function AdminJobs() {
       return;
     }
     const clientPhone = editDraft.clientPhone.trim();
+    const manualPriceRaw = editDraft.manualPrice.trim();
+    const manualPrice = manualPriceRaw ? Number(manualPriceRaw) : undefined;
+    if (editDraft.isLongDistance) {
+      if (!manualPriceRaw) {
+        toast.error('El precio final al cliente es obligatorio para larga distancia');
+        return;
+      }
+      if (!Number.isFinite(manualPrice) || (manualPrice ?? 0) <= 0) {
+        toast.error('Precio manual invalido');
+        return;
+      }
+    }
+    if (manualPriceRaw && (!Number.isFinite(manualPrice) || (manualPrice ?? 0) <= 0)) {
+      toast.error('Precio manual invalido');
+      return;
+    }
     try {
       setSavingEditId(job.id);
+      const wasLongDistance = job.isLongDistance === true;
+      const isNowLongDistance = editDraft.isLongDistance === true;
+      const manualPricePatch: number | null | undefined = isNowLongDistance
+        ? manualPrice
+        : wasLongDistance
+          ? null
+          : undefined;
       const updated = await updateJob(job.id, {
         clientName,
         clientPhone: clientPhone || null,
@@ -1439,6 +1469,7 @@ export default function AdminJobs() {
         driverId: editDraft.driverId ? editDraft.driverId : null,
         vehicleId: editDraft.vehicleId ? editDraft.vehicleId : null,
         isLongDistance: editDraft.isLongDistance,
+        ...(manualPricePatch !== undefined ? { manualPrice: manualPricePatch } : {}),
       });
       setJobs((prev) => prev.map((item) => (item.id === job.id ? updated : item)));
       toast.success('Flete actualizado');
@@ -3550,17 +3581,29 @@ export default function AdminJobs() {
                       </label>
                     </div>
                     <label className="text-xs text-gray-500">
-                      Precio manual (opcional)
+                      {newJobIsLongDistance ? 'Precio final al cliente' : 'Precio manual (opcional)'}
+                      {newJobIsLongDistance && <span className="ml-1 text-red-500">*</span>}
+                      {newJobPreview?.ready && newJobIsLongDistance && newJobPreview.mode === 'long-distance' && (
+                        <span className="ml-2 text-[10px] text-blue-600">
+                          (Estimado automatico: {currencyFormatter.format(newJobPreview.total)})
+                        </span>
+                      )}
                       <input
                         name="manualPrice"
                         type="number"
                         min="1"
                         step="1"
-                        placeholder="Ej: 45000"
+                        placeholder={newJobIsLongDistance ? 'Cobro final al cliente' : 'Ej: 45000'}
                         value={newJobManualPrice}
                         onChange={(event) => setNewJobManualPrice(event.target.value)}
                         className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                        required={newJobIsLongDistance}
                       />
+                      {newJobIsLongDistance && (
+                        <p className="mt-1 text-[10px] text-gray-400">
+                          El precio manual es lo que se cobra al cliente. El calculo automatico por km solo es referencia y base para liquidaciones internas.
+                        </p>
+                      )}
                     </label>
                     <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
                       <input
@@ -4159,6 +4202,33 @@ export default function AdminJobs() {
                                 />
                                 Larga distancia (cobro por km)
                               </label>
+                              {editDraft.isLongDistance && (
+                                <label className="mt-2 block text-xs text-gray-500">
+                                  Precio final al cliente
+                                  <span className="ml-1 text-red-500">*</span>
+                                  {(() => {
+                                    const ldEstimate = getJobLongDistanceCalculatedTotal(job);
+                                    return ldEstimate != null ? (
+                                      <span className="ml-2 text-[10px] text-blue-600">
+                                        (Estimado automatico: {currencyFormatter.format(ldEstimate)})
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    placeholder="Cobro final al cliente"
+                                    value={editDraft.manualPrice}
+                                    onChange={(event) => setEditDraft((prev) => ({ ...prev, manualPrice: event.target.value }))}
+                                    className="mt-1 w-full rounded border px-2 py-1 text-xs text-gray-700"
+                                    required
+                                  />
+                                  <p className="mt-1 text-[10px] text-gray-400">
+                                    El precio manual es lo que se cobra al cliente. El calculo automatico por km solo es referencia y base para liquidaciones internas.
+                                  </p>
+                                </label>
+                              )}
                               <label className="mt-2 block text-xs text-gray-500">
                                 Descripcion
                                 <textarea
@@ -6523,19 +6593,27 @@ export default function AdminJobs() {
                             {loadingSelectedJobRouteEstimate ? 'Calculando...' : selectedJobLongDistanceDurationLabel ?? 'N/D'}
                           </p>
                           {canSeeMoney && (
-                            <p>
-                              <span className="font-medium text-gray-900">Precio final calculado:</span>{' '}
-                              {selectedJobLongDistanceCalculatedTotal != null
-                                ? currencyFormatter.format(selectedJobLongDistanceCalculatedTotal)
-                                : selectedJobLongDistanceMissingPrice
-                                  ? 'Falta precio/km larga distancia del vehiculo'
-                                  : 'N/D'}
-                            </p>
-                          )}
-                          {canSeeMoney && selectedJobLongDistanceDistanceKm != null && selectedJobLongDistancePricePerKm != null && selectedJobLongDistancePricePerKm > 0 && (
-                            <p className="text-xs text-gray-500">
-                              {decimalFormatter.format(selectedJobLongDistanceDistanceKm)} km x {currencyFormatter.format(selectedJobLongDistancePricePerKm)}/km
-                            </p>
+                            <>
+                              <p>
+                                <span className="font-medium text-gray-900">Estimado automatico:</span>{' '}
+                                {selectedJobLongDistanceCalculatedTotal != null
+                                  ? currencyFormatter.format(selectedJobLongDistanceCalculatedTotal)
+                                  : selectedJobLongDistanceMissingPrice
+                                    ? 'Falta precio/km larga distancia del vehiculo'
+                                    : 'N/D'}
+                              </p>
+                              {selectedJobLongDistanceDistanceKm != null && selectedJobLongDistancePricePerKm != null && selectedJobLongDistancePricePerKm > 0 && (
+                                <p className="text-xs text-gray-500">
+                                  {decimalFormatter.format(selectedJobLongDistanceDistanceKm)} km x {currencyFormatter.format(selectedJobLongDistancePricePerKm)}/km
+                                </p>
+                              )}
+                              <p>
+                                <span className="font-medium text-gray-900">Precio final al cliente:</span>{' '}
+                                {selectedJobDetail.manualPrice != null && Number.isFinite(selectedJobDetail.manualPrice)
+                                  ? currencyFormatter.format(Number(selectedJobDetail.manualPrice))
+                                  : 'Sin cargar'}
+                              </p>
+                            </>
                           )}
                           {canSeeMoney && selectedJobDetail.isLongDistance && selectedJobDetail.driverId && !isOwnerAccountDriver(driversById.get(selectedJobDetail.driverId) ?? null) && selectedJobLongDistanceCalculatedTotal != null && (
                             <p>
