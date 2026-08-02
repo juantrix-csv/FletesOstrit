@@ -383,8 +383,175 @@ describe('job pricing', () => {
       expect(breakdown.computedTotal).toBe(12000);
     });
   });
-});
 
+  describe('manual price breakdown', () => {
+    it('returns LD breakdown for LD job with manualPrice and helpers', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        manualPrice: 250000,
+        helpersCount: 2,
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: 1000,
+        isLongDistance: true,
+        distanceKm: 383,
+        pricePerLongDistanceKm: 500,
+      });
+
+      expect(breakdown.isLongDistance).toBe(true);
+      expect(breakdown.source).toBe('manual');
+      // 1h billed × 1000 rate × 2 helpers = 2000 → total = 250000 + 2000
+      expect(breakdown.billedHours).toBe(1);
+      expect(breakdown.helpersCount).toBe(2);
+      expect(breakdown.helpersAmount).toBe(2000);
+      expect(breakdown.totalAmount).toBe(252000);
+      expect(breakdown.storedTotal).toBe(250000);
+      expect(breakdown.baseAmount).toBe(null);
+      expect(breakdown.computedTotal).toBe(null);
+      expect(breakdown.longDistanceBaseAmount).toBe(191500);
+      expect(breakdown.longDistanceKm).toBe(383);
+      expect(breakdown.longDistancePricePerKm).toBe(500);
+      expect(breakdown.distantBaseExtraMinutes).toBe(0);
+    });
+
+    it('manual LD without helpers total equals manualPrice', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        manualPrice: 250000,
+        helpersCount: 0,
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: 1000,
+        isLongDistance: true,
+        distanceKm: 383,
+        pricePerLongDistanceKm: 500,
+      });
+
+      expect(breakdown.helpersCount).toBe(0);
+      expect(breakdown.helpersAmount).toBe(0);
+      expect(breakdown.totalAmount).toBe(250000);
+    });
+
+    it('manual LD without helper rate returns null total', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        manualPrice: 250000,
+        helpersCount: 2,
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: null,
+        isLongDistance: true,
+        distanceKm: 383,
+        pricePerLongDistanceKm: 500,
+      });
+
+      expect(breakdown.helpersAmount).toBe(null);
+      expect(breakdown.totalAmount).toBe(null);
+    });
+
+    it('manual LD without timestamps returns null total when helpers present', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        manualPrice: 250000,
+        helpersCount: 1,
+        timestamps: {},
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: 1000,
+        isLongDistance: true,
+        distanceKm: 383,
+        pricePerLongDistanceKm: 500,
+      });
+
+      expect(breakdown.billedHours).toBe(null);
+      expect(breakdown.helpersAmount).toBe(null);
+      expect(breakdown.totalAmount).toBe(null);
+    });
+
+    it('manual LD with 30-minute job bills helpers at minimum 1h', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        manualPrice: 250000,
+        helpersCount: 2,
+        timestamps: {
+          startLoadingAt: '2026-01-01T10:00:00.000Z',
+          endUnloadingAt: '2026-01-01T10:30:00.000Z',
+        },
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: 1000,
+        isLongDistance: true,
+        distanceKm: 383,
+        pricePerLongDistanceKm: 500,
+      });
+
+      expect(breakdown.billedHours).toBe(1);
+      expect(breakdown.helpersAmount).toBe(2000);
+      expect(breakdown.totalAmount).toBe(252000);
+    });
+
+    it('manual LD with 71-minute job bills helpers at 1.5h', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        manualPrice: 250000,
+        helpersCount: 1,
+        timestamps: {
+          startLoadingAt: '2026-01-01T10:00:00.000Z',
+          endUnloadingAt: '2026-01-01T11:11:00.000Z',
+        },
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: 1000,
+        isLongDistance: true,
+        distanceKm: 383,
+        pricePerLongDistanceKm: 500,
+      });
+
+      expect(breakdown.billedHours).toBe(1.5);
+      expect(breakdown.helpersAmount).toBe(1500);
+      expect(breakdown.totalAmount).toBe(251500);
+    });
+
+    it('preserves non-LD manual behavior unchanged', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        manualPrice: 15000,
+        helpersCount: 1,
+      }), {
+        hourlyRate: 10000,
+        helperHourlyRate: 2000,
+      });
+
+      expect(breakdown.isLongDistance).toBe(false);
+      expect(breakdown.source).toBe('manual');
+      expect(breakdown.totalAmount).toBe(15000);
+      expect(breakdown.longDistanceBaseAmount).toBe(undefined);
+      expect(breakdown.distantBaseExtraMinutes).toBe(0);
+    });
+
+    it('manual LD without km reference stays LD and computes helpers', () => {
+      const breakdown = getJobChargeBreakdown(makeJob({
+        isLongDistance: true,
+        manualPrice: 250000,
+        helpersCount: 2,
+      }), {
+        hourlyRate: null,
+        helperHourlyRate: 1000,
+        isLongDistance: true,
+        distanceKm: null,
+        pricePerLongDistanceKm: null,
+      });
+
+      expect(breakdown.isLongDistance).toBe(true);
+      expect(breakdown.source).toBe('manual');
+      expect(breakdown.longDistanceBaseAmount).toBe(undefined);
+      expect(breakdown.longDistanceKm).toBe(undefined);
+      expect(breakdown.longDistancePricePerKm).toBe(undefined);
+      expect(breakdown.billedHours).toBe(1);
+      expect(breakdown.helpersAmount).toBe(2000);
+      expect(breakdown.totalAmount).toBe(252000);
+    });
+  });
+});
 describe('Juan driver pricing policy', () => {
   it('matches Juan by name or code without matching similar names', () => {
     expect(isJuanDriver({ name: 'Juan Pérez', code: '1234' })).toBe(true);

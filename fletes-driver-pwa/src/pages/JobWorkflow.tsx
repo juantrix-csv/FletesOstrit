@@ -261,7 +261,7 @@ export default function JobWorkflow() {
     : Number.isFinite(job.distanceMeters)
       ? (job.distanceMeters as number) / 1000
       : null;
-  const isLongDistanceJob = !!(job.isLongDistance && jobDistanceValueKm != null && vehiclePricePerLongDistanceKm != null);
+  const isLongDistanceJob = job.isLongDistance === true;
   const pricingPreview = getJobChargeBreakdown(job, {
     hourlyRate: effectiveHourlyRateValue,
     helperHourlyRate: helperHourlyRateValue,
@@ -742,13 +742,46 @@ export default function JobWorkflow() {
               {pricingPreview.source === 'stored' && (
                 <p className="mt-1 text-xs text-emerald-700">Se usa el monto ya cargado en el flete.</p>
               )}
+              {pricingPreview.source === 'manual' && (
+                <p className="mt-1 text-xs text-emerald-700">Precio manual del viaje + ayudantes.</p>
+              )}
             </div>
 
             <div className="mt-3 rounded-2xl border bg-white p-3">
               <p className="text-xs uppercase tracking-wide text-gray-400">Como se forma</p>
               <div className="mt-2 space-y-1.5 text-sm text-gray-700">
                 {pricingPreview.isLongDistance ? (
-                  <>
+                  pricingPreview.source === 'manual' ? (
+                    <>
+                      <p>
+                        <span className="font-medium text-gray-900">Precio manual del viaje:</span>{' '}
+                        {moneyFormatter.format(pricingPreview.storedTotal!)}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Estimado automatico (referencia):</span>{' '}
+                        {pricingPreview.longDistanceBaseAmount != null && pricingPreview.longDistancePricePerKm != null && pricingPreview.longDistanceKm != null
+                          ? `${pricingPreview.longDistanceKm.toFixed(1)} km x ${moneyFormatter.format(pricingPreview.longDistancePricePerKm)}/km = ${moneyFormatter.format(pricingPreview.longDistanceBaseAmount)}`
+                          : 'Sin configurar (precio por km del vehiculo)'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Tiempo real:</span>{' '}
+                        {pricingPreview.durationMs != null ? formatDurationMs(pricingPreview.durationMs) : 'Sin tiempos'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Horas facturadas (ayudantes):</span>{' '}
+                        {pricingPreview.billedHours != null ? formatBilledHours(pricingPreview.billedHours) : 'Sin calcular'}
+                      </p>
+                      <p>
+                        <span className="font-medium text-gray-900">Ayudantes:</span>{' '}
+                        {pricingPreview.helpersCount <= 0
+                          ? 'Sin ayudantes'
+                          : effectiveHelperHourlyRateValue != null && pricingPreview.billedHours != null
+                            ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHelperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount!)}`
+                            : 'Hay ayudantes pero falta tarifa configurada'}
+                      </p>
+                    </>
+                  ) : (
+                    <>
                     <p>
                       <span className="font-medium text-gray-900">Distancia:</span>{' '}
                       {pricingPreview.longDistanceKm != null ? `${pricingPreview.longDistanceKm.toFixed(1)} km` : 'N/D'}
@@ -774,12 +807,13 @@ export default function JobWorkflow() {
                       {pricingPreview.helpersCount <= 0
                         ? 'Sin ayudantes'
                         : effectiveHelperHourlyRateValue != null && pricingPreview.billedHours != null
-                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHelperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
+                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHelperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount!)}`
                           : pricingPreview.source === 'stored'
                             ? 'Incluido en monto cargado'
                             : 'Hay ayudantes pero falta tarifa configurada'}
                     </p>
                   </>
+                  )
                 ) : (
                   <>
                     <p>
@@ -813,7 +847,7 @@ export default function JobWorkflow() {
                       {pricingPreview.helpersCount <= 0
                         ? 'Sin ayudantes'
                         : effectiveHelperHourlyRateValue != null && pricingPreview.billedHours != null
-                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHelperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount)}`
+                          ? `${pricingPreview.helpersCount} x ${formatBilledHours(pricingPreview.billedHours)} x ${moneyFormatter.format(effectiveHelperHourlyRateValue)} = ${moneyFormatter.format(pricingPreview.helpersAmount!)}`
                           : pricingPreview.source === 'stored'
                             ? 'Incluido en monto cargado'
                             : 'Hay ayudantes pero falta tarifa configurada'}
@@ -829,9 +863,15 @@ export default function JobWorkflow() {
               </div>
             )}
 
-            {!canConfirmCompletion && pricingPreview.totalAmount == null && (
+            {pricingPreview.source === 'manual' && pricingPreview.isLongDistance && pricingPreview.totalAmount == null && (
               <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                {pricingPreview.isLongDistance
+                No se pudo calcular el total. El precio manual esta cargado pero falta la tarifa de ayudante o el tiempo facturado para poder completar.
+              </div>
+            )}
+
+            {!canConfirmCompletion && pricingPreview.totalAmount == null && pricingPreview.source !== 'manual' && (
+              <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                {pricingPreview.isLongDistance && pricingPreview.source !== 'manual'
                   ? 'No se pudo calcular el monto final. Revisa que el vehiculo tenga precio por km configurado.'
                   : 'No se pudo calcular el monto final. Revisa que exista un precio por hora o un monto ya cargado.'}
               </div>

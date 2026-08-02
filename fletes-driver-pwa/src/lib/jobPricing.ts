@@ -69,11 +69,42 @@ export const getJobChargeBreakdown = (
   },
 ) => {
   if (Number.isFinite(job.manualPrice)) {
+    const manualPrice = Number(job.manualPrice);
+    const manualLD = opts.isLongDistance === true;
+    if (manualLD) {
+      const effectiveHelperRate = job.helperHourlyRateSnapshot ?? opts.helperHourlyRate;
+      const helpersCount = Math.max(0, Number.isFinite(job.helpersCount) ? Number(job.helpersCount) : 0);
+      const durationMs = getJobDurationMs(job, opts.endAtMs);
+      const billedHours = getBilledHoursFromDurationMs(durationMs);
+      let helpersAmount: number | null = 0;
+      if (helpersCount > 0) {
+        if (effectiveHelperRate != null && billedHours != null) {
+          helpersAmount = roundMoney(billedHours * effectiveHelperRate * helpersCount);
+        } else {
+          helpersAmount = null;
+        }
+      }
+      const hasKmRef = Number.isFinite(opts.distanceKm) && Number.isFinite(opts.pricePerLongDistanceKm);
+      const longDistanceBaseAmount = hasKmRef
+        ? Math.round((opts.distanceKm as number) * (opts.pricePerLongDistanceKm as number))
+        : undefined;
+      const totalAmount = helpersAmount != null ? roundMoney(manualPrice + helpersAmount) : null;
+      return {
+        durationMs, distantBaseTravelMinutes: null, distantBaseExtraMinutes: 0, distantBaseExtraMs: 0,
+        distantBasePoint: opts.distantBasePoint ?? null, chargeableDurationMs: durationMs,
+        billedHours, helpersCount, baseAmount: null, helpersAmount, computedTotal: null,
+        storedTotal: manualPrice, totalAmount,
+        source: 'manual' as const, isLongDistance: true,
+        longDistanceBaseAmount,
+        longDistanceKm: hasKmRef ? (opts.distanceKm as number) : undefined,
+        longDistancePricePerKm: hasKmRef ? (opts.pricePerLongDistanceKm as number) : undefined,
+      };
+    }
     return {
       durationMs: null, distantBaseTravelMinutes: null, distantBaseExtraMinutes: 0, distantBaseExtraMs: 0,
       distantBasePoint: null, chargeableDurationMs: null, billedHours: null, helpersCount: job.helpersCount ?? 0,
       baseAmount: null, helpersAmount: null, computedTotal: null,
-      storedTotal: Number(job.manualPrice), totalAmount: Number(job.manualPrice),
+      storedTotal: manualPrice, totalAmount: manualPrice,
       source: 'manual' as const, isLongDistance: false,
       longDistanceBaseAmount: undefined, longDistanceKm: undefined, longDistancePricePerKm: undefined,
     };
