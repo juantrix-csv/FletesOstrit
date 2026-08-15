@@ -22,6 +22,10 @@ const sql = async (strings, ...values) => {
   return pool.query(text, values);
 };
 
+// Serializes ensureSchema across concurrent API starts. Prevents multiple
+// processes from stacking ALTER TABLE statements and deadlocking on locks.
+const SCHEMA_LOCK_KEY = 82911207;
+
 const BA_UTC_OFFSET_HOURS = 3;
 
 const defaultFlags = {
@@ -262,6 +266,20 @@ const buildLeadChangeMessage = ({ current = null, next, historyNote = null }) =>
 };
 
 export const ensureSchema = async () => {
+  const lockClient = await pool.connect();
+  try {
+    await lockClient.query('SELECT pg_advisory_lock($1)', [SCHEMA_LOCK_KEY]);
+    try {
+      await runSchemaMigrations();
+    } finally {
+      await lockClient.query('SELECT pg_advisory_unlock($1)', [SCHEMA_LOCK_KEY]);
+    }
+  } finally {
+    lockClient.release();
+  }
+};
+
+const runSchemaMigrations = async () => {
   await sql`
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
