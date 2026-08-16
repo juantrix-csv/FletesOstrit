@@ -5,4 +5,12 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# Test policy (FAIL CLOSED): run the deploy test suite and BLOCK activation on
+# any failure. Auto-deploy remains effectively paused/blocked until the known
+# baseline failures are fixed, because REQUIRE_TESTS=strict aborts the run and
+# never silently promotes with failed tests. Known baseline failures:
+#   - API: tests/service-area.test.js (1 failure)
+#   - PWA: fletes-driver-pwa/src/lib/jobPricing.test.ts (2 failures)
+Environment=RUN_DEPLOY_TESTS=1
+Environment=REQUIRE_TESTS=strict
 ExecStart=/usr/bin/bash /opt/fletes-ostrit/scripts/deploy-vps.sh
