@@ -8,6 +8,8 @@ import reverseGeocodeHandler from '../api/reverse-geocode.js';
 import driverLocationsIndexHandler from '../api/v1/driver-locations/index.js';
 import driversByIdHandler from '../api/v1/drivers/[id].js';
 import driversIndexHandler from '../api/v1/drivers/index.js';
+import driverUnavailabilityByIdHandler from '../api/v1/driver-unavailability/[id].js';
+import driverUnavailabilityIndexHandler from '../api/v1/driver-unavailability/index.js';
 import financeResourceHandler from '../api/v1/finance/[resource].js';
 import jobsByIdHandler from '../api/v1/jobs/[id].js';
 import jobsIndexHandler from '../api/v1/jobs/index.js';
@@ -61,6 +63,9 @@ app.all('/api/v1/jobs', wrapHandler(jobsIndexHandler));
 
 app.all('/api/v1/drivers/:id', wrapHandler(driversByIdHandler));
 app.all('/api/v1/drivers', wrapHandler(driversIndexHandler));
+
+app.all('/api/v1/driver-unavailability/:id', wrapHandler(driverUnavailabilityByIdHandler));
+app.all('/api/v1/driver-unavailability', wrapHandler(driverUnavailabilityIndexHandler));
 
 app.all('/api/v1/vehicles/:id', wrapHandler(vehiclesByIdHandler));
 app.all('/api/v1/vehicles', wrapHandler(vehiclesIndexHandler));

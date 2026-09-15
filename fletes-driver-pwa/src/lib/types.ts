@@ -49,6 +49,15 @@ export interface Driver {
   createdAt: string;
   updatedAt: string;
 }
+export interface DriverUnavailability {
+  id: string;
+  driverId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface DriverLocation {
   driverId: string;
   lat: number;

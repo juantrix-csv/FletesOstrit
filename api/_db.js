@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { randomUUID } from 'node:crypto';
 import { getBilledHoursFromDurationMs } from '../lib/billing.js';
 import { getDriverOwnedVehicleShare } from '../lib/driverShare.js';
 import { normalizeLocation, normalizeLocations } from './_location.js';
@@ -449,6 +450,19 @@ const runSchemaMigrations = async () => {
   await sql`UPDATE leads SET history = '[]'::jsonb WHERE history IS NULL;`;
   await sql`ALTER TABLE leads ALTER COLUMN history SET DEFAULT '[]'::jsonb;`;
   await sql`ALTER TABLE leads ALTER COLUMN history SET NOT NULL;`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS driver_unavailability (
+      id TEXT PRIMARY KEY,
+      driver_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS idx_driver_unavailability_driver_date ON driver_unavailability (driver_id, date);`;
 };
 
 export const computeScheduledAt = (date, time) => {
@@ -1490,6 +1504,45 @@ export const deleteDriver = async (id) => {
   await ensureSchema();
   await sql`UPDATE jobs SET driver_id = NULL WHERE driver_id = ${id}`;
   const result = await sql`DELETE FROM drivers WHERE id = ${id}`;
+  return result.rowCount > 0;
+};
+
+const normalizeUnavailabilityRow = (row) => ({
+  id: row.id,
+  driverId: row.driver_id,
+  date: row.date,
+  startTime: row.start_time,
+  endTime: row.end_time,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export const listDriverUnavailability = async () => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM driver_unavailability ORDER BY date, start_time`;
+  return rows.map(normalizeUnavailabilityRow);
+};
+
+export const listDriverUnavailabilityForDriver = async (driverId) => {
+  await ensureSchema();
+  const { rows } = await sql`SELECT * FROM driver_unavailability WHERE driver_id = ${driverId} ORDER BY date, start_time`;
+  return rows.map(normalizeUnavailabilityRow);
+};
+
+export const createDriverUnavailability = async (slot) => {
+  await ensureSchema();
+  const id = slot.id ?? randomUUID();
+  const now = new Date().toISOString();
+  await sql`
+    INSERT INTO driver_unavailability (id, driver_id, date, start_time, end_time, created_at, updated_at)
+    VALUES (${id}, ${slot.driverId}, ${slot.date}, ${slot.startTime}, ${slot.endTime}, ${now}, ${now})
+  `;
+  return { ...slot, id, createdAt: now, updatedAt: now };
+};
+
+export const deleteDriverUnavailability = async (id) => {
+  await ensureSchema();
+  const result = await sql`DELETE FROM driver_unavailability WHERE id = ${id}`;
   return result.rowCount > 0;
 };
 

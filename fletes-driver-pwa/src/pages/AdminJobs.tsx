@@ -11,12 +11,14 @@ import DriverRouteMap from '../components/DriverRouteMap';
 import JobRoutePreviewMap from '../components/JobRoutePreviewMap';
 import LocationAccessFields from '../components/LocationAccessFields';
 import AdminLeads from '../components/AdminLeads';
-import type { Driver, DriverLocation, Job, JobPaymentMethod, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
+import type { Driver, DriverLocation, DriverUnavailability, Job, JobPaymentMethod, JobStatus, LocationData, Vehicle, VehicleOwnershipType } from '../lib/types';
 import {
   createDriver,
+  createDriverUnavailability,
   createJob,
   createVehicle,
   deleteDriver,
+  deleteDriverUnavailability,
   deleteJob,
   deleteVehicle,
   downloadJobsHistory,
@@ -34,6 +36,7 @@ import {
   getTripCostPerHour,
   getTripCostPerKm,
   listDriverLocations,
+  listDriverUnavailability,
   listDrivers,
   listJobs,
   listVehicles,
@@ -174,6 +177,22 @@ const getHourSlotsForDay = (start: Date, end: Date, day: Date) => {
     );
   }
   return slots;
+};
+
+const parseTimeToMinutes = (time: string) => {
+  const [hourPart, minutePart] = time.split(':').map(Number);
+  return (Number.isFinite(hourPart) ? hourPart : 0) * 60 + (Number.isFinite(minutePart) ? minutePart : 0);
+};
+
+const getUnavailabilityTop = (startTime: string) => {
+  const minutes = parseTimeToMinutes(startTime) - calendarStartHour * 60;
+  return Math.max(0, (minutes / 60) * calendarHourHeight);
+};
+
+const getUnavailabilityHeight = (startTime: string, endTime: string) => {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  return Math.max(calendarHourHeight * 0.5, ((endMinutes - startMinutes) / 60) * calendarHourHeight);
 };
 const formatJobRangeForDay = (start: Date, end: Date, day: Date) => {
   const overlap = getDayOverlapRange(start, end, day);
@@ -664,6 +683,8 @@ export default function AdminJobs() {
   }, [adminRole, navigate, resolvedTab]);
   const [calendarView, setCalendarView] = useState<'day' | 'week' | 'month'>('week');
   const [calendarDate, setCalendarDate] = useState(() => new Date());
+  const [unavailabilityDriverId, setUnavailabilityDriverId] = useState('');
+  const [unavailabilityMarking, setUnavailabilityMarking] = useState(false);
   const calendarDayScrollRef = useRef<HTMLDivElement>(null);
   const calendarWeekScrollRef = useRef<HTMLDivElement>(null);
   const [calendarScrollLeft, setCalendarScrollLeft] = useState(0);
@@ -672,6 +693,7 @@ export default function AdminJobs() {
   const [jobs, setJobs] = useState<Job[]>(() => jobsCacheEntry?.data ?? []);
   const [drivers, setDrivers] = useState<Driver[]>(() => driversCacheEntry?.data ?? []);
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => vehiclesCacheEntry?.data ?? []);
+  const [driverUnavailability, setDriverUnavailability] = useState<DriverUnavailability[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(() => !jobsCacheEntry);
   const [loadingDrivers, setLoadingDrivers] = useState(() => !driversCacheEntry);
   const [loadingVehicles, setLoadingVehicles] = useState(() => !vehiclesCacheEntry);
@@ -894,6 +916,52 @@ export default function AdminJobs() {
       toast.error('No se pudieron cargar los vehiculos');
     } finally {
       setLoadingVehicles(false);
+    }
+  };
+
+  const loadDriverUnavailability = async () => {
+    try {
+      const data = await listDriverUnavailability();
+      setDriverUnavailability(data);
+    } catch {
+      // Non-blocking: unavailability is optional.
+    }
+  };
+
+  const getUnavailabilityForDate = (driverId: string, dateKey: string) => (
+    driverUnavailability.filter((slot) => slot.driverId === driverId && slot.date === dateKey)
+  );
+
+  const toggleUnavailabilityHour = async (driverId: string, dateKey: string, hour: number) => {
+    if (!driverId) return;
+    const startTime = `${String(hour).padStart(2, '0')}:00`;
+    const endTime = `${String(hour + 1).padStart(2, '0')}:00`;
+    const existing = driverUnavailability.find(
+      (slot) => slot.driverId === driverId && slot.date === dateKey && slot.startTime === startTime,
+    );
+    if (existing) {
+      try {
+        await deleteDriverUnavailability(existing.id);
+        setDriverUnavailability((prev) => prev.filter((slot) => slot.id !== existing.id));
+      } catch {
+        toast.error('No se pudo quitar el bloqueo');
+      }
+      return;
+    }
+    try {
+      const created = await createDriverUnavailability({ driverId, date: dateKey, startTime, endTime });
+      setDriverUnavailability((prev) => [...prev, created]);
+    } catch {
+      toast.error('No se pudo marcar el bloqueo');
+    }
+  };
+
+  const removeUnavailability = async (id: string) => {
+    try {
+      await deleteDriverUnavailability(id);
+      setDriverUnavailability((prev) => prev.filter((slot) => slot.id !== id));
+    } catch {
+      toast.error('No se pudo quitar el bloqueo');
     }
   };
 
@@ -1227,6 +1295,7 @@ export default function AdminJobs() {
     loadDrivers();
     loadVehicles();
     loadDriverLocations();
+    loadDriverUnavailability();
     loadHourlyRate();
     loadHelperHourlyRate();
     loadOwnerVehicleDriverShare();
@@ -3417,6 +3486,9 @@ export default function AdminJobs() {
   const openJobDetail = (jobId: string) => setSelectedJobId(jobId);
   const dayJobs = getDayJobs(calendarDate);
   const dayLayout = useMemo(() => buildDayLayout(dayJobs, calendarDate), [dayJobs, calendarDate]);
+  const dayUnavailabilityBlocks = unavailabilityDriverId
+    ? getUnavailabilityForDate(unavailabilityDriverId, buildDateKey(calendarDate))
+    : [];
   const dayBlockedHours = new Set<number>();
   dayJobs.forEach((item) => {
     const hours = getHourSlotsForDay(item.start, item.end, calendarDate);
@@ -4482,6 +4554,37 @@ export default function AdminJobs() {
                       </span>
                     </div>
                   </div>
+                  <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-dashed border-amber-200 bg-amber-50/60 p-2">
+                    <span className="text-[11px] uppercase tracking-wide text-gray-500">Chofer no disponible</span>
+                    <select
+                      value={unavailabilityDriverId}
+                      onChange={(event) => {
+                        setUnavailabilityDriverId(event.target.value);
+                        setUnavailabilityMarking(false);
+                      }}
+                      className="rounded border px-2 py-1 text-xs"
+                    >
+                      <option value="">Elegir chofer</option>
+                      {drivers.filter((driver) => driver.active).map((driver) => (
+                        <option key={driver.id} value={driver.id}>{driver.name}</option>
+                      ))}
+                    </select>
+                    {unavailabilityDriverId && (
+                      <button
+                        type="button"
+                        onClick={() => setUnavailabilityMarking((prev) => !prev)}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-semibold",
+                          unavailabilityMarking ? "border-red-600 bg-red-600 text-white" : "bg-white text-gray-600"
+                        )}
+                      >
+                        {unavailabilityMarking ? 'Cancelar marcado' : 'Marcar en el dia'}
+                      </button>
+                    )}
+                    {unavailabilityMarking && (
+                      <span className="text-[11px] text-amber-700">Hacé clic en una hora del dia para bloquearla/desbloquearla.</span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -4542,9 +4645,34 @@ export default function AdminJobs() {
                             style={{ gridTemplateRows: `repeat(${calendarHours.length}, ${calendarHourHeight}px)` }}
                           >
                             {calendarHours.map((hour) => (
-                              <div key={hour} className="border-t border-gray-100" />
+                              <div
+                                key={hour}
+                                className={cn(
+                                  "border-t border-gray-100",
+                                  unavailabilityMarking && "cursor-pointer hover:bg-red-50",
+                                )}
+                                onClick={unavailabilityMarking
+                                  ? () => toggleUnavailabilityHour(unavailabilityDriverId, buildDateKey(calendarDate), hour)
+                                  : undefined}
+                              />
                             ))}
                           </div>
+                          {unavailabilityDriverId && dayUnavailabilityBlocks.map((slot) => (
+                            <div
+                              key={slot.id}
+                              onClick={() => removeUnavailability(slot.id)}
+                              title={`${slot.startTime} - ${slot.endTime} (clic para quitar)`}
+                              className="absolute left-0 right-0 z-10 cursor-pointer rounded bg-red-100/70 border border-red-300"
+                              style={{
+                                top: getUnavailabilityTop(slot.startTime),
+                                height: getUnavailabilityHeight(slot.startTime, slot.endTime),
+                              }}
+                            >
+                              <span className="px-1 text-[10px] font-semibold text-red-700">
+                                {slot.startTime} - {slot.endTime}
+                              </span>
+                            </div>
+                          ))}
                           {isSameDay(calendarDate, calendarToday) && nowTop != null && (
                             <div className="absolute left-0 right-0 z-20" style={{ top: nowTop }}>
                               <div className="relative">

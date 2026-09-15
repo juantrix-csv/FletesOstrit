@@ -1,4 +1,4 @@
-import type { Driver, DriverLocation, Job, Lead, LocationData, Vehicle } from './types';
+import type { Driver, DriverLocation, DriverUnavailability, Job, Lead, LocationData, Vehicle } from './types';
 import { invalidateCachedQueries, setCachedQueryData, updateMatchingCachedQueries } from './queryCache';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
@@ -267,6 +267,32 @@ export const deleteDriver = async (id: string) => {
   await runRequest<void>(`/drivers/${id}`, { method: 'DELETE' });
   invalidateDriverCaches();
   invalidateCachedQueries((key) => key.startsWith('jobs:list'));
+};
+
+export const driverUnavailabilityListQueryKey = () => 'driver-unavailability:list';
+
+export const listDriverUnavailability = (driverId?: string) => {
+  const query = driverId ? `?driverId=${encodeURIComponent(driverId)}` : '';
+  return fetchJson<DriverUnavailability[]>(`/driver-unavailability${query}`);
+};
+
+export const createDriverUnavailability = async (slot: {
+  driverId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+}) => {
+  const created = await fetchJson<DriverUnavailability>(
+    '/driver-unavailability',
+    { method: 'POST', body: JSON.stringify(slot) },
+  );
+  invalidateCachedQueries((key) => key === driverUnavailabilityListQueryKey());
+  return created;
+};
+
+export const deleteDriverUnavailability = async (id: string) => {
+  await runRequest<void>(`/driver-unavailability/${id}`, { method: 'DELETE' });
+  invalidateCachedQueries((key) => key === driverUnavailabilityListQueryKey());
 };
 
 export const listVehicles = () => fetchJson<Vehicle[]>('/vehicles');
