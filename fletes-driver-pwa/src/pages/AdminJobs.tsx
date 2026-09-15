@@ -4649,20 +4649,16 @@ export default function AdminJobs() {
                                 key={hour}
                                 className={cn(
                                   "border-t border-gray-100",
-                                  unavailabilityMarking && "cursor-pointer hover:bg-red-50",
+                                  unavailabilityMarking && "bg-red-50/40",
                                 )}
-                                onClick={unavailabilityMarking
-                                  ? () => toggleUnavailabilityHour(unavailabilityDriverId, buildDateKey(calendarDate), hour)
-                                  : undefined}
                               />
                             ))}
                           </div>
                           {unavailabilityDriverId && dayUnavailabilityBlocks.map((slot) => (
                             <div
                               key={slot.id}
-                              onClick={() => removeUnavailability(slot.id)}
-                              title={`${slot.startTime} - ${slot.endTime} (clic para quitar)`}
-                              className="absolute left-0 right-0 z-10 cursor-pointer rounded bg-red-100/70 border border-red-300"
+                              title={`${slot.startTime} - ${slot.endTime}`}
+                              className="absolute left-0 right-0 z-10 pointer-events-none rounded bg-red-100/70 border border-red-300"
                               style={{
                                 top: getUnavailabilityTop(slot.startTime),
                                 height: getUnavailabilityHeight(slot.startTime, slot.endTime),
@@ -4673,6 +4669,33 @@ export default function AdminJobs() {
                               </span>
                             </div>
                           ))}
+                          {unavailabilityMarking && (
+                            <div
+                              className="absolute inset-0 z-30 grid"
+                              style={{ gridTemplateRows: `repeat(${calendarHours.length}, ${calendarHourHeight}px)` }}
+                            >
+                              {calendarHours.map((hour) => {
+                                const dateKey = buildDateKey(calendarDate);
+                                const startTime = `${String(hour).padStart(2, '0')}:00`;
+                                const isBlocked = dayUnavailabilityBlocks.some((slot) => slot.startTime === startTime);
+                                return (
+                                  <button
+                                    key={hour}
+                                    type="button"
+                                    onClick={() => toggleUnavailabilityHour(unavailabilityDriverId, dateKey, hour)}
+                                    className={cn(
+                                      "w-full cursor-pointer border-t border-gray-100 text-left transition",
+                                      isBlocked ? "bg-red-200/70 hover:bg-red-300/70" : "hover:bg-red-100/60",
+                                    )}
+                                  >
+                                    <span className="px-1 text-[10px] font-semibold text-red-700">
+                                      {isBlocked ? 'Bloqueado' : 'Disponible'}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                           {isSameDay(calendarDate, calendarToday) && nowTop != null && (
                             <div className="absolute left-0 right-0 z-20" style={{ top: nowTop }}>
                               <div className="relative">
