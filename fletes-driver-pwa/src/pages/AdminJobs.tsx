@@ -4578,11 +4578,13 @@ export default function AdminJobs() {
                           unavailabilityMarking ? "border-red-600 bg-red-600 text-white" : "bg-white text-gray-600"
                         )}
                       >
-                        {unavailabilityMarking ? 'Cancelar marcado' : 'Marcar en el dia'}
+                        {unavailabilityMarking ? 'Listo' : 'Bloquear horas'}
                       </button>
                     )}
                     {unavailabilityMarking && (
-                      <span className="text-[11px] text-amber-700">Hacé clic en una hora del dia para bloquearla/desbloquearla.</span>
+                      <span className="text-[11px] text-amber-700">
+                        Ahora hace clic en las horas (en Dia o Semana) para bloquearlas o desbloquearlas. Cuando termines, clic en "Listo".
+                      </span>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -4890,6 +4892,17 @@ export default function AdminJobs() {
                                     <div key={hour} className="border-t border-gray-100" />
                                   ))}
                                 </div>
+                                {unavailabilityDriverId && getUnavailabilityForDate(unavailabilityDriverId, buildDateKey(day)).map((slot) => (
+                                  <div
+                                    key={slot.id}
+                                    title={`${slot.startTime} - ${slot.endTime}`}
+                                    className="absolute left-0 right-0 z-10 pointer-events-none rounded bg-red-100/70 border border-red-300"
+                                    style={{
+                                      top: getUnavailabilityTop(slot.startTime),
+                                      height: getUnavailabilityHeight(slot.startTime, slot.endTime),
+                                    }}
+                                  />
+                                ))}
                                 {isToday && nowTop != null && (
                                   <div className="absolute left-0 right-0 z-20" style={{ top: nowTop }}>
                                     <div className="h-0.5 bg-rose-500" />
@@ -4953,6 +4966,29 @@ export default function AdminJobs() {
                                     </div>
                                   );
                                 })}
+                                {unavailabilityMarking && (
+                                  <div
+                                    className="absolute inset-0 z-30 grid"
+                                    style={{ gridTemplateRows: `repeat(${calendarHours.length}, ${calendarHourHeight}px)` }}
+                                  >
+                                    {calendarHours.map((hour) => {
+                                      const dateKey = buildDateKey(day);
+                                      const startTime = `${String(hour).padStart(2, '0')}:00`;
+                                      const isBlocked = getUnavailabilityForDate(unavailabilityDriverId, dateKey).some((slot) => slot.startTime === startTime);
+                                      return (
+                                        <button
+                                          key={hour}
+                                          type="button"
+                                          onClick={() => toggleUnavailabilityHour(unavailabilityDriverId, dateKey, hour)}
+                                          className={cn(
+                                            "w-full cursor-pointer border-t border-gray-100",
+                                            isBlocked ? "bg-red-200/70 hover:bg-red-300/70" : "hover:bg-red-100/60",
+                                          )}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
