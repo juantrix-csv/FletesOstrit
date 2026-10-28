@@ -14,8 +14,8 @@ set -euo pipefail
 #   * Dependencies are installed deterministically with `npm ci` (root + PWA),
 #     never `npm install`, and only inside the staging checkout.
 #   * The live checkout is only mutated AFTER a successful staging build.
-#     Tracked modifications or unexpected untracked files are refused up front
-#     instead of being silently discarded.
+#     Tracked modifications or unexpected untracked files outside the generated
+#     frontend dist directory are refused up front instead of being discarded.
 #   * Activation swaps directories fail-closed (atomic, and it refuses to
 #     continue if the destination ends up absent).
 #   * Health checks use bounded curl timeouts with a small retry loop and also
@@ -399,8 +399,9 @@ preflight() {
   fi
   rm -f "${probe}"
 
-  # Refuse if any tracked file is owned by another user (typically root). This
-  # would make `git reset --hard` or future APP_USER writes fail mid-deploy.
+  # Refuse if any tracked source file is owned by another user (typically root).
+  # The generated dist directory is replaced atomically during every deploy;
+  # its tracked files may be absent after the previous build.
   local app_uid
   app_uid="$(id -u "${APP_USER}")"
 
@@ -419,6 +420,9 @@ preflight() {
 
   local owner root_owned=0 stat_failed=0 f
   while IFS= read -r -d '' f; do
+    case "${f}" in
+      fletes-driver-pwa/dist/*) continue ;;
+    esac
     # Fail closed: if ownership cannot be determined, do not assume it is fine.
     if ! owner="$(stat -c '%u' "${REPO_DIR}/${f}" 2>/dev/null)"; then
       fail "cannot verify ownership of tracked file ${f} (stat failed); refusing to deploy"
@@ -442,12 +446,12 @@ preflight() {
   fi
 }
 
-# The live checkout must be pristine before we touch it. `git status --porcelain`
-# only reports tracked changes and non-ignored untracked files, so ignored build
-# artifacts (node_modules/, dist/, .env) do not trigger this guard.
+# The live source checkout must be pristine before we touch it. The frontend
+# dist directory is generated and atomically replaced by install_dist, so its
+# tracked files always differ from Git after a successful build.
 guard_clean_checkout() {
   local status
-  status="$(run_as_app git -C "${REPO_DIR}" status --porcelain)" || {
+  status="$(run_as_app git -C "${REPO_DIR}" status --porcelain -- . ':(exclude)fletes-driver-pwa/dist')" || {
     fail "could not inspect git status as ${APP_USER}"
     return 1
   }
