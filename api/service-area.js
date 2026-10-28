@@ -67,6 +67,7 @@ const loadSettingsStore = async () => {
 };
 
 const getCachedServiceArea = async (key) => {
+  if (process.env.SERVICE_AREA_CACHE_DISABLED === '1') return null;
   try {
     const store = await loadSettingsStore();
     if (!store) return null;
@@ -80,6 +81,7 @@ const getCachedServiceArea = async (key) => {
 };
 
 const setCachedServiceArea = async (key, area) => {
+  if (process.env.SERVICE_AREA_CACHE_DISABLED === '1') return;
   try {
     const store = await loadSettingsStore();
     if (!store) return;

@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import handler from '../api/service-area.js';
 
+process.env.SERVICE_AREA_CACHE_DISABLED = '1';
+
 const createRes = () => ({
   statusCode: 200,
   body: undefined,
