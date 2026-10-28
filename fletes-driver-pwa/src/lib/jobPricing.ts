@@ -3,6 +3,12 @@ import { getBilledHoursFromDurationMs } from './billing';
 
 export const DISTANT_BASE_THRESHOLD_MINUTES = 15;
 
+export const isJuanDriver = (driver: { name?: string | null; code?: string | null } | null | undefined) => (
+  String(driver?.code ?? '').trim().toUpperCase() === 'JUAN'
+  || String(driver?.code ?? '').trim() === '6666'
+  || /^juan(?:\s|$)/i.test(String(driver?.name ?? '').trim())
+);
+
 export const moneyFormatter = new Intl.NumberFormat('es-AR', {
   style: 'currency',
   currency: 'ARS',
@@ -63,6 +69,7 @@ export const getJobChargeBreakdown = (
     endAtMs?: number | null;
     distantBaseTravelMinutes?: number | null;
     distantBasePoint?: 'pickup' | 'dropoff' | null;
+    waiveDistantBaseExtra?: boolean;
     isLongDistance?: boolean;
     distanceKm?: number | null;
     pricePerLongDistanceKm?: number | null;
@@ -118,6 +125,7 @@ export const getJobChargeBreakdown = (
   const distantBaseTravelMinutes = toCeiledPositiveMinutesOrNull(opts.distantBaseTravelMinutes);
   const distantBaseExtraMinutes = distantBaseTravelMinutes != null
     && distantBaseTravelMinutes > DISTANT_BASE_THRESHOLD_MINUTES
+    && !opts.waiveDistantBaseExtra
     ? distantBaseTravelMinutes
     : 0;
   const distantBaseExtraMs = distantBaseExtraMinutes * 60000;

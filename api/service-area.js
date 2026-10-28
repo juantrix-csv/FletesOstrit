@@ -2,16 +2,19 @@ import {
   buildMapboxIsochroneUrl,
   hasMapboxAccessToken,
 } from './_mapbox.js';
+import {
+  buildOpenMapsTableUrl,
+  getOpenMapsRequestOptions,
+} from './_openmaps.js';
 
 const EARTH_RADIUS_METERS = 6371008.8;
 const APPROX_CITY_SPEED_KMH = 35;
 const DEFAULT_MINUTES = 15;
 const MAX_MINUTES = 60;
-const ROUTED_AREA_VERSION = 2;
-const ROUTED_AREA_BEARINGS = 48;
+const ROUTED_AREA_VERSION = 1;
+const ROUTED_AREA_BEARINGS = 24;
 const ROUTED_AREA_RINGS = 4;
 const ROUTED_AREA_MAX_SPEED_KMH = 80;
-const ROUTED_AREA_TABLE_BATCH_SIZE = 80;
 
 const toRadians = (value) => (value * Math.PI) / 180;
 const toDegrees = (value) => (value * 180) / Math.PI;
@@ -118,26 +121,6 @@ const interpolatePoint = (from, to, ratio) => ({
   lng: from.lng + (to.lng - from.lng) * ratio,
 });
 
-const fetchRouteDurations = async (origin, samples) => {
-  const durations = [];
-
-  for (let index = 0; index < samples.length; index += ROUTED_AREA_TABLE_BATCH_SIZE) {
-    const batch = samples.slice(index, index + ROUTED_AREA_TABLE_BATCH_SIZE);
-    const response = await fetch(
-      buildOpenMapsTableUrl([origin, ...batch.map((sample) => sample.point)]),
-      getOpenMapsRequestOptions()
-    );
-    if (!response.ok) return null;
-
-    const data = await response.json().catch(() => null);
-    const batchDurations = Array.isArray(data?.durations?.[0]) ? data.durations[0] : [];
-    if (batchDurations.length !== batch.length) return null;
-    durations.push(...batchDurations);
-  }
-
-  return durations;
-};
-
 const buildRoutedServiceArea = async ({ lat, lng, minutes }) => {
   const origin = { lat, lng };
   const maxDistanceMeters = (ROUTED_AREA_MAX_SPEED_KMH * 1000 / 60) * minutes;
@@ -154,8 +137,14 @@ const buildRoutedServiceArea = async ({ lat, lng, minutes }) => {
     }
   }
 
-  const durations = await fetchRouteDurations(origin, samples);
-  if (!durations) return null;
+  const response = await fetch(
+    buildOpenMapsTableUrl([origin, ...samples.map((sample) => sample.point)]),
+    getOpenMapsRequestOptions()
+  );
+  if (!response.ok) return null;
+
+  const data = await response.json().catch(() => null);
+  const durations = Array.isArray(data?.durations?.[0]) ? data.durations[0] : [];
   if (durations.length !== samples.length) return null;
 
   const targetSeconds = minutes * 60;
@@ -244,11 +233,28 @@ export default async function handler(req, res) {
   }
 
   if (hasMapboxAccessToken()) {
+    const key = buildCacheKey({ lat, lng, minutes, source: 'mapbox' });
+    const cached = await getCachedServiceArea(key);
+    if (cached) {
+      res.status(200).json({
+        minutes: cached.minutes,
+        source: cached.source,
+        geometry: cached.geometry,
+        cached: true,
+      });
+      return;
+    }
+
     try {
       const response = await fetch(buildMapboxIsochroneUrl({ lat, lng, minutes }));
       const data = await response.json().catch(() => null);
       const geometry = response.ok ? getFirstIsochroneGeometry(data) : null;
       if (geometry) {
+        await setCachedServiceArea(key, {
+          minutes,
+          source: 'mapbox',
+          geometry,
+        });
         res.status(200).json({
           minutes,
           source: 'mapbox',
@@ -259,6 +265,38 @@ export default async function handler(req, res) {
     } catch {
       // Use an approximate local area if Mapbox is unavailable.
     }
+  }
+
+  const routedKey = buildCacheKey({ lat, lng, minutes, source: 'openmaps-routed' });
+  const cached = await getCachedServiceArea(routedKey);
+  if (cached) {
+    res.status(200).json({
+      minutes: cached.minutes,
+      source: cached.source,
+      geometry: cached.geometry,
+      cached: true,
+    });
+    return;
+  }
+
+  try {
+    const geometry = await buildRoutedServiceArea({ lat, lng, minutes });
+    if (geometry) {
+      await setCachedServiceArea(routedKey, {
+        minutes,
+        source: 'openmaps-routed',
+        geometry,
+      });
+      res.status(200).json({
+        minutes,
+        source: 'openmaps-routed',
+        geometry,
+        cached: false,
+      });
+      return;
+    }
+  } catch {
+    // Fall back to the fixed-speed visual reference below.
   }
 
   res.status(200).json({

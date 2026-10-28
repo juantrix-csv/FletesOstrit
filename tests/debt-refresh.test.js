@@ -163,12 +163,26 @@ describe('driver debt refresh', () => {
     });
 
     const refreshed = db.getDriverById('driver-ld-manual');
-    // manualPrice=250000, owner-vehicle default ratio 1/3
-    // ownerShare = roundMoney(250000 - (250000 * 1/3)) = roundMoney(166666.67)
-    // driverKept = min(250000, 250000 - 166666.67) = 83333.33
-    // grossOwnerDebt = 250000 - 83333.33 = 166666.67
-    assert.strictEqual(refreshed.ownerDebtGrossAmount, 166666.67);
-    assert.strictEqual(refreshed.ownerDebtAmount, 166666.67);
+    assert.strictEqual(refreshed.ownerDebtGrossAmount, 75000);
+    assert.strictEqual(refreshed.ownerDebtAmount, 75000);
+  });
+
+  it('adds 30% of the final long-distance price when completed without a recorded payment', () => {
+    db.createDriver({ id: 'driver-ld-unpaid', name: 'Chofer LD', code: 'LD002', phone: '445' });
+    db.createJob({
+      id: 'job-ld-unpaid',
+      clientName: 'Cliente LD sin cobro',
+      pickup: { address: 'A', lat: -34.92, lng: -57.95 },
+      dropoff: { address: 'B', lat: -38, lng: -57.55 },
+      status: 'DONE',
+      driverId: 'driver-ld-unpaid',
+      isLongDistance: true,
+      manualPrice: 100000,
+      flags: {},
+      timestamps: {},
+    });
+
+    assert.equal(db.getDriverById('driver-ld-unpaid').ownerDebtGrossAmount, 30000);
   });
 
   it('allows legacy LD unrelated edit and retains auto-km fallback', () => {
@@ -256,11 +270,11 @@ describe('driver debt refresh', () => {
 
     db.updateJob('job-edit-ld', { manualPrice: 300000 });
     const after = db.getDriverById('driver-edit-ld');
-    assert.strictEqual(after.ownerDebtGrossAmount, 200000);
+    assert.strictEqual(after.ownerDebtGrossAmount, 90000);
 
     db.updateJob('job-edit-ld', { manualPrice: 350000 });
     const updated = db.getDriverById('driver-edit-ld');
-    assert.strictEqual(updated.ownerDebtGrossAmount, 183333.33);
+    assert.strictEqual(updated.ownerDebtGrossAmount, 105000);
   });
 
   it('updates outstanding debt after settlement', () => {

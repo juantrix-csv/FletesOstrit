@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import toast from 'react-hot-toast';
-import { Flag, MapPin, MoreVertical } from 'lucide-react';
+import { Flag, MapPin, MoreVertical, UserRound } from 'lucide-react';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import MapLocationPicker from '../components/MapLocationPicker';
 import DriversOverviewMap from '../components/DriversOverviewMap';
@@ -2275,6 +2275,7 @@ export default function AdminJobs() {
     if (revenue == null) return null;
     const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
     if (!isExternalDriver(driver)) return revenue;
+    if (entry.job.isLongDistance) return roundMoney(revenue * 0.3);
 
     const hourlyDistribution = getEntryHourDistribution(entry);
     const baseValue = getEntryHourlyValue(entry);
@@ -2288,6 +2289,16 @@ export default function AdminJobs() {
     return revenue != null && baseValue != null ? Math.max(0, revenue - baseValue) : 0;
   };
   const getEntryDriverDebt = (entry: { job: Job; durationMs: number | null }, driver: Driver | null) => {
+    if (entry.job.isLongDistance && isExternalDriver(driver)) {
+      const finalPrice = getEntryTotal(entry);
+      const collectedTotal = getJobCollectedPayment(entry.job).total;
+      const ownerDebt = finalPrice != null ? roundMoney(finalPrice * 0.3) : null;
+      return {
+        collectedTotal,
+        driverKept: collectedTotal != null && ownerDebt != null ? roundMoney(Math.max(0, collectedTotal - ownerDebt)) : null,
+        ownerDebt,
+      };
+    }
     const payment = getJobCollectedPayment(entry.job);
     const collectedTotal = payment.total;
     if (collectedTotal == null) {
@@ -2318,6 +2329,18 @@ export default function AdminJobs() {
   const getEntryExpenseBreakdown = (entry: { job: Job; durationMs: number | null }) => {
     const billedHours = getEntryBilledHours(entry);
     const driver = entry.job.driverId ? driversById.get(entry.job.driverId) ?? null : null;
+    if (entry.job.isLongDistance && isExternalDriver(driver)) {
+      return {
+        driverShare: 0,
+        helpersCost: 0,
+        timeCost: 0,
+        fuelCost: 0,
+        schedulingCost: 0,
+        total: 0,
+        missingTimeCost: false,
+        missingFuelCost: false,
+      };
+    }
     const helpersCount = entry.job.helpersCount ?? 0;
     const durationHours = entry.durationMs != null
       ? entry.durationMs / 3600000
@@ -2378,6 +2401,33 @@ export default function AdminJobs() {
       ? billedHours * effectiveHelperRate * helpersCount
       : 0;
     return billedHours * jobHourlyRate + helpersValue;
+  };
+  const getCalendarCardAmount = (item: CalendarJob) => {
+    const estimate = getJobEstimatedTotal(item.job);
+    if (estimate == null) return null;
+    const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
+    if (!isExternalDriver(driver)) return estimate;
+    if (item.job.isLongDistance) return roundMoney(estimate * 0.3);
+    const vehicle = getJobVehicle(item.job);
+    const billedHours = getBilledHoursFromMinutes(item.durationMinutes);
+    const hourlyBase = item.job.isLongDistance
+      ? estimate
+      : billedHours != null && getJobHourlyRateValue(item.job) != null
+        ? billedHours * (getJobHourlyRateValue(item.job) as number)
+        : null;
+    const companyRevenue = item.job.isLongDistance
+      ? estimate * (1 - getDriverShareRatioByVehicle(vehicle, driver))
+      : vehicle?.ownershipType === 'driver' && billedHours != null
+        ? Math.min(hourlyBase ?? estimate, billedHours * getVehicleCompanyHourlyMargin(vehicle))
+        : hourlyBase != null
+          ? hourlyBase * (1 - getDriverShareRatioByVehicle(vehicle, driver))
+          : estimate;
+    const timeCost = tripCostPerHourValue != null ? item.durationMinutes / 60 * tripCostPerHourValue : 0;
+    return companyRevenue - timeCost - getSchedulingAssistantCost();
+  };
+  const getCalendarCardLabel = (item: CalendarJob) => {
+    const amount = getCalendarCardAmount(item);
+    return amount != null ? currencyFormatter.format(amount) : null;
   };
   const getCalendarLongDistanceDetails = (job: Job) => {
     if (!job.isLongDistance) return null;
@@ -3076,7 +3126,7 @@ export default function AdminJobs() {
       const driverId = entry.job.driverId;
       if (!driverId) return;
       const payment = getJobCollectedPayment(entry.job);
-      if (payment.total == null) return;
+      if (payment.total == null && !entry.job.isLongDistance) return;
 
       const driver = driversById.get(driverId) ?? null;
       const debt = getEntryDriverDebt(entry, driver);
@@ -3091,8 +3141,8 @@ export default function AdminJobs() {
         outstandingDebt: 0,
       };
 
-      current.collectedTrips += 1;
-      current.collectedTotal += payment.total;
+      if (payment.total != null) current.collectedTrips += 1;
+      current.collectedTotal += payment.total ?? 0;
       current.driverKept += driverKept;
       current.grossOwnerDebt += ownerDebt;
       summary.set(driverId, current);
@@ -3366,8 +3416,7 @@ export default function AdminJobs() {
         if (!isExternalDriver(driver)) {
           total += estimate;
         } else {
-          const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
-          total += estimate * (1 - driverShareRatio);
+          total += roundMoney(estimate * 0.3);
         }
       } else {
         const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
@@ -3382,8 +3431,7 @@ export default function AdminJobs() {
         if (!isExternalDriver(driver)) {
           companyHourlyMargin = estimate;
         } else {
-          const driverShareRatio = getDriverShareRatioByVehicle(vehicle, driver);
-          companyHourlyMargin = estimate * (1 - driverShareRatio);
+          companyHourlyMargin = roundMoney(estimate * 0.3);
         }
       } else {
         const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
@@ -3418,7 +3466,9 @@ export default function AdminJobs() {
       const timeCost = tripCostPerHourValue != null && Number.isFinite(item.durationMinutes)
         ? (item.durationMinutes / 60) * tripCostPerHourValue
         : 0;
-      netTotal += companyHourlyMargin + helperRevenue - helpersCost - fuelCost - timeCost - getSchedulingAssistantCost();
+      netTotal += isLongDistance && isExternalDriver(driver)
+        ? companyHourlyMargin
+        : companyHourlyMargin + helperRevenue - helpersCost - fuelCost - timeCost - getSchedulingAssistantCost();
     });
     return { total, netTotal, missing, count, totalMinutes };
   }, [
@@ -4711,10 +4761,8 @@ export default function AdminJobs() {
                           )}
                           {dayJobs.map((item) => {
                             const style = getEventBlockStyle(item.start, item.end, calendarDate);
-                            const estimateValue = getJobEstimatedTotal(item.job);
                             const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
-                            const estimateLabel = longDistanceDetails?.ownerLabel
-                              ?? (estimateValue != null ? currencyFormatter.format(estimateValue) : null);
+                            const estimateLabel = getCalendarCardLabel(item);
                             const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                             const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                             const driverLabel = driver?.name ?? 'Sin asignar';
@@ -4726,7 +4774,7 @@ export default function AdminJobs() {
                             const overlapColumns = layoutEntry?.columns ?? 1;
                             const isOverlapped = overlapColumns > 1;
                             const isDense = overlapColumns > 2;
-                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}\n${formatJobAccessSummary(item.job)}`;
+                            const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, calendarDate)}${estimateLabel ? `\n${isExternalDriver(driver ?? null) ? 'Neto' : 'Total'} ${estimateLabel}` : ''}\n${item.job.helpersCount ?? 0} ayudantes\n${formatJobAccessSummary(item.job)}`;
                             if (!style) return null;
                             return (
                               <div
@@ -4760,9 +4808,12 @@ export default function AdminJobs() {
                                   {calendarOwnerLabel}
                                 </div>
                                 <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
-                                <div className="calendar-event__line truncate text-[9px]">{formatJobAccessSummary(item.job)}</div>
+                                {isDense && estimateLabel && <div className="calendar-event__line font-semibold">{estimateLabel}</div>}
+                                <div className="calendar-event__line flex items-center gap-1 truncate text-[9px]">
+                                  <UserRound size={10} aria-label="Ayudantes" /> {item.job.helpersCount ?? 0} · {formatJobAccessSummary(item.job)}
+                                </div>
                                 <div className={cn("calendar-event__line", isDense ? "text-[9px]" : "text-[10px]")} style={{ color: driverColors.accent }}>
-                                  {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, calendarDate)}
+                                  {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel}` : formatJobRangeForDay(item.start, item.end, calendarDate)}
                                 </div>
                               </div>
                             );
@@ -4910,10 +4961,8 @@ export default function AdminJobs() {
                                 )}
                                 {items.map((item) => {
                                   const style = getEventBlockStyle(item.start, item.end, day);
-                                  const estimateValue = getJobEstimatedTotal(item.job);
                                   const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
-                                  const estimateLabel = longDistanceDetails?.ownerLabel
-                                    ?? (estimateValue != null ? currencyFormatter.format(estimateValue) : null);
+                                  const estimateLabel = getCalendarCardLabel(item);
                                   const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                   const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                   const driverLabel = driver?.name ?? 'Sin asignar';
@@ -4925,7 +4974,7 @@ export default function AdminJobs() {
                                   const overlapColumns = layoutEntry?.columns ?? 1;
                                   const isOverlapped = overlapColumns > 1;
                                   const isDense = overlapColumns > 2;
-                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${longDistanceDetails ? `\nLD ${longDistanceDetails.distanceLabel} | Due\u00f1o ${longDistanceDetails.ownerLabel ?? longDistanceDetails.totalLabel}` : estimateLabel ? `\n${estimateLabel}` : ''}\n${formatJobAccessSummary(item.job)}`;
+                                  const eventTitle = `${calendarOwnerLabel}\n${item.job.clientName}\n${formatJobRangeForDay(item.start, item.end, day)}${estimateLabel ? `\n${isExternalDriver(driver ?? null) ? 'Neto' : 'Total'} ${estimateLabel}` : ''}\n${item.job.helpersCount ?? 0} ayudantes\n${formatJobAccessSummary(item.job)}`;
                                   if (!style) return null;
                                   return (
                                     <div
@@ -4959,9 +5008,12 @@ export default function AdminJobs() {
                                         {calendarOwnerLabel}
                                       </div>
                                       <div className="calendar-event__line font-semibold">{item.job.clientName}</div>
-                                      <div className="calendar-event__line truncate text-[8px]">{formatJobAccessSummary(item.job)}</div>
+                                      {isDense && estimateLabel && <div className="calendar-event__line font-semibold">{estimateLabel}</div>}
+                                      <div className="calendar-event__line flex items-center gap-1 truncate text-[8px]">
+                                        <UserRound size={9} aria-label="Ayudantes" /> {item.job.helpersCount ?? 0} · {formatJobAccessSummary(item.job)}
+                                      </div>
                                       <div className={cn("calendar-event__line", isDense ? "text-[8px]" : "text-[9px]")} style={{ color: driverColors.accent }}>
-                                        {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)}
+                                        {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel}` : formatJobRangeForDay(item.start, item.end, day)}
                                       </div>
                                     </div>
                                   );
@@ -5044,10 +5096,8 @@ export default function AdminJobs() {
                             </div>
                             <div className="mt-2 space-y-1">
                               {items.slice(0, 3).map((item) => {
-                                const estimateValue = getJobEstimatedTotal(item.job);
                                 const longDistanceDetails = getCalendarLongDistanceDetails(item.job);
-                                const estimateLabel = longDistanceDetails?.ownerLabel
-                                  ?? (estimateValue != null ? currencyFormatter.format(estimateValue) : null);
+                                const estimateLabel = getCalendarCardLabel(item);
                                 const estimateMode = item.job.isLongDistance ? 'long-distance' : 'hourly';
                                 const driver = item.job.driverId ? driversById.get(item.job.driverId) : null;
                                 const driverLabel = driver?.name ?? 'Sin asignar';
@@ -5064,7 +5114,7 @@ export default function AdminJobs() {
                                       borderColor: driverColors.border,
                                       color: driverColors.text,
                                     }}
-                                    title={estimateLabel ?? undefined}
+                                    title={`${isExternalDriver(driver ?? null) ? 'Neto' : 'Total'} ${estimateLabel ?? 'N/D'} · ${item.job.helpersCount ?? 0} ayudantes`}
                                   >
                                     {estimateLabel && (
                                       <span className={cn(
@@ -5078,7 +5128,7 @@ export default function AdminJobs() {
                                       {calendarOwnerLabel}
                                     </div>
                                     <div className="truncate">
-                                      {formatJobAccessSummary(item.job)} - {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel} | ${longDistanceDetails.totalLabel}` : formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
+                                      <UserRound size={9} className="inline" aria-label="Ayudantes" /> {item.job.helpersCount ?? 0} · {formatJobAccessSummary(item.job)} - {longDistanceDetails ? `LD ${longDistanceDetails.distanceLabel}` : formatJobRangeForDay(item.start, item.end, day)} {item.job.clientName}
                                     </div>
                                   </div>
                                 );
@@ -6802,19 +6852,10 @@ export default function AdminJobs() {
                               </p>
                             </>
                           )}
-                          {canSeeMoney && selectedJobDetail.isLongDistance && selectedJobDetail.driverId && !isOwnerAccountDriver(driversById.get(selectedJobDetail.driverId) ?? null) && selectedJobLongDistanceCalculatedTotal != null && (
+                          {canSeeMoney && selectedJobDetail.isLongDistance && selectedJobDetail.driverId && !isOwnerAccountDriver(driversById.get(selectedJobDetail.driverId) ?? null) && getJobEstimatedTotal(selectedJobDetail) != null && (
                             <p>
                               <span className="font-medium text-gray-900">Parte del dueño:</span>{' '}
-                              {(() => {
-                                const driver = driversById.get(selectedJobDetail.driverId) ?? null;
-                                const vehicle = getJobVehicle(selectedJobDetail);
-                                if (vehicle?.ownershipType === 'driver') {
-                                  const margin = getVehicleCompanyHourlyMargin(vehicle);
-                                  return currencyFormatter.format(Math.round(Math.min(selectedJobLongDistanceCalculatedTotal, margin)));
-                                }
-                                const ratio = getDriverShareRatioByVehicle(vehicle, driver);
-                                return currencyFormatter.format(Math.round(selectedJobLongDistanceCalculatedTotal * (1 - ratio)));
-                              })()}
+                              {currencyFormatter.format(roundMoney((getJobEstimatedTotal(selectedJobDetail) as number) * 0.3))}
                             </p>
                           )}
                         </>

@@ -570,6 +570,10 @@ const resolveDriverShareRatio = async (job, driver, vehicle) => {
     return { ratio: 0, source: 'owner_account' };
   }
 
+  if (job.isLongDistance) {
+    return { ratio: 0.7, source: 'long_distance' };
+  }
+
   const ownerVehicleSetting = await getSetting('ownerVehicleDriverShare');
   const driverVehicleSetting = await getSetting('driverVehicleDriverShare');
   const ownerVehicleRatio = Number.isFinite(ownerVehicleSetting) && ownerVehicleSetting >= 0 && ownerVehicleSetting <= 1
@@ -1335,6 +1339,12 @@ const refreshDriverOwnerDebt = async (driverId) => {
     const jobsResult = await sql`SELECT * FROM jobs WHERE driver_id = ${driverId} AND status = 'DONE'`;
     for (const row of jobsResult.rows) {
       const job = normalizeRow(row);
+      if (job.isLongDistance) {
+        const vehicle = await resolveJobVehicle(job, driver);
+        const finalPrice = await getDriverDebtHourlyValue(job, driver, vehicle);
+        if (finalPrice != null) grossOwnerDebt += Number((finalPrice * 0.3).toFixed(2));
+        continue;
+      }
       const collectedTotal = getCollectedPaymentTotal(job);
       if (collectedTotal == null) continue;
 

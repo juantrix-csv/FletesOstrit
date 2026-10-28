@@ -1,6 +1,7 @@
 const NOMINATIM_SEARCH_ENDPOINT = 'https://nominatim.openstreetmap.org/search';
 const NOMINATIM_REVERSE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
 const OSRM_ROUTE_ENDPOINT = 'https://router.project-osrm.org/route/v1/driving';
+const OSRM_TABLE_ENDPOINT = 'https://router.project-osrm.org/table/v1/driving';
 
 const BA_BOUNDS = {
   south: -40.8,
@@ -73,6 +74,16 @@ export const buildOpenMapsDirectionsUrl = (points) => {
   url.searchParams.set('overview', 'full');
   url.searchParams.set('geometries', 'geojson');
   url.searchParams.set('steps', 'false');
+  return url.toString();
+};
+
+export const buildOpenMapsTableUrl = (points) => {
+  const coords = points.map((point) => `${point.lng},${point.lat}`).join(';');
+  const destinations = points.slice(1).map((_, index) => String(index + 1)).join(';');
+  const url = createOpenMapsUrl(`${OSRM_TABLE_ENDPOINT}/${coords}`);
+  url.searchParams.set('sources', '0');
+  url.searchParams.set('destinations', destinations);
+  url.searchParams.set('annotations', 'duration');
   return url.toString();
 };
 

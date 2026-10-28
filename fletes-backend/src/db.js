@@ -605,6 +605,12 @@ const refreshDriverOwnerDebt = (driverId) => {
     const rows = db.prepare("SELECT * FROM jobs WHERE driverId = ? AND status = 'DONE'").all(driverId);
     for (const jobRow of rows) {
       const job = fromRow(jobRow);
+      if (job.isLongDistance) {
+        const vehicle = resolveJobVehicle(job, driver);
+        const finalPrice = getDriverDebtHourlyValue(job, vehicle);
+        if (finalPrice != null) grossOwnerDebt += roundMoney(finalPrice * 0.3);
+        continue;
+      }
       const collectedTotal = Number.isFinite(job.chargedAmount) ? Number(job.chargedAmount) : null;
       if (collectedTotal == null) continue;
 
