@@ -3386,6 +3386,44 @@ export default function AdminJobs() {
     : calendarView === 'week'
       ? `${dayFormatter.format(weekDays[0])} - ${dayFormatter.format(weekDays[6])}`
       : monthFormatter.format(calendarDate);
+  const getCalendarJobAmounts = (item: CalendarJob) => {
+    const estimate = getJobEstimatedTotal(item.job);
+    if (estimate == null) return null;
+    const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
+    if (isExternalDriver(driver)) {
+      const ownerAmount = getCalendarCardAmount(item);
+      return ownerAmount != null ? { total: ownerAmount, net: ownerAmount } : null;
+    }
+
+    const isLongDistance = item.job.isLongDistance === true;
+    const vehicle = getJobVehicle(item.job);
+    const billedHours = getBilledHoursFromMinutes(item.durationMinutes);
+    const hourlyRate = getJobHourlyRateValue(item.job);
+    const baseValue = isLongDistance
+      ? estimate
+      : hourlyRate != null && billedHours != null ? billedHours * hourlyRate : null;
+    const companyHourlyMargin = isLongDistance
+      ? estimate
+      : baseValue != null
+        ? baseValue * (1 - getDriverShareRatioByVehicle(vehicle, driver))
+        : estimate;
+    const helpersCount = item.job.helpersCount ?? 0;
+    const paidHelpersCount = isOwnerAccountDriver(driver) ? getPaidHelpersCountForOwner(helpersCount) : 0;
+    const helperRate = item.job.helperHourlyRateSnapshot ?? helperHourlyRateValue;
+    const helpersCost = !isLongDistance && helperRate != null && billedHours != null
+      ? billedHours * helperRate * paidHelpersCount
+      : 0;
+    const helperRevenue = !isLongDistance && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
+    const distanceKm = jobDistanceKmById.get(item.job.id) ?? null;
+    const costPerKm = getJobCostPerKmValue(item.job);
+    const fuelCost = costPerKm != null && distanceKm != null ? distanceKm * costPerKm : 0;
+    const timeCost = tripCostPerHourValue != null ? item.durationMinutes / 60 * tripCostPerHourValue : 0;
+
+    return {
+      total: estimate,
+      net: companyHourlyMargin + helperRevenue - helpersCost - fuelCost - timeCost - getSchedulingAssistantCost(),
+    };
+  };
   const calendarEstimateSummary = useMemo(() => {
     const rangeStart = calendarView === 'day'
       ? startOfDay(calendarDate)
@@ -3408,79 +3446,13 @@ export default function AdminJobs() {
       if (item.scheduledAt < startMs || item.scheduledAt >= endMs) return;
       count += 1;
       totalMinutes += item.durationMinutes;
-      const estimate = getJobEstimatedTotal(item.job);
-      if (estimate == null) {
+      const amounts = getCalendarJobAmounts(item);
+      if (amounts == null) {
         missing += 1;
         return;
       }
-      const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
-      const vehicle = getJobVehicle(item.job);
-      const isLongDistance = item.job.isLongDistance ?? false;
-      if (isExternalDriver(driver)) {
-        const ownerAmount = getCalendarCardAmount(item);
-        if (ownerAmount != null) {
-          total += ownerAmount;
-          netTotal += ownerAmount;
-        }
-        return;
-      }
-      if (isLongDistance) {
-        if (!isExternalDriver(driver)) {
-          total += estimate;
-        } else {
-          total += roundMoney(estimate * 0.3);
-        }
-      } else {
-        const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
-        total += isExternalDriver(driver) && billedHours != null && vehicle?.ownershipType === 'driver'
-          ? billedHours * getVehicleCompanyHourlyMargin(vehicle)
-          : estimate;
-      }
-      let baseValue: number | null;
-      let companyHourlyMargin: number;
-      if (isLongDistance) {
-        baseValue = estimate;
-        if (!isExternalDriver(driver)) {
-          companyHourlyMargin = estimate;
-        } else {
-          companyHourlyMargin = roundMoney(estimate * 0.3);
-        }
-      } else {
-        const billedHours = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
-        const jobHourlyRate = getJobHourlyRateValue(item.job);
-        baseValue = jobHourlyRate != null && billedHours != null
-          ? billedHours * jobHourlyRate
-          : null;
-        companyHourlyMargin = baseValue != null && billedHours != null && isExternalDriver(driver) && vehicle?.ownershipType === 'driver'
-          ? Math.min(baseValue, billedHours * getVehicleCompanyHourlyMargin(vehicle))
-          : baseValue != null
-            ? baseValue - (baseValue * getDriverShareRatioByVehicle(vehicle, driver))
-            : estimate;
-      }
-      let helperRevenue = 0;
-      let helpersCost = 0;
-      if (!isLongDistance) {
-        const billedHours2 = getBilledHoursFromMinutes(getEstimatedDurationMinutes(item.job));
-        const helpersCount = item.job.helpersCount ?? 0;
-        const ownerPaysHelpers = isOwnerAccountDriver(driver);
-        const paidHelpersCount = ownerPaysHelpers ? getPaidHelpersCountForOwner(helpersCount) : 0;
-        const effectiveForecastHelperRate = item.job.helperHourlyRateSnapshot ?? helperHourlyRateValue;
-        helpersCost = effectiveForecastHelperRate != null && paidHelpersCount > 0 && billedHours2 != null
-          ? billedHours2 * effectiveForecastHelperRate * paidHelpersCount
-          : 0;
-        helperRevenue = !isExternalDriver(driver) && baseValue != null ? Math.max(0, estimate - baseValue) : 0;
-      }
-      const distanceKm = jobDistanceKmById.get(item.job.id) ?? null;
-      const costPerKm = getJobCostPerKmValue(item.job);
-      const fuelCost = !isExternalDriver(driver) && costPerKm != null && distanceKm != null
-        ? distanceKm * costPerKm
-        : 0;
-      const timeCost = tripCostPerHourValue != null && Number.isFinite(item.durationMinutes)
-        ? (item.durationMinutes / 60) * tripCostPerHourValue
-        : 0;
-      netTotal += isLongDistance && isExternalDriver(driver)
-        ? companyHourlyMargin
-        : companyHourlyMargin + helperRevenue - helpersCost - fuelCost - timeCost - getSchedulingAssistantCost();
+      total += amounts.total;
+      netTotal += amounts.net;
     });
     return { total, netTotal, missing, count, totalMinutes };
   }, [
@@ -3497,6 +3469,19 @@ export default function AdminJobs() {
     ownerVehicleDriverShareRatio,
     driverVehicleDriverShareRatio,
   ]);
+  const weeklyNetByDay = new Map<string, { net: number; missing: number }>(
+    weekDays.map((day) => [buildDateKey(day), { net: 0, missing: 0 }]),
+  );
+  scheduledJobs.forEach((item) => {
+    const daySummary = weeklyNetByDay.get(buildDateKey(item.start));
+    if (!daySummary) return;
+    const amounts = getCalendarJobAmounts(item);
+    if (amounts == null) {
+      daySummary.missing += 1;
+    } else {
+      daySummary.net += amounts.net;
+    }
+  });
   const driverJobHistoryById = useMemo(() => {
     const map = new Map<string, Array<{
       entry: typeof completedHistory[number];
@@ -4900,6 +4885,7 @@ export default function AdminJobs() {
                             const dayWeather = getForecastForDate(weatherForecast, dayKey);
                             const weatherSummary = formatWeatherSummary(dayWeather);
                             const weatherEmoji = weatherSummary ? weatherSummary.split(' ')[0] : null;
+                            const dayNet = weeklyNetByDay.get(dayKey);
                             return (
                               <div
                                 key={dayKey}
@@ -4916,6 +4902,17 @@ export default function AdminJobs() {
                                       {dayWeather.temperatureMin != null ? Math.round(dayWeather.temperatureMin) : '--'}{String.fromCharCode(176)}/{dayWeather.temperatureMax != null ? Math.round(dayWeather.temperatureMax) : '--'}{String.fromCharCode(176)}
                                       {dayWeather.precipitationProbability != null && dayWeather.precipitationProbability > 0 ? ` ${Math.round(dayWeather.precipitationProbability)}%` : ''}
                                     </div>
+                                  </div>
+                                )}
+                                {canSeeMoney && dayNet && (
+                                  <div
+                                    className={cn(
+                                      "mt-1 rounded-md px-1 py-0.5 text-[10px] font-semibold",
+                                      dayNet.missing > 0 ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700",
+                                    )}
+                                    title={dayNet.missing > 0 ? `${dayNet.missing} flete(s) sin precio: neto parcial` : 'Neto del día'}
+                                  >
+                                    {dayNet.missing > 0 ? 'Neto parcial' : 'Neto'} {currencyFormatter.format(roundMoney(dayNet.net))}
                                   </div>
                                 )}
                               </div>
