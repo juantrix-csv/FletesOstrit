@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { driverByCodeQueryKey, getDriverByCode, jobsListQueryKey, listJobs } from '../lib/api';
 import type { Driver, Job, JobStatus } from '../lib/types';
 import { getScheduledAtMs } from '../lib/utils';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, UserRound } from 'lucide-react';
 import { clearDriverSession, getDriverSession, type DriverSession } from '../lib/driverSession';
 import { getNetworkProfile } from '../lib/network';
 import { useDriverLocationSync } from '../hooks/useDriverLocationSync';
@@ -203,6 +203,10 @@ export default function DriverHome() {
                   </div>
                   <p className="mt-1 truncate text-xs text-gray-500">
                     {job.pickup?.address || 'Sin direccion'}{' -> '}{job.dropoff?.address || 'Sin direccion'}
+                  </p>
+                  <p className="mt-2 flex items-center gap-1 text-xs font-medium text-gray-600" aria-label={`${job.helpersCount ?? 0} ayudantes`}>
+                    <UserRound size={14} aria-hidden="true" />
+                    <span>{job.helpersCount ?? 0} ayudantes</span>
                   </p>
                 </div>
                 <div className="pt-1 text-gray-300">
