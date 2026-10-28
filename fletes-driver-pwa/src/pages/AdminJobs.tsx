@@ -64,6 +64,7 @@ import { canAccessAdminTab } from '../lib/adminAccess';
 import { getCachedQueryEntry, refreshCachedQuery, subscribeCachedQuery } from '../lib/queryCache';
 import { getRouteEstimate } from '../lib/routeEstimate';
 import { getBilledHoursFromDurationMs, getBilledHoursFromMinutes } from '../lib/billing';
+import { getCompletedCalendarOwnerShare } from '../lib/calendarPricing';
 import { formatJobAccessSummary, formatLocationAccess, normalizeLocationAccess } from '../lib/locationAccess';
 import {
   fetchWeatherForecast,
@@ -2403,27 +2404,30 @@ export default function AdminJobs() {
     return billedHours * jobHourlyRate + helpersValue;
   };
   const getCalendarCardAmount = (item: CalendarJob) => {
+    const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
+    if (isExternalDriver(driver) && item.job.status === 'DONE' && !item.job.isLongDistance) {
+      const storedShare = getCompletedCalendarOwnerShare(item.job);
+      if (storedShare != null) return storedShare;
+      const startMs = getJobStartMs(item.job);
+      const endMs = getJobEndMs(item.job);
+      const durationMs = startMs != null && endMs != null ? Math.max(0, endMs - startMs) : null;
+      const actualShare = getEntryCompanyRevenue({ job: item.job, durationMs });
+      if (actualShare != null) return roundMoney(actualShare);
+    }
     const estimate = getJobEstimatedTotal(item.job);
     if (estimate == null) return null;
-    const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
     if (!isExternalDriver(driver)) return estimate;
     if (item.job.isLongDistance) return roundMoney(estimate * 0.3);
     const vehicle = getJobVehicle(item.job);
     const billedHours = getBilledHoursFromMinutes(item.durationMinutes);
-    const hourlyBase = item.job.isLongDistance
-      ? estimate
-      : billedHours != null && getJobHourlyRateValue(item.job) != null
-        ? billedHours * (getJobHourlyRateValue(item.job) as number)
-        : null;
-    const companyRevenue = item.job.isLongDistance
-      ? estimate * (1 - getDriverShareRatioByVehicle(vehicle, driver))
-      : vehicle?.ownershipType === 'driver' && billedHours != null
-        ? Math.min(hourlyBase ?? estimate, billedHours * getVehicleCompanyHourlyMargin(vehicle))
-        : hourlyBase != null
-          ? hourlyBase * (1 - getDriverShareRatioByVehicle(vehicle, driver))
-          : estimate;
-    const timeCost = tripCostPerHourValue != null ? item.durationMinutes / 60 * tripCostPerHourValue : 0;
-    return companyRevenue - timeCost - getSchedulingAssistantCost();
+    const jobHourlyRate = getJobHourlyRateValue(item.job);
+    const hourlyBase = billedHours != null && jobHourlyRate != null ? billedHours * jobHourlyRate : null;
+    if (vehicle?.ownershipType === 'driver' && billedHours != null) {
+      return roundMoney(Math.min(hourlyBase ?? estimate, billedHours * getVehicleCompanyHourlyMargin(vehicle)));
+    }
+    return roundMoney(hourlyBase != null
+      ? hourlyBase * (1 - getDriverShareRatioByVehicle(vehicle, driver))
+      : estimate);
   };
   const getCalendarCardLabel = (item: CalendarJob) => {
     const amount = getCalendarCardAmount(item);
@@ -3412,6 +3416,14 @@ export default function AdminJobs() {
       const driver = item.job.driverId ? driversById.get(item.job.driverId) ?? null : null;
       const vehicle = getJobVehicle(item.job);
       const isLongDistance = item.job.isLongDistance ?? false;
+      if (isExternalDriver(driver)) {
+        const ownerAmount = getCalendarCardAmount(item);
+        if (ownerAmount != null) {
+          total += ownerAmount;
+          netTotal += ownerAmount;
+        }
+        return;
+      }
       if (isLongDistance) {
         if (!isExternalDriver(driver)) {
           total += estimate;
