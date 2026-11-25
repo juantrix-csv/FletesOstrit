@@ -175,6 +175,7 @@
 .v2-driver-debt small, .v2-driver-debt strong { display: block; }
 .v2-driver-debt small { color: var(--v2-muted); font-size: 10px; }
 .v2-driver-debt strong { margin-top: 5px; color: var(--v2-ink); font-size: 14px; }
+.v2-live-map { height: min(65vh, 540px); min-height: 320px; border-top: 1px solid var(--v2-line); }
 .v2-lead-row { display: grid; grid-template-columns: minmax(0, 1fr) 100px 90px; align-items: center; gap: 18px; padding: 17px 23px; border-bottom: 1px solid var(--v2-line); text-align: left; }
 .v2-lead-row strong { color: var(--v2-ink); font-size: 13px; }
 .v2-lead-row p { overflow: hidden; margin-top: 4px; color: var(--v2-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
