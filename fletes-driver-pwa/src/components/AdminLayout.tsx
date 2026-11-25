@@ -22,7 +22,7 @@ const resolveActiveTab = (loc: string, search: string) => {
   return resolveAdminTab(new URLSearchParams(search).get('tab')) ?? resolveAdminTab(loc.split('/')[2]) ?? 'jobs';
 };
 
-export const AdminLayout = ({ children }: { children: React.ReactNode }) => {
+export const AdminLayoutLegacy = ({ children }: { children: React.ReactNode }) => {
   const loc = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);

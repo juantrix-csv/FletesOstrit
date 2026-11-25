@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import DriverHome from './pages/DriverHome';
 import JobWorkflow from './pages/JobWorkflow';
-import AdminJobs from './pages/AdminJobs';
+import AdminWorkspace from './pages/AdminWorkspace';
 import DriverLogin from './pages/DriverLogin';
 import AdminLogin from './pages/AdminLogin';
 import { ThemeProvider } from './hooks/useTheme';
@@ -18,8 +18,8 @@ export default function App() {
             <Route path="/driver/login" element={<DriverLogin />} />
             <Route path="/job/:id" element={<JobWorkflow />} />
             <Route path="/admin/login" element={<AdminLogin />} />
-            <Route path="/admin" element={<AdminJobs />} />
-            <Route path="/admin/:section" element={<AdminJobs />} />
+            <Route path="/admin" element={<AdminWorkspace />} />
+            <Route path="/admin/:section" element={<AdminWorkspace />} />
           </Routes>
         </Layout>
       </BrowserRouter>

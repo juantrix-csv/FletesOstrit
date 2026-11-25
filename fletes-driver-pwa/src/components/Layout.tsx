@@ -5,7 +5,7 @@ import { Moon, Sun, Truck } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { APP_VERSION } from '../lib/appVersion';
 import { forcePwaUpdate } from '../lib/pwaUpdater';
-import { AdminLayout } from './AdminLayout';
+import { AdminLayoutV2 } from './AdminLayoutV2';
 import { useApiActivity } from '../hooks/useApiActivity';
 import { useTheme } from '../hooks/useTheme';
 
@@ -39,7 +39,7 @@ const ThemeToggle = () => {
       onClick={toggleTheme}
       aria-label={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
       title={isDark ? 'Modo claro' : 'Modo oscuro'}
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-100"
+      className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-100"
     >
       <Icon size={17} />
     </button>
@@ -65,7 +65,7 @@ const BuildVersionButton = () => {
       onClick={handleClick}
       disabled={checking}
       title="Forzar actualizacion"
-      className="text-[10px] text-gray-400 transition hover:text-blue-600 disabled:cursor-wait disabled:text-blue-500"
+      className="min-h-11 px-1 text-[10px] text-gray-400 transition hover:text-blue-600 disabled:cursor-wait disabled:text-blue-500"
     >
       {checking ? 'actualizando...' : `build ${APP_VERSION}`}
     </button>
@@ -98,7 +98,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
       <div className="min-h-screen bg-slate-100">
         <TopControls />
         <GlobalApiFeedback />
-        <AdminLayout>{children}</AdminLayout>
+        <AdminLayoutV2>{children}</AdminLayoutV2>
         <Toaster />
       </div>
     );
